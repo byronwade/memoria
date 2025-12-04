@@ -6,7 +6,11 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
 	CallToolRequestSchema,
+	GetPromptRequestSchema,
+	ListPromptsRequestSchema,
+	ListResourcesRequestSchema,
 	ListToolsRequestSchema,
+	ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import ignore from "ignore";
 import { LRUCache } from "lru-cache";
@@ -45,6 +49,9 @@ const MemoriaConfigSchema = z
 	.strict();
 
 export type MemoriaConfig = z.infer<typeof MemoriaConfigSchema>;
+
+// Export configSchema for Smithery
+export const configSchema = MemoriaConfigSchema;
 
 // Load and validate .memoria.json config file (cached)
 export async function loadConfig(
@@ -2042,7 +2049,7 @@ export function generateAiInstructions(
 export default function createServer() {
 	const server = new Server(
 		{ name: "memoria", version: "1.0.0" },
-		{ capabilities: { tools: {} } },
+		{ capabilities: { tools: {}, prompts: {}, resources: {} } },
 	);
 
 	return setupServer(server);
@@ -2066,6 +2073,12 @@ function setupServer(server: Server): Server {
 						},
 					},
 					required: ["path"],
+				},
+				annotations: {
+					title: "Analyze File",
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
 				},
 			},
 			{
@@ -2107,6 +2120,12 @@ function setupServer(server: Server): Server {
 						},
 					},
 					required: ["query"],
+				},
+				annotations: {
+					title: "Search Git History",
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
 				},
 			},
 		],
@@ -2284,6 +2303,124 @@ function setupServer(server: Server): Server {
 		}
 
 		throw new Error("Tool not found");
+	});
+
+	// --- PROMPTS ---
+	server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+		prompts: [
+			{
+				name: "analyze_before_edit",
+				description:
+					"Run file analysis before modifying code to understand hidden dependencies and risks",
+				arguments: [
+					{
+						name: "path",
+						description: "Absolute path to the file to analyze",
+						required: true,
+					},
+				],
+			},
+			{
+				name: "understand_code_history",
+				description:
+					"Search git history to understand why code exists before changing or removing it",
+				arguments: [
+					{
+						name: "query",
+						description: "Keyword to search for in git history",
+						required: true,
+					},
+					{
+						name: "path",
+						description: "Optional file path to scope the search",
+						required: false,
+					},
+				],
+			},
+		],
+	}));
+
+	server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+		const { name, arguments: args } = request.params;
+
+		if (name === "analyze_before_edit") {
+			const filePath = args?.path || "[FILE_PATH]";
+			return {
+				messages: [
+					{
+						role: "user",
+						content: {
+							type: "text",
+							text: `Before modifying the file at ${filePath}, analyze it for hidden dependencies and risks using the analyze_file tool. Review the risk score and coupled files before making changes.`,
+						},
+					},
+				],
+			};
+		}
+
+		if (name === "understand_code_history") {
+			const query = args?.query || "[QUERY]";
+			const filePath = args?.path;
+			const scopeText = filePath ? ` in ${filePath}` : "";
+			return {
+				messages: [
+					{
+						role: "user",
+						content: {
+							type: "text",
+							text: `Search the git history for "${query}"${scopeText} using the ask_history tool to understand why this code was written before modifying or removing it.`,
+						},
+					},
+				],
+			};
+		}
+
+		throw new Error(`Prompt not found: ${name}`);
+	});
+
+	// --- RESOURCES ---
+	server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+		resources: [
+			{
+				uri: "memoria://defaults",
+				name: "Memoria Default Configuration",
+				description:
+					"Default configuration values used when no .memoria.json is present",
+				mimeType: "application/json",
+			},
+		],
+	}));
+
+	server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+		const { uri } = request.params;
+
+		if (uri === "memoria://defaults") {
+			const defaults = {
+				thresholds: {
+					couplingPercent: 15,
+					driftDays: 7,
+					analysisWindow: 50,
+					maxFilesPerCommit: 15,
+				},
+				riskWeights: {
+					volatility: 0.35,
+					coupling: 0.3,
+					drift: 0.2,
+					importers: 0.15,
+				},
+			};
+			return {
+				contents: [
+					{
+						uri,
+						mimeType: "application/json",
+						text: JSON.stringify(defaults, null, 2),
+					},
+				],
+			};
+		}
+
+		throw new Error(`Resource not found: ${uri}`);
 	});
 
 	return server;
