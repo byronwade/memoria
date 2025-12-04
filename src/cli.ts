@@ -3,6 +3,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -288,13 +289,78 @@ function runServer(): void {
 	});
 }
 
+function showInteractiveMenu(cwd: string): void {
+	const detected = detectTools(cwd);
+
+	console.log(`
+┌─────────────────────────────────────────────────────────────┐
+│  Memoria - The Memory Your AI Lacks                        │
+└─────────────────────────────────────────────────────────────┘
+`);
+
+	if (detected.length > 0) {
+		console.log(
+			`  Detected AI tools: ${detected.map((t) => RULES[t]?.name).join(", ")}\n`,
+		);
+	}
+
+	console.log(`  What would you like to do?
+
+  1. Install AI tool rules ${detected.length > 0 ? `(for ${detected.map((t) => RULES[t]?.name).join(", ")})` : "(--all)"}
+  2. Start MCP server (for manual testing)
+  3. Show help
+  4. Exit
+`);
+
+	const rl = readline.createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+
+	rl.question("  Enter choice (1-4): ", (answer) => {
+		rl.close();
+		console.log("");
+
+		switch (answer.trim()) {
+			case "1":
+				console.log("Installing Memoria rules...\n");
+				if (detected.length > 0) {
+					installRules(detected, cwd, false);
+				} else {
+					// No tools detected - install all
+					console.log(
+						"No AI tools detected. Installing rules for all supported tools.\n",
+					);
+					installRules(Object.keys(RULES), cwd, false);
+				}
+				break;
+			case "2":
+				console.log("Starting MCP server (Ctrl+C to stop)...\n");
+				runServer();
+				break;
+			case "3":
+				printHelp();
+				break;
+			case "4":
+			default:
+				console.log("Goodbye!");
+				process.exit(0);
+		}
+	});
+}
+
 function main() {
 	const args = process.argv.slice(2);
 	const cwd = process.cwd();
 
-	// No arguments = run MCP server (for npx -y @byronwade/memoria compatibility)
-	// This allows the same command to work for both MCP configs and CLI usage
+	// No arguments - check if interactive terminal vs MCP client
 	if (args.length === 0) {
+		if (process.stdin.isTTY && process.stdout.isTTY) {
+			// Interactive terminal - show menu
+			showInteractiveMenu(cwd);
+			return;
+		}
+		// Non-interactive (MCP client) - start server silently
 		runServer();
 		return;
 	}

@@ -8,6 +8,7 @@ An MCP server that prevents your AI from breaking code by revealing hidden file 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue.svg)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.0-green.svg)](https://modelcontextprotocol.io)
+[![Twitter](https://img.shields.io/badge/Twitter-@byron__c__wade-1DA1F2.svg?logo=twitter)](https://twitter.com/byron_c_wade)
 
 ---
 
