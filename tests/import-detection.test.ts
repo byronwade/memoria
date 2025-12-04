@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { join } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it } from "vitest";
 
 // Get project root for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -125,10 +124,22 @@ describe("Import Detection Engine (getImporters)", () => {
 			const noImporters: string[] = [];
 			const manyImporters = Array(10).fill("file.ts");
 
-			const riskWithNoImporters = calculateCompoundRisk(volatility, coupled, drift, noImporters);
-			const riskWithManyImporters = calculateCompoundRisk(volatility, coupled, drift, manyImporters);
+			const riskWithNoImporters = calculateCompoundRisk(
+				volatility,
+				coupled,
+				drift,
+				noImporters,
+			);
+			const riskWithManyImporters = calculateCompoundRisk(
+				volatility,
+				coupled,
+				drift,
+				manyImporters,
+			);
 
-			expect(riskWithManyImporters.score).toBeGreaterThan(riskWithNoImporters.score);
+			expect(riskWithManyImporters.score).toBeGreaterThan(
+				riskWithNoImporters.score,
+			);
 		});
 
 		it("should include importer count in risk factors when >= 5", () => {
@@ -139,7 +150,9 @@ describe("Import Detection Engine (getImporters)", () => {
 
 			const risk = calculateCompoundRisk(volatility, coupled, drift, importers);
 
-			expect(risk.factors.some((f: string) => f.includes("imported"))).toBe(true);
+			expect(risk.factors.some((f: string) => f.includes("imported"))).toBe(
+				true,
+			);
 		});
 
 		it("should not include importer factor when < 5 importers", () => {
@@ -150,7 +163,9 @@ describe("Import Detection Engine (getImporters)", () => {
 
 			const risk = calculateCompoundRisk(volatility, coupled, drift, importers);
 
-			expect(risk.factors.some((f: string) => f.includes("imported"))).toBe(false);
+			expect(risk.factors.some((f: string) => f.includes("imported"))).toBe(
+				false,
+			);
 		});
 	});
 
@@ -163,12 +178,23 @@ describe("Import Detection Engine (getImporters)", () => {
 		});
 
 		it("should include STATIC DEPENDENTS section when importers exist", () => {
-			const volatility = { panicScore: 0, commitCount: 10, authors: 1, lastCommitDate: "2024-01-01" };
+			const volatility = {
+				panicScore: 0,
+				commitCount: 10,
+				authors: 1,
+				lastCommitDate: "2024-01-01",
+			};
 			const coupled: any[] = [];
 			const drift: any[] = [];
 			const importers = ["src/component.tsx", "src/service.ts"];
 
-			const result = generateAiInstructions("/path/to/file.ts", volatility, coupled, drift, importers);
+			const result = generateAiInstructions(
+				"/path/to/file.ts",
+				volatility,
+				coupled,
+				drift,
+				importers,
+			);
 
 			expect(result).toContain("STATIC DEPENDENTS");
 			expect(result).toContain("component.tsx");
@@ -176,34 +202,69 @@ describe("Import Detection Engine (getImporters)", () => {
 		});
 
 		it("should not include STATIC DEPENDENTS section when no importers", () => {
-			const volatility = { panicScore: 0, commitCount: 10, authors: 1, lastCommitDate: "2024-01-01" };
+			const volatility = {
+				panicScore: 0,
+				commitCount: 10,
+				authors: 1,
+				lastCommitDate: "2024-01-01",
+			};
 			const coupled: any[] = [];
 			const drift: any[] = [];
 			const importers: string[] = [];
 
-			const result = generateAiInstructions("/path/to/file.ts", volatility, coupled, drift, importers);
+			const result = generateAiInstructions(
+				"/path/to/file.ts",
+				volatility,
+				coupled,
+				drift,
+				importers,
+			);
 
 			expect(result).not.toContain("STATIC DEPENDENTS");
 		});
 
 		it("should show truncation message when more than 5 importers", () => {
-			const volatility = { panicScore: 0, commitCount: 10, authors: 1, lastCommitDate: "2024-01-01" };
+			const volatility = {
+				panicScore: 0,
+				commitCount: 10,
+				authors: 1,
+				lastCommitDate: "2024-01-01",
+			};
 			const coupled: any[] = [];
 			const drift: any[] = [];
-			const importers = Array(8).fill(0).map((_, i) => `file${i}.ts`);
+			const importers = Array(8)
+				.fill(0)
+				.map((_, i) => `file${i}.ts`);
 
-			const result = generateAiInstructions("/path/to/file.ts", volatility, coupled, drift, importers);
+			const result = generateAiInstructions(
+				"/path/to/file.ts",
+				volatility,
+				coupled,
+				drift,
+				importers,
+			);
 
 			expect(result).toContain("...and 3 more files");
 		});
 
 		it("should add importers to pre-flight checklist", () => {
-			const volatility = { panicScore: 0, commitCount: 10, authors: 1, lastCommitDate: "2024-01-01" };
+			const volatility = {
+				panicScore: 0,
+				commitCount: 10,
+				authors: 1,
+				lastCommitDate: "2024-01-01",
+			};
 			const coupled: any[] = [];
 			const drift: any[] = [];
 			const importers = ["src/component.tsx"];
 
-			const result = generateAiInstructions("/path/to/file.ts", volatility, coupled, drift, importers);
+			const result = generateAiInstructions(
+				"/path/to/file.ts",
+				volatility,
+				coupled,
+				drift,
+				importers,
+			);
 
 			expect(result).toContain("imports this file");
 		});

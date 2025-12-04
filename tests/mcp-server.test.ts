@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll } from "vitest";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
-import { access, stat } from "fs/promises";
+import { access, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import simpleGit from "simple-git";
+import { describe, expect, it } from "vitest";
 
 // Get current file's directory for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -46,7 +46,7 @@ describe("MCP Server Integration", () => {
 				const log = await git.log({ file: srcFile, maxCount: 10 });
 				expect(log).toBeDefined();
 				expect(Array.isArray(log.all)).toBe(true);
-			} catch (e) {
+			} catch (_e) {
 				// File doesn't exist yet, skip this test
 				expect(true).toBe(true);
 			}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { DiffSummary } from "../src/index.js";
 
 describe("Output Formatter (generateAiInstructions)", () => {
@@ -6,7 +6,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		filePath: string,
 		volatility: any,
 		coupled: any[],
-		drift: any[]
+		drift: any[],
 	) => string;
 
 	beforeEach(async () => {
@@ -15,13 +15,15 @@ describe("Output Formatter (generateAiInstructions)", () => {
 	});
 
 	// Helper to create a valid DiffSummary
-	const createEvidence = (overrides: Partial<DiffSummary> = {}): DiffSummary => ({
+	const createEvidence = (
+		overrides: Partial<DiffSummary> = {},
+	): DiffSummary => ({
 		additions: [],
 		removals: [],
 		hunks: 0,
 		netChange: 0,
 		hasBreakingChange: false,
-		changeType: 'unknown',
+		changeType: "unknown",
 		...overrides,
 	});
 
@@ -29,9 +31,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should return a string", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(typeof result).toBe("string");
@@ -40,9 +47,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should include the filename in the header", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("file.ts");
@@ -52,9 +64,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should include Pre-Flight Checklist section", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("PRE-FLIGHT CHECKLIST");
@@ -63,9 +80,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should include compound risk score section", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("RISK:");
@@ -81,15 +103,20 @@ describe("Output Formatter (generateAiInstructions)", () => {
 					score: 50,
 					reason: "Refactored shared logic",
 					lastHash: "abc1234",
-					evidence: createEvidence({ changeType: 'api' }),
+					evidence: createEvidence({ changeType: "api" }),
 				},
 			];
 
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				coupled,
-				[]
+				[],
 			);
 
 			expect(result).toContain("COUPLED FILES");
@@ -98,9 +125,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should not include coupled files section when no coupled files", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).not.toContain("COUPLED FILES");
@@ -113,15 +145,20 @@ describe("Output Formatter (generateAiInstructions)", () => {
 					score: 50,
 					reason: "Refactored shared logic",
 					lastHash: "abc1234",
-					evidence: createEvidence({ changeType: 'schema' }),
+					evidence: createEvidence({ changeType: "schema" }),
 				},
 			];
 
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				coupled,
-				[]
+				[],
 			);
 
 			expect(result).toContain("utils.ts");
@@ -139,16 +176,21 @@ describe("Output Formatter (generateAiInstructions)", () => {
 					evidence: createEvidence({
 						additions: ["const x = 1;", "const y = 2;"],
 						removals: ["const old = 0;"],
-						changeType: 'api',
+						changeType: "api",
 					}),
 				},
 			];
 
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				coupled,
-				[]
+				[],
 			);
 
 			expect(result).toContain("+ const x = 1;");
@@ -164,16 +206,21 @@ describe("Output Formatter (generateAiInstructions)", () => {
 					lastHash: "abc1234",
 					evidence: createEvidence({
 						hasBreakingChange: true,
-						changeType: 'api',
+						changeType: "api",
 					}),
 				},
 			];
 
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				coupled,
-				[]
+				[],
 			);
 
 			expect(result).toContain("BREAKING CHANGE DETECTED");
@@ -184,9 +231,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should include markdown checkboxes", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("- [ ]");
@@ -195,9 +247,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should list primary file in checklist", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("Modify `file.ts`");
@@ -211,15 +268,20 @@ describe("Output Formatter (generateAiInstructions)", () => {
 					score: 50,
 					reason: "x",
 					lastHash: "abc",
-					evidence: createEvidence({ changeType: 'schema' }),
+					evidence: createEvidence({ changeType: "schema" }),
 				},
 			];
 
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				coupled,
-				[]
+				[],
 			);
 
 			expect(result).toContain("Verify `utils.ts`");
@@ -231,9 +293,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				drift
+				drift,
 			);
 
 			expect(result).toContain("Update `old-file.ts`");
@@ -245,9 +312,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should show NEW FILE for files with 0 commits", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 0, panicScore: 0, authors: 0, lastCommitDate: undefined },
+				{
+					commitCount: 0,
+					panicScore: 0,
+					authors: 0,
+					lastCommitDate: undefined,
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("NEW FILE");
@@ -256,9 +328,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should show high volatility indicator when panicScore > 25", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 50, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 50,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			// New format shows "Moderate" status with score
@@ -269,9 +346,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should show stable indicator when panicScore <= 25", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 10, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 10,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			// New format shows "Stable" status
@@ -287,18 +369,50 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				lastCommitDate: "2024-01-01",
 				panicCommits: [],
 				authorDetails: [
-					{ name: "Alice", email: "alice@test.com", commits: 5, percentage: 50, firstCommit: "2024-01-01", lastCommit: "2024-01-01" },
-					{ name: "Bob", email: "bob@test.com", commits: 3, percentage: 30, firstCommit: "2024-01-01", lastCommit: "2024-01-01" },
-					{ name: "Charlie", email: "charlie@test.com", commits: 2, percentage: 20, firstCommit: "2024-01-01", lastCommit: "2024-01-01" },
+					{
+						name: "Alice",
+						email: "alice@test.com",
+						commits: 5,
+						percentage: 50,
+						firstCommit: "2024-01-01",
+						lastCommit: "2024-01-01",
+					},
+					{
+						name: "Bob",
+						email: "bob@test.com",
+						commits: 3,
+						percentage: 30,
+						firstCommit: "2024-01-01",
+						lastCommit: "2024-01-01",
+					},
+					{
+						name: "Charlie",
+						email: "charlie@test.com",
+						commits: 2,
+						percentage: 20,
+						firstCommit: "2024-01-01",
+						lastCommit: "2024-01-01",
+					},
 				],
-				topAuthor: { name: "Alice", email: "alice@test.com", commits: 5, percentage: 50, firstCommit: "2024-01-01", lastCommit: "2024-01-01" },
-				recencyDecay: { oldestCommitDays: 30, newestCommitDays: 1, decayFactor: 0.9 },
+				topAuthor: {
+					name: "Alice",
+					email: "alice@test.com",
+					commits: 5,
+					percentage: 50,
+					firstCommit: "2024-01-01",
+					lastCommit: "2024-01-01",
+				},
+				recencyDecay: {
+					oldestCommitDays: 30,
+					newestCommitDays: 1,
+					decayFactor: 0.9,
+				},
 			};
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				volatility,
 				[],
-				[]
+				[],
 			);
 
 			// New format shows Contributors section with author details
@@ -310,9 +424,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should not include metadata for new files", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 0, panicScore: 0, authors: 0, lastCommitDate: undefined },
+				{
+					commitCount: 0,
+					panicScore: 0,
+					authors: 0,
+					lastCommitDate: undefined,
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).not.toContain("Metadata:");
@@ -321,9 +440,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should include risk factors when present", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 50, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 50,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("Risk Factors");
@@ -335,9 +459,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should use proper markdown headers", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("###");
@@ -346,9 +475,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should use code formatting for file names", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("`file.ts`");
@@ -357,9 +491,14 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		it("should include section dividers", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				[],
-				[]
+				[],
 			);
 
 			expect(result).toContain("---");
@@ -374,15 +513,20 @@ describe("Output Formatter (generateAiInstructions)", () => {
 					score: 75,
 					reason: "Updated shared types",
 					lastHash: "abc1234",
-					evidence: createEvidence({ changeType: 'schema' }),
+					evidence: createEvidence({ changeType: "schema" }),
 				},
 			];
 
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				coupled,
-				[]
+				[],
 			);
 
 			expect(result).toContain("type definitions");
@@ -395,15 +539,20 @@ describe("Output Formatter (generateAiInstructions)", () => {
 					score: 60,
 					reason: "Updated API",
 					lastHash: "def5678",
-					evidence: createEvidence({ changeType: 'api' }),
+					evidence: createEvidence({ changeType: "api" }),
 				},
 			];
 
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				{
+					commitCount: 10,
+					panicScore: 0,
+					authors: 1,
+					lastCommitDate: "2024-01-01",
+				},
 				coupled,
-				[]
+				[],
 			);
 
 			expect(result).toContain("API contract");

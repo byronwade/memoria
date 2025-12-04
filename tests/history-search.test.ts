@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { join } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it } from "vitest";
 
 // Get project root for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -12,10 +11,10 @@ describe("History Search Engine (The Archaeologist)", () => {
 	let searchHistory: (
 		query: string,
 		filePath?: string,
-		searchType?: 'message' | 'diff' | 'both',
+		searchType?: "message" | "diff" | "both",
 		limit?: number,
 		startLine?: number,
-		endLine?: number
+		endLine?: number,
 	) => Promise<any>;
 	let formatHistoryResults: (output: any) => string;
 	let cache: any;
@@ -328,7 +327,10 @@ describe("History Search Engine (The Archaeologist)", () => {
 						date: "2024-01-20",
 						author: "dev",
 						message: "Refactor component structure",
-						filesChanged: ["src/components/Button.tsx", "src/components/Input.tsx"],
+						filesChanged: [
+							"src/components/Button.tsx",
+							"src/components/Input.tsx",
+						],
 						matchType: "message" as const,
 					},
 				],
@@ -353,8 +355,13 @@ describe("History Search Engine (The Archaeologist)", () => {
 						author: "dev",
 						message: "Massive refactor",
 						filesChanged: [
-							"file1.ts", "file2.ts", "file3.ts",
-							"file4.ts", "file5.ts", "file6.ts", "file7.ts"
+							"file1.ts",
+							"file2.ts",
+							"file3.ts",
+							"file4.ts",
+							"file5.ts",
+							"file6.ts",
+							"file7.ts",
 						],
 						matchType: "message" as const,
 					},
@@ -390,7 +397,7 @@ describe("History Search Engine (The Archaeologist)", () => {
 			if (result.results.length > 0) {
 				// When scoped to a file, files changed should include that file
 				const hasTargetFile = result.results.some((r: any) =>
-					r.filesChanged.some((f: string) => f.includes("index.ts"))
+					r.filesChanged.some((f: string) => f.includes("index.ts")),
 				);
 				expect(hasTargetFile).toBe(true);
 			}
@@ -461,7 +468,14 @@ describe("History Search Engine (The Archaeologist)", () => {
 		it("should filter by query when provided with line range", async () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 			// Search for 'export' in a line range
-			const result = await searchHistory("export", filePath, "diff", 10, 1, 200);
+			const result = await searchHistory(
+				"export",
+				filePath,
+				"diff",
+				10,
+				1,
+				200,
+			);
 
 			// Results might be empty if query doesn't match line-range commits
 			expect(result).toBeDefined();
@@ -484,7 +498,7 @@ describe("History Search Engine (The Archaeologist)", () => {
 			expect(result2).toEqual(result1);
 
 			// Different range should have different cache key
-			const result3 = await searchHistory(query, filePath, "diff", 10, 20, 60);
+			const _result3 = await searchHistory(query, filePath, "diff", 10, 20, 60);
 			const cacheKey2 = `history:${query}:${filePath}:diff:L20-60`;
 			expect(cache.has(cacheKey2)).toBe(true);
 		});

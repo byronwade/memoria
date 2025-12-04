@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { join } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it } from "vitest";
 
 // Get project root for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -109,7 +108,15 @@ describe("Coupling Engine (Entanglement)", () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 			const result = await getCoupledFiles(filePath);
 
-			const validChangeTypes = ['schema', 'api', 'config', 'import', 'test', 'style', 'unknown'];
+			const validChangeTypes = [
+				"schema",
+				"api",
+				"config",
+				"import",
+				"test",
+				"style",
+				"unknown",
+			];
 			result.forEach((item) => {
 				expect(validChangeTypes).toContain(item.evidence.changeType);
 			});

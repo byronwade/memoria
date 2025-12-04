@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
 import { LRUCache } from "lru-cache";
+import { beforeEach, describe, expect, it } from "vitest";
 
 describe("Cache Behavior", () => {
 	let cache: LRUCache<string, any>;
@@ -66,7 +66,10 @@ describe("Cache Behavior", () => {
 
 	describe("TTL Configuration", () => {
 		it("should create cache with 5-minute TTL", () => {
-			const cacheWithTTL = new LRUCache<string, any>({ max: 100, ttl: 1000 * 60 * 5 });
+			const cacheWithTTL = new LRUCache<string, any>({
+				max: 100,
+				ttl: 1000 * 60 * 5,
+			});
 			cacheWithTTL.set("test", "value");
 
 			// Verify the cache was created and accepts values
@@ -108,7 +111,9 @@ describe("Cache Behavior", () => {
 			cache.set(`volatility:${filePath}`, { score: 25 });
 			cache.set(`gitignore:/project`, { patterns: [".git/"] });
 
-			expect(cache.get(`coupling:${filePath}`)).toEqual({ coupled: ["file1.ts"] });
+			expect(cache.get(`coupling:${filePath}`)).toEqual({
+				coupled: ["file1.ts"],
+			});
 			expect(cache.get(`volatility:${filePath}`)).toEqual({ score: 25 });
 			expect(cache.get(`gitignore:/project`)).toEqual({ patterns: [".git/"] });
 		});

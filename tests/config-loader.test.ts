@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { join } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-import { writeFile, unlink, mkdir, rmdir } from "fs/promises";
+import { mkdir, rmdir, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // Get project root for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -12,7 +11,12 @@ const projectRoot = join(__dirname, "..");
 describe("Config Loader (.memoria.json)", () => {
 	let loadConfig: (repoRoot: string) => Promise<any>;
 	let getEffectivePanicKeywords: (config: any) => Record<string, number>;
-	let getEffectiveRiskWeights: (config: any) => { volatility: number; coupling: number; drift: number; importers: number };
+	let getEffectiveRiskWeights: (config: any) => {
+		volatility: number;
+		coupling: number;
+		drift: number;
+		importers: number;
+	};
 	let getAdaptiveThresholds: (metrics: any, config?: any) => any;
 	let PANIC_KEYWORDS: Record<string, number>;
 	let cache: any;
@@ -61,7 +65,7 @@ describe("Config Loader (.memoria.json)", () => {
 
 		it("should load and parse valid config file", async () => {
 			const config = {
-				thresholds: { couplingPercent: 20, driftDays: 14 }
+				thresholds: { couplingPercent: 20, driftDays: 14 },
 			};
 			await writeFile(configPath, JSON.stringify(config));
 
@@ -95,7 +99,7 @@ describe("Config Loader (.memoria.json)", () => {
 
 		it("should return null for config with invalid schema", async () => {
 			const config = {
-				thresholds: { couplingPercent: "not a number" }
+				thresholds: { couplingPercent: "not a number" },
 			};
 			await writeFile(configPath, JSON.stringify(config));
 
@@ -117,16 +121,16 @@ describe("Config Loader (.memoria.json)", () => {
 				thresholds: {
 					couplingPercent: 25,
 					driftDays: 10,
-					analysisWindow: 75
+					analysisWindow: 75,
 				},
 				ignore: ["migrations/**", "generated/**"],
-				panicKeywords: { "p0": 3, "outage": 2.5 },
+				panicKeywords: { p0: 3, outage: 2.5 },
 				riskWeights: {
 					volatility: 0.4,
 					coupling: 0.25,
 					drift: 0.2,
-					importers: 0.15
-				}
+					importers: 0.15,
+				},
 			};
 			await writeFile(configPath, JSON.stringify(config));
 
@@ -140,7 +144,7 @@ describe("Config Loader (.memoria.json)", () => {
 
 		it("should reject unknown properties (strict mode)", async () => {
 			const config = {
-				unknownProperty: "should fail"
+				unknownProperty: "should fail",
 			};
 			await writeFile(configPath, JSON.stringify(config));
 
@@ -162,7 +166,7 @@ describe("Config Loader (.memoria.json)", () => {
 		});
 
 		it("should merge config keywords with base keywords", () => {
-			const config = { panicKeywords: { "p0": 3, "outage": 2.5 } };
+			const config = { panicKeywords: { p0: 3, outage: 2.5 } };
 			const result = getEffectivePanicKeywords(config);
 
 			// Base keywords should still exist
@@ -175,7 +179,7 @@ describe("Config Loader (.memoria.json)", () => {
 		});
 
 		it("should allow overriding base keywords", () => {
-			const config = { panicKeywords: { "fix": 2 } };
+			const config = { panicKeywords: { fix: 2 } };
 			const result = getEffectivePanicKeywords(config);
 
 			// Override should win
@@ -187,8 +191,8 @@ describe("Config Loader (.memoria.json)", () => {
 		it("should return default weights when config is null", () => {
 			const result = getEffectiveRiskWeights(null);
 			expect(result.volatility).toBe(0.35);
-			expect(result.coupling).toBe(0.30);
-			expect(result.drift).toBe(0.20);
+			expect(result.coupling).toBe(0.3);
+			expect(result.drift).toBe(0.2);
 			expect(result.importers).toBe(0.15);
 		});
 
@@ -204,8 +208,8 @@ describe("Config Loader (.memoria.json)", () => {
 					volatility: 0.5,
 					coupling: 0.2,
 					drift: 0.2,
-					importers: 0.1
-				}
+					importers: 0.1,
+				},
 			};
 			const result = getEffectiveRiskWeights(config);
 			expect(result.volatility).toBe(0.5);
@@ -218,14 +222,18 @@ describe("Config Loader (.memoria.json)", () => {
 			const config = { riskWeights: { volatility: 0.5 } };
 			const result = getEffectiveRiskWeights(config);
 			expect(result.volatility).toBe(0.5);
-			expect(result.coupling).toBe(0.30); // Default
-			expect(result.drift).toBe(0.20); // Default
+			expect(result.coupling).toBe(0.3); // Default
+			expect(result.drift).toBe(0.2); // Default
 			expect(result.importers).toBe(0.15); // Default
 		});
 	});
 
 	describe("getAdaptiveThresholds with config", () => {
-		const defaultMetrics = { totalCommits: 100, commitsPerWeek: 10, avgFilesPerCommit: 3 };
+		const defaultMetrics = {
+			totalCommits: 100,
+			commitsPerWeek: 10,
+			avgFilesPerCommit: 3,
+		};
 
 		it("should use adaptive thresholds when no config provided", () => {
 			const result = getAdaptiveThresholds(defaultMetrics);
@@ -239,8 +247,8 @@ describe("Config Loader (.memoria.json)", () => {
 				thresholds: {
 					couplingPercent: 25,
 					driftDays: 14,
-					analysisWindow: 100
-				}
+					analysisWindow: 100,
+				},
 			};
 			const result = getAdaptiveThresholds(defaultMetrics, config);
 			expect(result.couplingThreshold).toBe(25);
@@ -250,7 +258,7 @@ describe("Config Loader (.memoria.json)", () => {
 
 		it("should partially override with config values", () => {
 			const config = {
-				thresholds: { couplingPercent: 30 }
+				thresholds: { couplingPercent: 30 },
 			};
 			const result = getAdaptiveThresholds(defaultMetrics, config);
 			expect(result.couplingThreshold).toBe(30); // From config
@@ -260,9 +268,13 @@ describe("Config Loader (.memoria.json)", () => {
 
 		it("should apply config overrides regardless of project velocity", () => {
 			// High velocity project would normally get couplingThreshold: 10
-			const highVelocityMetrics = { totalCommits: 1000, commitsPerWeek: 100, avgFilesPerCommit: 2 };
+			const highVelocityMetrics = {
+				totalCommits: 1000,
+				commitsPerWeek: 100,
+				avgFilesPerCommit: 2,
+			};
 			const config = {
-				thresholds: { couplingPercent: 20 }
+				thresholds: { couplingPercent: 20 },
 			};
 			const result = getAdaptiveThresholds(highVelocityMetrics, config);
 			expect(result.couplingThreshold).toBe(20); // Config wins

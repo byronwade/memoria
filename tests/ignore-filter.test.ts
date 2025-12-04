@@ -1,48 +1,103 @@
-import { describe, it, expect } from "vitest";
 import ignore from "ignore";
+import { describe, expect, it } from "vitest";
 
 // Import the same patterns from src/index.ts
 const UNIVERSAL_IGNORE_PATTERNS = [
 	// JavaScript/Node.js
-	"node_modules/", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-debug.log",
-	"dist/", "build/", ".next/", ".nuxt/", ".cache/", "coverage/",
+	"node_modules/",
+	"package-lock.json",
+	"yarn.lock",
+	"pnpm-lock.yaml",
+	"npm-debug.log",
+	"dist/",
+	"build/",
+	".next/",
+	".nuxt/",
+	".cache/",
+	"coverage/",
 
 	// Python
-	"__pycache__/", "*.pyc", "*.pyo", "*.pyd", ".Python", "venv/", ".venv/", "env/",
-	"pip-log.txt", ".pytest_cache/", ".mypy_cache/", "*.egg-info/", ".tox/",
+	"__pycache__/",
+	"*.pyc",
+	"*.pyo",
+	"*.pyd",
+	".Python",
+	"venv/",
+	".venv/",
+	"env/",
+	"pip-log.txt",
+	".pytest_cache/",
+	".mypy_cache/",
+	"*.egg-info/",
+	".tox/",
 
 	// Java/Kotlin
-	"target/", "*.class", "*.jar", "*.war", ".gradle/", "build/", ".mvn/",
+	"target/",
+	"*.class",
+	"*.jar",
+	"*.war",
+	".gradle/",
+	"build/",
+	".mvn/",
 
 	// C/C++
-	"*.o", "*.obj", "*.exe", "*.dll", "*.so", "*.dylib", "*.a", "*.lib",
+	"*.o",
+	"*.obj",
+	"*.exe",
+	"*.dll",
+	"*.so",
+	"*.dylib",
+	"*.a",
+	"*.lib",
 
 	// Rust
-	"target/", "Cargo.lock",
+	"target/",
+	"Cargo.lock",
 
 	// Go
-	"vendor/", "*.test", "*.out",
+	"vendor/",
+	"*.test",
+	"*.out",
 
 	// Ruby
-	"Gemfile.lock", ".bundle/", "vendor/bundle/",
+	"Gemfile.lock",
+	".bundle/",
+	"vendor/bundle/",
 
 	// PHP
-	"vendor/", "composer.lock",
+	"vendor/",
+	"composer.lock",
 
 	// .NET
-	"bin/", "obj/", "*.dll", "*.exe", "*.pdb",
+	"bin/",
+	"obj/",
+	"*.dll",
+	"*.exe",
+	"*.pdb",
 
 	// Build outputs (general)
-	"out/", "output/", "release/", "debug/",
+	"out/",
+	"output/",
+	"release/",
+	"debug/",
 
 	// IDE/Editor files
-	".vscode/", ".idea/", "*.swp", "*.swo", "*~", ".DS_Store", "Thumbs.db",
+	".vscode/",
+	".idea/",
+	"*.swp",
+	"*.swo",
+	"*~",
+	".DS_Store",
+	"Thumbs.db",
 
 	// VCS
-	".git/", ".svn/", ".hg/",
+	".git/",
+	".svn/",
+	".hg/",
 
 	// Logs
-	"*.log", "logs/",
+	"*.log",
+	"logs/",
 ];
 
 describe("Ignore Filter", () => {
@@ -298,7 +353,10 @@ describe("Ignore Filter", () => {
 	describe("Cross-platform path handling", () => {
 		it("should handle Windows-style paths", () => {
 			const ig = ignore().add(UNIVERSAL_IGNORE_PATTERNS);
-			const normalizedPath = "node_modules\\express\\index.js".replace(/\\/g, "/");
+			const normalizedPath = "node_modules\\express\\index.js".replace(
+				/\\/g,
+				"/",
+			);
 			expect(ig.ignores(normalizedPath)).toBe(true);
 		});
 

@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { join } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it } from "vitest";
 
 // Get project root for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -14,8 +13,16 @@ describe("MCP Tool Handler", () => {
 
 	let getVolatility: (filePath: string) => Promise<any>;
 	let getCoupledFiles: (filePath: string) => Promise<any[]>;
-	let checkDrift: (sourceFile: string, coupledFiles: { file: string }[]) => Promise<any[]>;
-	let generateAiInstructions: (filePath: string, volatility: any, coupled: any[], drift: any[]) => string;
+	let checkDrift: (
+		sourceFile: string,
+		coupledFiles: { file: string }[],
+	) => Promise<any[]>;
+	let generateAiInstructions: (
+		filePath: string,
+		volatility: any,
+		coupled: any[],
+		drift: any[],
+	) => string;
 	let cache: any;
 
 	beforeEach(async () => {
@@ -39,7 +46,12 @@ describe("MCP Tool Handler", () => {
 			]);
 
 			const drift = await checkDrift(filePath, coupled);
-			const report = generateAiInstructions(filePath, volatility, coupled, drift);
+			const report = generateAiInstructions(
+				filePath,
+				volatility,
+				coupled,
+				drift,
+			);
 
 			expect(volatility).toBeDefined();
 			expect(Array.isArray(coupled)).toBe(true);
@@ -57,7 +69,12 @@ describe("MCP Tool Handler", () => {
 			]);
 
 			const drift = await checkDrift(filePath, coupled);
-			const report = generateAiInstructions(filePath, volatility, coupled, drift);
+			const report = generateAiInstructions(
+				filePath,
+				volatility,
+				coupled,
+				drift,
+			);
 
 			// Should have Pre-Flight, Risk, and Volatility sections at minimum
 			expect(report).toContain("PRE-FLIGHT CHECKLIST");
@@ -74,7 +91,12 @@ describe("MCP Tool Handler", () => {
 			]);
 
 			const drift = await checkDrift(filePath, coupled);
-			const report = generateAiInstructions(filePath, volatility, coupled, drift);
+			const report = generateAiInstructions(
+				filePath,
+				volatility,
+				coupled,
+				drift,
+			);
 
 			if (coupled.length > 0) {
 				expect(report).toContain("COUPLED FILES");
@@ -133,7 +155,7 @@ describe("MCP Tool Handler", () => {
 				const result = await getCoupledFiles(tempPath);
 				// Should return empty array or throw
 				expect(Array.isArray(result)).toBe(true);
-			} catch (e) {
+			} catch (_e) {
 				// Expected for non-git paths
 				expect(true).toBe(true);
 			}
@@ -176,7 +198,7 @@ describe("MCP Tool Handler", () => {
 						hunks: 0,
 						netChange: 0,
 						hasBreakingChange: false,
-						changeType: 'schema' as const,
+						changeType: "schema" as const,
 					},
 				},
 			];
@@ -201,7 +223,7 @@ describe("MCP Tool Handler", () => {
 				getCoupledFiles(filePath),
 			]);
 
-			const parallelTime = performance.now() - start;
+			const _parallelTime = performance.now() - start;
 
 			// Clear cache
 			cache.clear();
@@ -211,7 +233,7 @@ describe("MCP Tool Handler", () => {
 			await getVolatility(filePath);
 			cache.clear();
 			await getCoupledFiles(filePath);
-			const seqTime = performance.now() - seqStart;
+			const _seqTime = performance.now() - seqStart;
 
 			// Both should complete successfully
 			expect(volatility).toBeDefined();

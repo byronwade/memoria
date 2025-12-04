@@ -1,9 +1,9 @@
 {
-  "mcpServers": {
-    "memoria": {
-      "command": "npx",
-      "args": ["-y", "memoria"],
-      "cwd": "C:\\Users\\bcw19\\OneDrive\\Desktop\\Memoria"
-    }
-  }
+	"mcpServers": {
+		"memoria": {
+			"command": "npx",
+			"args": ["-y", "memoria"],
+			"cwd": "C:\\Users\\bcw19\\OneDrive\\Desktop\\Memoria"
+		}
+	}
 }

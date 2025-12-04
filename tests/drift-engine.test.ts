@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { join } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it } from "vitest";
 
 // Get project root for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -9,7 +8,10 @@ const __dirname = dirname(__filename);
 const projectRoot = join(__dirname, "..");
 
 describe("Drift Engine (Sentinel)", () => {
-	let checkDrift: (sourceFile: string, coupledFiles: { file: string }[]) => Promise<any[]>;
+	let checkDrift: (
+		sourceFile: string,
+		coupledFiles: { file: string }[],
+	) => Promise<any[]>;
 	let getCoupledFiles: (filePath: string) => Promise<any[]>;
 	let cache: any;
 

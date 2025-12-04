@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { join } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it } from "vitest";
 
 // Get project root for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -84,7 +83,7 @@ describe("Volatility Engine", () => {
 				const result = await getVolatility(fakePath);
 				// If it returns, it should have 0 commits
 				expect(result.commitCount).toBe(0);
-			} catch (e) {
+			} catch (_e) {
 				// Expected - file doesn't exist
 				expect(true).toBe(true);
 			}
@@ -164,7 +163,7 @@ describe("Volatility Engine", () => {
 			const result = await getVolatility(filePath);
 
 			expect(result.recencyDecay.oldestCommitDays).toBeGreaterThanOrEqual(
-				result.recencyDecay.newestCommitDays
+				result.recencyDecay.newestCommitDays,
 			);
 		});
 
@@ -223,7 +222,7 @@ describe("Volatility Engine", () => {
 			if (result.authorDetails.length >= 2) {
 				for (let i = 0; i < result.authorDetails.length - 1; i++) {
 					expect(result.authorDetails[i].commits).toBeGreaterThanOrEqual(
-						result.authorDetails[i + 1].commits
+						result.authorDetails[i + 1].commits,
 					);
 				}
 			}
@@ -245,7 +244,8 @@ describe("Volatility Engine", () => {
 
 			if (result.authorDetails.length > 0) {
 				const totalPercentage = result.authorDetails.reduce(
-					(sum: number, a: any) => sum + a.percentage, 0
+					(sum: number, a: any) => sum + a.percentage,
+					0,
 				);
 				// Allow some rounding error
 				expect(totalPercentage).toBeGreaterThanOrEqual(95);
