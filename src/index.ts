@@ -56,18 +56,21 @@ export const configSchema = z.object({
 		.number()
 		.min(0)
 		.max(100)
+		.optional()
 		.default(15)
 		.describe("Minimum coupling percentage to report (0-100)"),
 	driftDays: z
 		.number()
 		.min(1)
 		.max(365)
+		.optional()
 		.default(7)
 		.describe("Days before a coupled file is considered stale"),
 	analysisWindow: z
 		.number()
 		.min(10)
 		.max(500)
+		.optional()
 		.default(50)
 		.describe("Number of commits to analyze for coupling"),
 });
