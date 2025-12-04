@@ -387,56 +387,68 @@ async function showInteractiveSetup(cwd: string): Promise<void> {
 
 	p.intro("Memoria - The Memory Your AI Lacks");
 
+	// Build all options as individual items
+	const options = [
+		{
+			value: "cursor-mcp",
+			label: "Cursor MCP config",
+			hint: ".cursor/mcp.json",
+		},
+		{
+			value: "cursor-rules",
+			label: "Cursor rules",
+			hint: ".cursor/rules/memoria.mdc",
+		},
+		{
+			value: "claude-mcp",
+			label: "Claude Desktop MCP config",
+			hint: "global config",
+		},
+		{
+			value: "claude-rules",
+			label: "Claude Code rules",
+			hint: ".claude/CLAUDE.md",
+		},
+		{
+			value: "windsurf-mcp",
+			label: "Windsurf MCP config",
+			hint: "global config",
+		},
+		{
+			value: "windsurf-rules",
+			label: "Windsurf rules",
+			hint: ".windsurfrules",
+		},
+		{ value: "cline-rules", label: "Cline rules", hint: ".clinerules" },
+	];
+
+	// Pre-select based on detected tools
 	const detectedTools = detectTools(cwd);
+	const initialValues: string[] = [];
+	if (detectedTools.includes("cursor")) {
+		initialValues.push("cursor-mcp", "cursor-rules");
+	}
+	if (detectedTools.includes("claude")) {
+		initialValues.push("claude-mcp", "claude-rules");
+	}
+	// Default to cursor + claude if nothing detected
+	if (initialValues.length === 0) {
+		initialValues.push("cursor-mcp", "cursor-rules", "claude-mcp", "claude-rules");
+	}
 
-	const result = await p.group(
-		{
-			actions: () =>
-				p.multiselect({
-					message: "What would you like to set up?",
-					options: [
-						{
-							value: "mcp",
-							label: "Install MCP server config",
-							hint: "adds memoria to mcp.json",
-						},
-						{
-							value: "rules",
-							label: "Install AI tool rules",
-							hint: "creates rule files for your AI tools",
-						},
-					],
-					initialValues: ["mcp", "rules"],
-					required: true,
-				}),
-			tools: () =>
-				p.multiselect({
-					message: "Which AI tools do you use?",
-					options: [
-						{ value: "cursor", label: "Cursor", hint: ".cursor/mcp.json" },
-						{
-							value: "claude",
-							label: "Claude Code",
-							hint: ".claude/CLAUDE.md",
-						},
-						{ value: "windsurf", label: "Windsurf", hint: ".windsurfrules" },
-						{ value: "cline", label: "Cline", hint: ".clinerules" },
-					],
-					initialValues:
-						detectedTools.length > 0 ? detectedTools : ["cursor", "claude"],
-					required: true,
-				}),
-		},
-		{
-			onCancel: () => {
-				p.cancel("Setup cancelled.");
-				process.exit(0);
-			},
-		},
-	);
+	const selected = await p.multiselect({
+		message: "What would you like to install?",
+		options,
+		initialValues,
+		required: true,
+	});
 
-	const actions = result.actions as string[];
-	const tools = result.tools as string[];
+	if (p.isCancel(selected)) {
+		p.cancel("Setup cancelled.");
+		process.exit(0);
+	}
+
+	const selections = selected as string[];
 
 	const s = p.spinner();
 	s.start("Setting up Memoria...");
@@ -444,19 +456,46 @@ async function showInteractiveSetup(cwd: string): Promise<void> {
 	const installResults: string[] = [];
 
 	// Install MCP configs
-	if (actions.includes("mcp")) {
-		const mcpResults = installMcpConfigsQuiet(tools, cwd);
-		for (const file of mcpResults.added) {
-			installResults.push(`Added MCP config to ${file}`);
+	if (selections.includes("cursor-mcp")) {
+		const result = installMcpConfig("cursor", cwd);
+		const configPath = MCP_CONFIGS.cursor.getPath(cwd);
+		const displayPath = path.relative(cwd, configPath);
+		if (result === "added" || result === "created") {
+			installResults.push(`Added MCP config to ${displayPath}`);
+		} else if (result === "exists") {
+			installResults.push(`MCP config already in ${displayPath}`);
 		}
-		for (const file of mcpResults.exists) {
-			installResults.push(`MCP config already in ${file}`);
+	}
+
+	if (selections.includes("claude-mcp")) {
+		const result = installMcpConfig("claude-desktop", cwd);
+		const configPath = MCP_CONFIGS["claude-desktop"].getPath(cwd);
+		if (result === "added" || result === "created") {
+			installResults.push(`Added MCP config to ${configPath}`);
+		} else if (result === "exists") {
+			installResults.push(`MCP config already in ${configPath}`);
+		}
+	}
+
+	if (selections.includes("windsurf-mcp")) {
+		const result = installMcpConfig("windsurf", cwd);
+		const configPath = MCP_CONFIGS.windsurf.getPath(cwd);
+		if (result === "added" || result === "created") {
+			installResults.push(`Added MCP config to ${configPath}`);
+		} else if (result === "exists") {
+			installResults.push(`MCP config already in ${configPath}`);
 		}
 	}
 
 	// Install rules
-	if (actions.includes("rules")) {
-		const ruleResults = installRulesQuiet(tools, cwd, false);
+	const rulesToInstall: string[] = [];
+	if (selections.includes("cursor-rules")) rulesToInstall.push("cursor");
+	if (selections.includes("claude-rules")) rulesToInstall.push("claude");
+	if (selections.includes("windsurf-rules")) rulesToInstall.push("windsurf");
+	if (selections.includes("cline-rules")) rulesToInstall.push("cline");
+
+	if (rulesToInstall.length > 0) {
+		const ruleResults = installRulesQuiet(rulesToInstall, cwd, false);
 		for (const file of ruleResults.created) {
 			installResults.push(`Created ${file}`);
 		}
