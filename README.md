@@ -144,7 +144,7 @@ The AI will automatically check for:
 
 ## How It Works
 
-Memoria uses **git forensics** instead of static analysis:
+Memoria uses **git forensics** with **evidence-based analysis**:
 
 ### 1. **Volatility Engine** (Risk Assessment)
 Scans commit history for "panic keywords" (fix, bug, revert, urgent, hotfix, oops)
@@ -155,50 +155,115 @@ Scans commit history for "panic keywords" (fix, bug, revert, urgent, hotfix, oop
 Analyzes which files change together in commits
 - >15% co-change correlation = coupled files
 - Reveals implicit dependencies imports can't see
+- **NEW: Context Engine** - Captures commit messages explaining WHY files are coupled
+- **NEW: Evidence Bag** - Fetches actual code diffs showing WHAT changed together
 
 ### 3. **Sentinel Engine** (Drift Detection)
 Compares modification times of coupled files
 - >7 days drift = stale dependency warning
 - Prevents shipping code with out-of-sync dependencies
 
-### 4. **System Prompt Injection** (Behavioral Override)
-Delivers results as **mandatory instructions**, not passive data:
+### 4. **Detective Work Format** (The Intelligence Upgrade)
+Instead of dumping data, Memoria provides **evidence** and forces the AI to be the detective:
 
-**Bad (Traditional Tools):**
+**Old Way (Passive Data):**
 ```
-ℹ️ Info: This file is coupled with 5 other files
-```
-
-**Good (Memoria):**
-```
-⚠️ INSTRUCTION: These files MUST be updated when this file changes:
-- src/api/billing.ts
-- src/components/PricingTable.tsx
-Check them NOW before proceeding.
+ℹ️ Info: This file is coupled with billing.ts (85%)
 ```
 
-The AI can't ignore this - it's injected into the system prompt.
+**New Way (Active Investigation):**
+```
+🕵️ DETECTIVE WORK REQUIRED
+
+File: billing.ts (85% coupled)
+Linked via: "refactor subscription webhook schema"
+
+Evidence (commit a3f21b4):
+```diff
++ export interface SubscriptionUpdated {
++   status: 'active' | 'canceled' | 'past_due'
++   current_period_end: number
++ }
+```
+
+> System Instruction: Analyze the code above.
+> These files share the SubscriptionUpdated interface.
+> Your changes MUST maintain type compatibility.
+```
+
+**Why this matters:**
+- Bad commit messages ("updates", "stuff") → Ignored
+- Code diffs → Tell the truth about relationships
+- AI analyzes evidence → Makes intelligent decisions
+- Removes guesswork → Forces Chain-of-Thought reasoning
 
 ---
 
 ## Example Output
 
+Memoria now outputs a **three-section report** designed to make the AI think, not just read:
+
 ```markdown
-### 🧠 Repo Context Analysis for `stripe/route.ts`
+### 🧠 Forensics for `stripe/route.ts`
 
-🔴 **HIGH RISK FILE (40% Panic Score)**
-> **INSTRUCTION:** This file has a history of bugs/reverts.
-> You MUST review your changes twice. Do not delete safety checks.
+**🕵️ DETECTIVE WORK REQUIRED**
 
-🔗 **Entangled Files (Action Required)**
-> **INSTRUCTION:** These files usually change when `stripe/route.ts` changes. Check them:
-- `dashboard/billing/page.tsx` (Coupled 85%)
-- `lib/stripe/client.ts` (Coupled 62%)
+The following files are coupled with `stripe/route.ts`. Analyze the evidence to understand *why* they change together:
 
-⚠️ **Stale Siblings Detected**
-> **INSTRUCTION:** These related files are outdated (>7 days). Update them:
-- `tests/stripe.test.ts` (12 days old)
+**File:** `dashboard/billing/page.tsx` (85% coupled)
+**Linked via:** "refactor subscription webhook schema"
+**Evidence (commit a3f21b4):**
+```typescript
++ export interface SubscriptionUpdated {
++   status: 'active' | 'canceled' | 'past_due'
++   current_period_end: number
++ }
++
++ // Dashboard now consumes this webhook payload
++ async function handleSubscriptionUpdate(data: SubscriptionUpdated) {
++   updateUI(data.status, data.current_period_end)
++ }
 ```
+> **System Instruction:** Analyze the code above. Determine the relationship (e.g., shared types, API contract, schema dependency). Apply that logic when modifying `stripe/route.ts`.
+
+**File:** `lib/stripe/client.ts` (62% coupled)
+**Linked via:** "add retry logic for failed webhooks"
+> **System Instruction:** These files historically change together. Verify if your changes to `stripe/route.ts` require updates to `lib/stripe/client.ts`.
+
+---
+
+**🛑 PRE-FLIGHT CHECKLIST**
+
+You MUST complete these steps before finalizing code changes:
+
+- [ ] Modify `stripe/route.ts` (primary target)
+- [ ] Verify/update `dashboard/billing/page.tsx` (85% coupling detected)
+- [ ] Verify/update `lib/stripe/client.ts` (62% coupling detected)
+- [ ] Update `tests/stripe.test.ts` (stale by 12 days)
+
+---
+
+**📊 RISK ASSESSMENT**
+
+🔥 **Status:** VOLATILE (40% Panic Score)
+> **Warning:** This file has 40% panic commits (fix/bug/revert/urgent). Code is historically fragile.
+> **Required Action:** Review your changes twice. Do not delete safety checks or validation logic.
+
+**Metadata:**
+- Total commits analyzed: 47
+- Unique contributors: 3
+- Last modified: 2025-12-01
+```
+
+### What the AI Sees
+
+The AI doesn't just get "these files are coupled" - it gets:
+1. **The Evidence** - Actual code showing they share an interface
+2. **The Context** - Commit message explaining it was a schema refactor
+3. **The Instruction** - Must maintain type compatibility
+4. **The Checklist** - Explicit action items to verify
+
+Result: The AI **understands the relationship** and updates both files correctly.
 
 ---
 
@@ -210,8 +275,17 @@ Finds implicit dependencies that static analysis misses
 ### 🚦 **Risk-Based Coding**
 Warns AI about historically unstable files before changes
 
-### 🔗 **Implicit Coupling Detection**
-Reveals files that change together without direct imports
+### 🔗 **Implicit Coupling Detection with Evidence**
+Reveals files that change together without direct imports - backed by actual code diffs
+
+### 🧠 **Context Engine (NEW)**
+Captures commit messages explaining WHY files are coupled - the "reasoning" behind the relationship
+
+### 🔍 **Evidence Bag (NEW)**
+Fetches actual code diffs (1000 chars max) showing WHAT changed together - the "proof" of the relationship
+
+### 🕵️ **Detective Work Format (NEW)**
+Forces AI to analyze evidence and determine relationships instead of passively consuming data
 
 ### ⚡ **Sub-100ms Response Time**
 LRU cache with 5-minute TTL for instant feedback
@@ -223,7 +297,7 @@ Universal ignore patterns for Python, Java, Rust, Go, Ruby, PHP, .NET, and more
 60+ Vitest tests covering all engines and edge cases
 
 ### 🛡️ **System Prompt Injection**
-Forces AI compliance with behavioral instructions, not just data
+Forces AI compliance with behavioral instructions through evidence-based analysis
 
 ---
 
@@ -304,11 +378,11 @@ npm run test:coverage
 ## Tech Stack
 
 - **Runtime**: Node.js 20+ with TypeScript ES2022
-- **Git Interface**: simple-git
+- **Git Interface**: simple-git (enhanced with diff fetching and commit analysis)
 - **Protocol**: @modelcontextprotocol/sdk (stdio transport)
-- **Caching**: lru-cache (100 item LRU, 5-min TTL)
+- **Caching**: lru-cache (100 item LRU, 5-min TTL) - caches diffs + coupling data
 - **Testing**: Vitest with 60+ tests
-- **Ignore Patterns**: ignore (gitignore parsing)
+- **Ignore Patterns**: ignore (gitignore parsing + universal multi-language patterns)
 
 ---
 
