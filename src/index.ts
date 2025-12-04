@@ -1,101 +1,252 @@
+#!/usr/bin/env node
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import simpleGit from "simple-git";
 import fs from "fs/promises";
+import { LRUCache } from "lru-cache";
 import path from "path";
-import { z } from "zod";
+import ignore from "ignore";
 
-const git = simpleGit();
+// --- CONFIGURATION & CACHE ---
+// Cache results for 5 minutes
+const cache = new LRUCache<string, any>({ max: 100, ttl: 1000 * 60 * 5 });
 
-// --- ENGINE 1: ENTANGLEMENT (The "X-Ray") ---
-async function getCoupledFiles(filePath: string, limit = 5) {
+// Universal ignore patterns covering multiple languages and ecosystems
+const UNIVERSAL_IGNORE_PATTERNS = [
+	// JavaScript/Node.js
+	"node_modules/", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-debug.log",
+	"dist/", "build/", ".next/", ".nuxt/", ".cache/", "coverage/",
+
+	// Python
+	"__pycache__/", "*.pyc", "*.pyo", "*.pyd", ".Python", "venv/", ".venv/", "env/",
+	"pip-log.txt", ".pytest_cache/", ".mypy_cache/", "*.egg-info/", ".tox/",
+
+	// Java/Kotlin
+	"target/", "*.class", "*.jar", "*.war", ".gradle/", "build/", ".mvn/",
+
+	// C/C++
+	"*.o", "*.obj", "*.exe", "*.dll", "*.so", "*.dylib", "*.a", "*.lib",
+
+	// Rust
+	"target/", "Cargo.lock",
+
+	// Go
+	"vendor/", "*.test", "*.out",
+
+	// Ruby
+	"Gemfile.lock", ".bundle/", "vendor/bundle/",
+
+	// PHP
+	"vendor/", "composer.lock",
+
+	// .NET
+	"bin/", "obj/", "*.dll", "*.exe", "*.pdb",
+
+	// Build outputs (general)
+	"out/", "output/", "release/", "debug/",
+
+	// IDE/Editor files
+	".vscode/", ".idea/", "*.swp", "*.swo", "*~", ".DS_Store", "Thumbs.db",
+
+	// VCS
+	".git/", ".svn/", ".hg/",
+
+	// Logs
+	"*.log", "logs/",
+];
+
+// Helper: Get a git instance for the specific file's directory
+function getGitForFile(filePath: string) {
+	const dir = path.dirname(filePath);
+	return simpleGit(dir);
+}
+
+// Helper: Parse .gitignore and create ignore filter
+async function getIgnoreFilter(repoRoot: string) {
+	const cacheKey = `gitignore:${repoRoot}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	const ig = ignore();
+
+	// Add universal patterns first
+	ig.add(UNIVERSAL_IGNORE_PATTERNS);
+
+	// Try to read and add .gitignore patterns
 	try {
-		// 1. Get last 50 commit hashes that touched this file
+		const gitignorePath = path.join(repoRoot, ".gitignore");
+		const gitignoreContent = await fs.readFile(gitignorePath, "utf8");
+		ig.add(gitignoreContent);
+	} catch (e) {
+		// .gitignore doesn't exist or can't be read - that's okay, universal patterns still apply
+	}
+
+	cache.set(cacheKey, ig);
+	return ig;
+}
+
+// Helper: Check if a file should be ignored
+function shouldIgnoreFile(filePath: string, ig: ReturnType<typeof ignore>) {
+	// Normalize path for cross-platform compatibility
+	const normalizedPath = filePath.replace(/\\/g, "/");
+	return ig.ignores(normalizedPath);
+}
+
+// --- ENGINE 1: ENTANGLEMENT ---
+async function getCoupledFiles(filePath: string) {
+	const cacheKey = `coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = getGitForFile(filePath); // <--- DYNAMIC GIT INSTANCE
+		const root = await git.revparse(["--show-toplevel"]);
+		const repoRoot = root.trim();
+
+		// Load ignore filter (cached)
+		const ig = await getIgnoreFilter(repoRoot);
+
 		const log = await git.log({ file: filePath, maxCount: 50 });
 		const hashes = log.all.map((c) => c.hash);
-
 		if (hashes.length === 0) return [];
 
-		// 2. For each hash, find ALL files changed
 		const couplingMap: Record<string, number> = {};
 
-		// Run in parallel chunks for speed
 		await Promise.all(
 			hashes.map(async (hash) => {
 				const show = await git.show([hash, "--name-only", "--format="]);
-				const files = show.split("\n").filter((f) => f.trim() && f.trim() !== filePath);
+				const files = show
+					.split("\n")
+					.map((f) => f.trim())
+					.filter((f) => {
+						if (!f) return false;
+						if (f.includes(path.basename(filePath))) return false;
+						// Use the ignore filter
+						return !shouldIgnoreFile(f, ig);
+					});
 				files.forEach((f) => (couplingMap[f] = (couplingMap[f] || 0) + 1));
 			})
 		);
 
-		// 3. Sort by frequency
-		return Object.entries(couplingMap)
+		const result = Object.entries(couplingMap)
 			.sort(([, a], [, b]) => b - a)
-			.slice(0, limit)
+			.slice(0, 5)
 			.map(([file, count]) => ({
 				file,
-				score: Math.round((count / hashes.length) * 100), // % correlation
-			}));
+				score: Math.round((count / hashes.length) * 100),
+			}))
+			.filter((x) => x.score > 15);
+
+		cache.set(cacheKey, result);
+		return result;
 	} catch (e) {
 		return [];
 	}
 }
 
-// --- ENGINE 2: DRIFT (The "Sentinel") ---
+// --- ENGINE 2: DRIFT ---
 async function checkDrift(sourceFile: string, coupledFiles: { file: string }[]) {
 	const alerts = [];
 	try {
 		const sourceStats = await fs.stat(sourceFile);
+		const git = getGitForFile(sourceFile);
+		const root = await git.revparse(["--show-toplevel"]);
 
 		for (const { file } of coupledFiles) {
 			try {
-				const siblingStats = await fs.stat(file);
+				// Git returns relative paths (e.g. src/utils.ts). We must resolve them.
+				const siblingPath = path.join(root.trim(), file);
+
+				const siblingStats = await fs.stat(siblingPath);
 				const diffMs = sourceStats.mtimeMs - siblingStats.mtimeMs;
 				const daysDiff = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-				// If source is newer than sibling by > 7 days
 				if (daysDiff > 7) {
 					alerts.push({ file, daysOld: daysDiff });
 				}
 			} catch (e) {
-				/* File might be deleted, ignore */
+				/* File deleted or moved */
 			}
 		}
 	} catch (e) {
-		/* Source might not exist on disk yet */
+		/* Source new */
 	}
 	return alerts;
 }
 
-// --- ENGINE 3: VOLATILITY (The "Panic Check") ---
+// --- ENGINE 3: VOLATILITY ---
 async function getVolatility(filePath: string) {
+	const cacheKey = `volatility:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	const git = getGitForFile(filePath); // <--- DYNAMIC GIT INSTANCE
 	const log = await git.log({ file: filePath, maxCount: 20 });
-	const panicKeywords = ["fix", "bug", "revert", "urgent", "broken", "oops"];
+	const panicKeywords = ["fix", "bug", "revert", "urgent", "hotfix", "oops"];
 
 	let panicCount = 0;
 	log.all.forEach((c) => {
 		if (panicKeywords.some((k) => c.message.toLowerCase().includes(k))) panicCount++;
 	});
 
-	return {
+	const result = {
 		commitCount: log.total,
-		panicScore: Math.min(100, Math.round((panicCount / 20) * 100)), // 0-100
-		lastAuthor: log.latest?.author_name || "Unknown",
+		panicScore: Math.min(100, Math.round((panicCount / 20) * 100)),
+		lastCommitDate: log.latest?.date,
+		authors: [...new Set(log.all.map((c) => c.author_name))].length,
 	};
+
+	cache.set(cacheKey, result);
+	return result;
 }
 
-// --- MCP SERVER SETUP ---
-const server = new Server({ name: "repo-forensics", version: "1.0.0" }, { capabilities: { tools: {} } });
+// --- OUTPUT FORMATTER ---
+function generateAiInstructions(filePath: string, volatility: any, coupled: any[], drift: any[]) {
+	let instructions = `### 🧠 Repo Context Analysis for \`${path.basename(filePath)}\`\n`;
+	instructions += `*System Instruction: Use this data to guide your coding decisions.*\n\n`;
+
+	if (volatility.panicScore > 25) {
+		instructions += `🔴 **HIGH RISK FILE (${volatility.panicScore}% Panic Score)**\n`;
+		instructions += `> **Instruction:** This file has a history of bugs/reverts. You MUST review your changes twice. Do not delete safety checks.\n\n`;
+	} else {
+		instructions += `🟢 **Stable File.** Standard coding practices apply.\n\n`;
+	}
+
+	if (coupled.length > 0) {
+		instructions += `🔗 **Entangled Files (Action Required)**\n`;
+		instructions += `> **Instruction:** These files usually change when \`${path.basename(filePath)}\` changes. Check them:\n`;
+		coupled.forEach((c) => {
+			instructions += `- \`${c.file}\` (Coupled ${c.score}%)\n`;
+		});
+		instructions += `\n`;
+	}
+
+	if (drift.length > 0) {
+		instructions += `⚠️ **Stale Siblings Detected**\n`;
+		instructions += `> **Instruction:** These related files are outdated (>7 days). Update them:\n`;
+		drift.forEach((d) => {
+			instructions += `- \`${d.file}\` (${d.daysOld} days old)\n`;
+		});
+	}
+
+	return instructions;
+}
+
+// --- SERVER ---
+const server = new Server({ name: "memoria", version: "1.0.0" }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
 	tools: [
 		{
-			name: "analyze_file_context",
-			description: "Scans a file's history to find hidden dependencies, risk levels, and stale tests.",
+			name: "analyze_file",
+			description: "Returns forensic history, hidden dependencies, and risk assessment. USE THIS before modifying files.",
 			inputSchema: {
 				type: "object",
-				properties: { path: { type: "string" } },
+				properties: {
+					path: {
+						type: "string",
+						description: "The ABSOLUTE path to the file (e.g. C:/dev/project/src/file.ts)",
+					},
+				},
 				required: ["path"],
 			},
 		},
@@ -103,39 +254,45 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-	if (request.params.name === "analyze_file_context") {
-		const filePath = String(request.params.arguments?.path);
+	if (request.params.name === "analyze_file") {
+		const rawPath = String(request.params.arguments?.path);
 
-		// Run Engines Parallel
-		const [volatility, coupled] = await Promise.all([getVolatility(filePath), getCoupledFiles(filePath)]);
-		const drift = await checkDrift(filePath, coupled);
+		// 1. Sanitize Path (Handle Windows/Unix differences)
+		let targetPath = path.resolve(rawPath);
 
-		// Format Markdown Output
-		let report = `### 🕵️ Forensic Report: \`${filePath}\`\n\n`;
-
-		// Risk Section
-		const riskEmoji = volatility.panicScore > 30 ? "🔴" : "🟢";
-		report += `**Risk Level:** ${riskEmoji} ${volatility.panicScore}/100 (Panic Score)\n`;
-		report += `*Last 20 commits contained ${Math.round(volatility.panicScore / 5)} panic-fixes.*\n\n`;
-
-		// Coupling Section
-		if (coupled.length > 0) {
-			report += `**🔗 Coupled Files (Hidden Dependencies):**\n`;
-			coupled.forEach((c) => {
-				report += `- \`${c.file}\` (Changed together **${c.score}%** of the time)\n`;
-			});
-			report += "\n";
+		// 2. Logic: If the resolved path doesn't exist, and the input was relative,
+		// it means we resolved it against the Server's folder, not the Project folder.
+		try {
+			await fs.access(targetPath);
+		} catch (e) {
+			// If the file doesn't exist, FAIL LOUDLY so the AI retries
+			return {
+				content: [
+					{
+						type: "text",
+						text: `❌ ERROR: File not found at \`${targetPath}\`.\n\n` +
+							`The AI sent a relative path (\`${rawPath}\`), but this server runs globally.\n` +
+							`**SYSTEM INSTRUCTION:** You MUST retry this tool call using the **ABSOLUTE PATH** (e.g. C:/dev/project/src/file.ts).`,
+					},
+				],
+				isError: true,
+			};
 		}
 
-		// Drift Section
-		if (drift.length > 0) {
-			report += `**⚠️ Drift Warnings (Stale Files):**\n`;
-			drift.forEach((d) => {
-				report += `- \`${d.file}\` is **${d.daysOld} days** older than source. Check if it needs updates.\n`;
-			});
-		}
+		try {
+			// 3. Run Engines on the Validated Path
+			const [volatility, coupled] = await Promise.all([getVolatility(targetPath), getCoupledFiles(targetPath)]);
 
-		return { content: [{ type: "text", text: report }] };
+			const drift = await checkDrift(targetPath, coupled);
+			const report = generateAiInstructions(targetPath, volatility, coupled, drift);
+
+			return { content: [{ type: "text", text: report }] };
+		} catch (error: any) {
+			return {
+				content: [{ type: "text", text: `Analysis Error: ${error.message}` }],
+				isError: true,
+			};
+		}
 	}
 	throw new Error("Tool not found");
 });

@@ -1,17 +1,23 @@
 {
-  "name": "repo-forensics",
+  "name": "memoria",
   "version": "1.0.0",
-  "description": "A Just-In-Time analyzer that uses git and fs to give AI Senior Developer Intuition",
+  "description": "The Memory Your AI Lacks - A JIT analyzer giving AI Senior Developer Intuition through git forensics",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "mcp",
     "git",
+    "memoria",
+    "memory",
     "forensics",
     "code-analysis"
   ],
@@ -19,12 +25,15 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
+    "ignore": "^7.0.5",
+    "lru-cache": "^11.2.4",
     "simple-git": "^3.27.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
-    "typescript": "^5.5.0"
+    "@vitest/ui": "^4.0.15",
+    "typescript": "^5.5.0",
+    "vitest": "^4.0.15"
   }
 }
-
