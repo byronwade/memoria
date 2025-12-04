@@ -21,3 +21,15 @@ CLAUDE.md
 
 # Example configs
 mcp-config-example.json
+
+# Dev test directories
+tests/
+
+# Benchmarks
+benchmarks/
+
+# Local cursor rules (bundled rules are in rules/)
+.cursor/
+
+# Local claude settings
+.claude/

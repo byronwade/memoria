@@ -30,7 +30,20 @@
 			"Bash(npx knip)",
 			"Bash(npx biome:*)",
 			"Bash(npx @biomejs/biome check:*)",
-			"Bash(npx tsx:*)"
+			"Bash(npx tsx:*)",
+			"Bash(mkdir:*)",
+			"Bash(npm version:*)",
+			"Bash(git stash:*)",
+			"Bash(grep:*)",
+			"Bash(node:*)",
+			"Bash(npx tsc)",
+			"Bash(./node_modules/.bin/tsc:*)",
+			"mcp__ide__getDiagnostics",
+			"Bash(npx tsc:*)",
+			"Bash(echo:*)",
+			"Bash(/bin/bash -c \"cd /Users/byronwade/memoria && npm run build\")",
+			"Bash(/bin/echo:*)",
+			"Bash(timeout 2 node:*)"
 		],
 		"deny": [],
 		"ask": []

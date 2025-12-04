@@ -398,34 +398,66 @@ Search git history to understand *why* code was written. Solves the "Chesterton'
 
 ## Auto-Pilot Mode
 
-Want your AI to check Memoria **automatically** before every edit?
+Want your AI to check Memoria **automatically** before every edit? Install the rule files:
 
-### For Cursor Users
+```bash
+# Install globally first
+npm install -g @byronwade/memoria
 
-Add this to `.cursorrules` or your global system prompt:
-
-```markdown
-## Memoria Safety Check
-Before editing any existing file, you MUST call the `analyze_file` MCP tool on that file.
-If Memoria reports HIGH or CRITICAL risk, review all coupled files before writing code.
-Never skip this step - it prevents breaking coupled files you don't know about.
+# Then in your project directory:
+memoria init --all
 ```
 
-### For Claude Code Users
+This installs rule files that tell your AI to always call `analyze_file` before editing code.
 
-Add this to your project's `.claude/CLAUDE.md`:
+### What Gets Installed
 
-```markdown
-## File Analysis Rule
-BEFORE modifying any file, call the `analyze_file` MCP tool with the absolute path.
-This provides hidden dependencies and risk assessment you cannot see otherwise.
+| Flag | File | Tool |
+|------|------|------|
+| `--cursor` | `.cursor/rules/memoria.mdc` | Cursor |
+| `--claude` | `.claude/CLAUDE.md` | Claude Code |
+| `--windsurf` | `.windsurfrules` | Windsurf |
+| `--cline` | `.clinerules` | Cline/Continue |
+| `--all` | All of the above | All tools |
+| `--force` | Update existing rules | Overwrites Memoria section |
+
+### Smart Merge Behavior
+
+`memoria init` is safe to run multiple times - it won't overwrite your existing rules:
+
+| Scenario | What Happens |
+|----------|--------------|
+| File doesn't exist | Creates new file with Memoria rules |
+| File exists, no Memoria | **Appends** Memoria rules (your content preserved) |
+| File exists, has Memoria | **Skips** (use `--force` to update) |
+
+```bash
+# First run - creates or appends
+memoria init --cursor
+#   ✓ Created .cursor/rules/memoria.mdc
+
+# Second run - skips (already installed)
+memoria init --cursor
+#   ⊘ Skipped .cursor/rules/memoria.mdc (already has Memoria rules)
+#   Use --force to update existing Memoria rules.
+
+# Force update to latest version
+memoria init --cursor --force
+#   ✓ Updated .cursor/rules/memoria.mdc (--force)
 ```
 
-### For Other AI Tools
+### Auto-Detection
 
-Add similar instructions to your tool's system prompt or rules file. The key instruction is:
+Running `memoria init` without flags will auto-detect which tools you're using:
 
-> "Before editing files, call `analyze_file` to check for hidden dependencies."
+```bash
+memoria init
+# Detected: Cursor, Claude Code
+# Installing Memoria rules...
+#   ✓ Created .cursor/rules/memoria.mdc
+#   ✓ Appended to .claude/CLAUDE.md (preserved existing content)
+# ✓ Installed/updated 2 rule file(s)
+```
 
 Now Memoria acts as a **mandatory safety guard** for every edit.
 

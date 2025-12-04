@@ -5,10 +5,12 @@
 	"type": "module",
 	"main": "dist/index.js",
 	"bin": {
-		"memoria": "dist/index.js"
+		"memoria": "dist/cli.js",
+		"memoria-server": "dist/index.js"
 	},
 	"files": [
 		"dist",
+		"rules",
 		"README.md",
 		"LICENSE"
 	],
