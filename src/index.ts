@@ -50,8 +50,27 @@ const MemoriaConfigSchema = z
 
 export type MemoriaConfig = z.infer<typeof MemoriaConfigSchema>;
 
-// Export configSchema for Smithery (without strict to allow empty config)
-export const configSchema = z.object({}).optional().describe("Memoria configuration (optional)");
+// Export configSchema for Smithery
+export const configSchema = z.object({
+	couplingPercent: z
+		.number()
+		.min(0)
+		.max(100)
+		.default(15)
+		.describe("Minimum coupling percentage to report (0-100)"),
+	driftDays: z
+		.number()
+		.min(1)
+		.max(365)
+		.default(7)
+		.describe("Days before a coupled file is considered stale"),
+	analysisWindow: z
+		.number()
+		.min(10)
+		.max(500)
+		.default(50)
+		.describe("Number of commits to analyze for coupling"),
+});
 
 // Load and validate .memoria.json config file (cached)
 export async function loadConfig(
