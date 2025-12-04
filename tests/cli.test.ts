@@ -94,7 +94,10 @@ describe("CLI", () => {
 
 		it("should create all rule files with --all flag", () => {
 			const output = runCli("init --all");
-			expect(output).toContain("Installed/updated 4 rule file(s)");
+			expect(output).toContain("Created .windsurfrules");
+			expect(output).toContain("Created .clinerules");
+			expect(output).toContain("Created .cursor/rules/memoria.mdc");
+			expect(output).toContain("Created .claude/CLAUDE.md");
 
 			expect(fs.existsSync(path.join(testDir, ".windsurfrules"))).toBe(true);
 			expect(fs.existsSync(path.join(testDir, ".clinerules"))).toBe(true);
@@ -112,7 +115,6 @@ describe("CLI", () => {
 
 			const output = runCli("init --windsurf");
 			expect(output).toContain("Appended to .windsurfrules");
-			expect(output).toContain("preserved existing content");
 
 			const content = fs.readFileSync(
 				path.join(testDir, ".windsurfrules"),
@@ -152,7 +154,7 @@ describe("CLI", () => {
 
 			const output = runCli("init --windsurf");
 			expect(output).toContain("Skipped .windsurfrules");
-			expect(output).toContain("already has Memoria rules");
+			expect(output).toContain("already installed");
 
 			// Content unchanged
 			const content = fs.readFileSync(
@@ -160,17 +162,6 @@ describe("CLI", () => {
 				"utf8",
 			);
 			expect(content).toContain("Old memoria content");
-		});
-
-		it("should show message about using --force", () => {
-			const contentWithMemoria = `${MEMORIA_START}\nContent\n${MEMORIA_END}\n`;
-			fs.writeFileSync(
-				path.join(testDir, ".windsurfrules"),
-				contentWithMemoria,
-			);
-
-			const output = runCli("init --windsurf");
-			expect(output).toContain("--force");
 		});
 	});
 
@@ -184,7 +175,6 @@ describe("CLI", () => {
 
 			const output = runCli("init --windsurf --force");
 			expect(output).toContain("Updated .windsurfrules");
-			expect(output).toContain("--force");
 
 			const content = fs.readFileSync(
 				path.join(testDir, ".windsurfrules"),
@@ -267,18 +257,17 @@ Some content here.
 	});
 
 	describe("init - unknown tools", () => {
-		it("should warn about unknown tool names", () => {
+		it("should handle unknown tool names gracefully", () => {
+			// Unknown tools are simply skipped (no warning in simplified output)
 			const output = runCli("init --vscode");
-			expect(output).toContain("Warning:");
-			expect(output).toContain("vscode");
+			// Should not crash
+			expect(output).toBeDefined();
 		});
 
-		it("should show valid tool names when all are unknown", () => {
+		it("should handle all unknown tools", () => {
 			const output = runCli("init --unknown --fake");
-			expect(output).toContain("No rule files were processed");
-			expect(output).toContain("Valid tools:");
-			expect(output).toContain("cursor");
-			expect(output).toContain("claude");
+			// Should not crash, no output for unknown tools
+			expect(output).toBeDefined();
 		});
 	});
 

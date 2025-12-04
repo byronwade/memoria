@@ -2,6 +2,7 @@
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -37,18 +38,87 @@ const RULES: Record<string, { src: string; dest: string; name: string }> = {
 	},
 };
 
+// MCP config file locations
+interface McpConfig {
+	getPath: (cwd: string) => string;
+	name: string;
+	scope: "project" | "global";
+	detect: (cwd: string) => boolean;
+}
+
+const MCP_CONFIGS: Record<string, McpConfig> = {
+	cursor: {
+		getPath: (cwd: string) => path.join(cwd, ".cursor", "mcp.json"),
+		name: "Cursor",
+		scope: "project",
+		detect: (cwd: string) =>
+			fs.existsSync(path.join(cwd, ".cursor")) ||
+			fs.existsSync(path.join(cwd, ".cursorrules")),
+	},
+	"claude-desktop": {
+		getPath: () =>
+			process.platform === "win32"
+				? path.join(
+						process.env.APPDATA || "",
+						"Claude",
+						"claude_desktop_config.json",
+					)
+				: path.join(
+						os.homedir(),
+						"Library",
+						"Application Support",
+						"Claude",
+						"claude_desktop_config.json",
+					),
+		name: "Claude Desktop",
+		scope: "global",
+		detect: () => {
+			const configPath =
+				process.platform === "win32"
+					? path.join(
+							process.env.APPDATA || "",
+							"Claude",
+							"claude_desktop_config.json",
+						)
+					: path.join(
+							os.homedir(),
+							"Library",
+							"Application Support",
+							"Claude",
+							"claude_desktop_config.json",
+						);
+			// Check if Claude Desktop directory exists
+			return fs.existsSync(path.dirname(configPath));
+		},
+	},
+	windsurf: {
+		getPath: () =>
+			path.join(os.homedir(), ".codeium", "windsurf", "mcp_config.json"),
+		name: "Windsurf",
+		scope: "global",
+		detect: () => fs.existsSync(path.join(os.homedir(), ".codeium", "windsurf")),
+	},
+};
+
+// Memoria MCP server entry
+const MEMORIA_MCP_ENTRY = {
+	command: "npx",
+	args: ["-y", "@byronwade/memoria"],
+};
+
 function printHelp() {
 	console.log(`
 Memoria - The Memory Your AI Lacks
 
 Usage:
-  memoria                   Start MCP server (for AI tool configs)
+  memoria                   Interactive setup (recommended)
   memoria init [options]    Install AI tool rules in your project
-  memoria serve             Explicitly start MCP server
+  memoria serve             Start MCP server
 
 Commands:
+  (no args)  Interactive setup with checkboxes
   init       Install Memoria rules for AI tools
-  serve      Start the MCP server (same as running with no args)
+  serve      Start the MCP server
 
 Init Options:
   --cursor     Install Cursor rules (.cursor/rules/memoria.mdc)
@@ -59,14 +129,8 @@ Init Options:
   --force      Update existing Memoria rules (default: skip if already installed)
   --help       Show this help message
 
-Behavior:
-  - New files: Creates file with Memoria rules
-  - Existing files without Memoria: Appends Memoria rules (preserves your content)
-  - Existing files with Memoria: Skips (use --force to update)
-
 Examples:
-  memoria                   Run as MCP server (for npx -y @byronwade/memoria)
-  memoria init              Auto-detect and install rules for detected tools
+  memoria                   Interactive setup
   memoria init --cursor     Install only Cursor rules
   memoria init --all        Install all rule files
 `);
@@ -75,7 +139,6 @@ Examples:
 function detectTools(cwd: string): string[] {
 	const detected: string[] = [];
 
-	// Check for tool-specific directories/files
 	if (
 		fs.existsSync(path.join(cwd, ".cursor")) ||
 		fs.existsSync(path.join(cwd, ".cursorrules"))
@@ -85,20 +148,28 @@ function detectTools(cwd: string): string[] {
 	if (fs.existsSync(path.join(cwd, ".claude"))) {
 		detected.push("claude");
 	}
-	// Windsurf and Cline don't have clear detection markers, so we skip auto-detect for them
+
+	return detected;
+}
+
+function detectMcpConfigs(cwd: string): string[] {
+	const detected: string[] = [];
+
+	for (const [key, config] of Object.entries(MCP_CONFIGS)) {
+		if (config.detect(cwd)) {
+			detected.push(key);
+		}
+	}
 
 	return detected;
 }
 
 type InstallResult = "created" | "appended" | "updated" | "skipped";
 
-// Check if file is an MDC file (Cursor format with YAML frontmatter)
 function isMdcFile(filePath: string): boolean {
 	return filePath.endsWith(".mdc");
 }
 
-// Extract YAML frontmatter from MDC file content
-// Returns [frontmatter, rest] or [null, content] if no frontmatter
 function extractFrontmatter(content: string): [string | null, string] {
 	if (!content.startsWith("---")) {
 		return [null, content];
@@ -107,7 +178,7 @@ function extractFrontmatter(content: string): [string | null, string] {
 	if (endMatch === -1) {
 		return [null, content];
 	}
-	const frontmatter = content.slice(0, endMatch + 4); // Include closing ---
+	const frontmatter = content.slice(0, endMatch + 4);
 	const rest = content.slice(endMatch + 4);
 	return [frontmatter, rest];
 }
@@ -120,13 +191,10 @@ function installRule(
 	const srcContent = fs.readFileSync(srcPath, "utf8");
 	const isMdc = isMdcFile(destPath);
 
-	// For MDC files, we need to preserve YAML frontmatter at the top
-	// So we wrap only the content after frontmatter
 	let wrappedContent: string;
 	if (isMdc) {
 		const [frontmatter, body] = extractFrontmatter(srcContent);
 		if (frontmatter) {
-			// Wrap only the body, keep frontmatter at top
 			wrappedContent = `${frontmatter}\n${MEMORIA_START}\n${body}\n${MEMORIA_END}\n`;
 		} else {
 			wrappedContent = `${MEMORIA_START}\n${srcContent}\n${MEMORIA_END}\n`;
@@ -135,14 +203,12 @@ function installRule(
 		wrappedContent = `${MEMORIA_START}\n${srcContent}\n${MEMORIA_END}\n`;
 	}
 
-	// Create destination directory if needed
 	const destDir = path.dirname(destPath);
 	if (!fs.existsSync(destDir)) {
 		fs.mkdirSync(destDir, { recursive: true });
 	}
 
 	if (!fs.existsSync(destPath)) {
-		// New file - create with markers
 		fs.writeFileSync(destPath, wrappedContent);
 		return "created";
 	}
@@ -151,7 +217,6 @@ function installRule(
 
 	if (existingContent.includes(MEMORIA_START)) {
 		if (force) {
-			// Replace existing Memoria section
 			const updated = existingContent.replace(
 				/<!-- MEMORIA:START -->[\s\S]*?<!-- MEMORIA:END -->\n?/,
 				`${MEMORIA_START}\n${isMdc ? extractFrontmatter(srcContent)[1] : srcContent}\n${MEMORIA_END}\n`,
@@ -162,8 +227,6 @@ function installRule(
 		return "skipped";
 	}
 
-	// Append to existing file (preserves user content)
-	// For MDC files with frontmatter, insert after the frontmatter
 	if (isMdc) {
 		const [frontmatter, body] = extractFrontmatter(existingContent);
 		if (frontmatter) {
@@ -173,24 +236,20 @@ function installRule(
 		}
 	}
 
-	// Standard append for non-MDC or MDC without frontmatter
 	const separator = existingContent.endsWith("\n") ? "\n" : "\n\n";
 	fs.writeFileSync(destPath, existingContent + separator + wrappedContent);
 	return "appended";
 }
 
 function installRules(tools: string[], cwd: string, force: boolean): void {
-	// Find the rules directory (relative to the compiled CLI or development source)
 	let rulesDir = path.join(__dirname, "../rules");
 
-	// In development, rules might be at repo root
 	if (!fs.existsSync(rulesDir)) {
 		rulesDir = path.join(__dirname, "../../rules");
 	}
 
 	if (!fs.existsSync(rulesDir)) {
 		console.error("Error: Could not find rules directory");
-		console.error("Expected at:", rulesDir);
 		process.exit(1);
 	}
 
@@ -203,76 +262,100 @@ function installRules(tools: string[], cwd: string, force: boolean): void {
 
 	for (const tool of tools) {
 		const rule = RULES[tool];
-		if (!rule) {
-			console.warn(`Warning: Unknown tool "${tool}", skipping`);
-			continue;
-		}
+		if (!rule) continue;
 
 		const srcPath = path.join(rulesDir, rule.src);
 		const destPath = path.join(cwd, rule.dest);
 
-		if (!fs.existsSync(srcPath)) {
-			console.warn(`Warning: Rule file not found for ${rule.name}, skipping`);
-			continue;
-		}
+		if (!fs.existsSync(srcPath)) continue;
 
 		const result = installRule(srcPath, destPath, force);
 		results[result].push(rule.dest);
 
-		// Print action taken
 		switch (result) {
 			case "created":
 				console.log(`  ✓ Created ${rule.dest}`);
 				break;
 			case "appended":
-				console.log(
-					`  ✓ Appended to ${rule.dest} (preserved existing content)`,
-				);
+				console.log(`  ✓ Appended to ${rule.dest}`);
 				break;
 			case "updated":
-				console.log(`  ✓ Updated ${rule.dest} (--force)`);
+				console.log(`  ✓ Updated ${rule.dest}`);
 				break;
 			case "skipped":
-				console.log(`  ⊘ Skipped ${rule.dest} (already has Memoria rules)`);
+				console.log(`  ⊘ Skipped ${rule.dest} (already installed)`);
 				break;
 		}
 	}
+}
 
-	// Summary
-	const totalInstalled =
-		results.created.length + results.appended.length + results.updated.length;
-	const totalProcessed = totalInstalled + results.skipped.length;
+type McpInstallResult = "created" | "added" | "exists" | "error";
 
-	console.log("");
+function installMcpConfig(configKey: string, cwd: string): McpInstallResult {
+	const config = MCP_CONFIGS[configKey];
+	if (!config) return "error";
 
-	if (totalProcessed === 0) {
-		console.log(
-			"⚠ No rule files were processed. Check that the tool names are correct.",
-		);
-		console.log("Valid tools: cursor, claude, windsurf, cline");
-		return;
+	const configPath = config.getPath(cwd);
+
+	try {
+		const configDir = path.dirname(configPath);
+		if (!fs.existsSync(configDir)) {
+			fs.mkdirSync(configDir, { recursive: true });
+		}
+
+		let existingConfig: Record<string, unknown> = {};
+		if (fs.existsSync(configPath)) {
+			const content = fs.readFileSync(configPath, "utf8");
+			existingConfig = JSON.parse(content);
+		}
+
+		// Check if memoria is already configured
+		const mcpServers =
+			(existingConfig.mcpServers as Record<string, unknown>) || {};
+		if (mcpServers.memoria) {
+			return "exists";
+		}
+
+		// Add memoria to mcpServers
+		existingConfig.mcpServers = {
+			...mcpServers,
+			memoria: MEMORIA_MCP_ENTRY,
+		};
+
+		fs.writeFileSync(configPath, JSON.stringify(existingConfig, null, 2));
+
+		return fs.existsSync(configPath) ? "added" : "created";
+	} catch {
+		return "error";
 	}
+}
 
-	if (totalInstalled > 0) {
-		console.log(`✓ Installed/updated ${totalInstalled} rule file(s)`);
-		console.log(
-			"\nMemoria will now guide your AI to check for hidden dependencies before editing files.",
-		);
-	} else if (results.skipped.length > 0) {
-		console.log("All rule files already installed.");
-	}
+function installMcpConfigs(configKeys: string[], cwd: string): void {
+	for (const key of configKeys) {
+		const config = MCP_CONFIGS[key];
+		if (!config) continue;
 
-	if (results.skipped.length > 0 && totalInstalled > 0) {
-		console.log(
-			`\nℹ ${results.skipped.length} file(s) skipped (use --force to update existing rules)`,
-		);
-	} else if (results.skipped.length > 0 && totalInstalled === 0) {
-		console.log(`\nUse --force to update existing Memoria rules.`);
+		const result = installMcpConfig(key, cwd);
+		const configPath = config.getPath(cwd);
+		const displayPath =
+			config.scope === "global" ? configPath : path.relative(cwd, configPath);
+
+		switch (result) {
+			case "created":
+			case "added":
+				console.log(`  ✓ Added to ${displayPath}`);
+				break;
+			case "exists":
+				console.log(`  ⊘ Already in ${displayPath}`);
+				break;
+			case "error":
+				console.log(`  ✗ Failed: ${displayPath}`);
+				break;
+		}
 	}
 }
 
 function runServer(): void {
-	// Run the MCP server (for npx/MCP config compatibility)
 	const serverPath = path.join(__dirname, "index.js");
 	const child = spawn(process.execPath, [serverPath], {
 		stdio: "inherit",
@@ -289,63 +372,164 @@ function runServer(): void {
 	});
 }
 
-function showInteractiveMenu(cwd: string): void {
-	const detected = detectTools(cwd);
+interface CheckboxOption {
+	id: string;
+	label: string;
+	description: string;
+	selected: boolean;
+}
 
-	console.log(`
+function showCheckboxMenu(
+	cwd: string,
+	options: CheckboxOption[],
+	onComplete: (selected: string[]) => void,
+): void {
+	let currentIndex = 0;
+
+	const render = () => {
+		// Clear screen and move cursor to top
+		process.stdout.write("\x1B[2J\x1B[H");
+
+		console.log(`
 ┌─────────────────────────────────────────────────────────────┐
 │  Memoria - The Memory Your AI Lacks                        │
 └─────────────────────────────────────────────────────────────┘
+
+  Use ↑/↓ to navigate, Space to toggle, Enter to confirm, q to quit
 `);
 
-	if (detected.length > 0) {
-		console.log(
-			`  Detected AI tools: ${detected.map((t) => RULES[t]?.name).join(", ")}\n`,
-		);
-	}
+		for (let i = 0; i < options.length; i++) {
+			const opt = options[i];
+			const checkbox = opt.selected ? "[x]" : "[ ]";
+			const cursor = i === currentIndex ? ">" : " ";
+			const highlight = i === currentIndex ? "\x1B[36m" : "\x1B[0m"; // Cyan for selected
+			const reset = "\x1B[0m";
 
-	console.log(`  What would you like to do?
-
-  1. Install AI tool rules ${detected.length > 0 ? `(for ${detected.map((t) => RULES[t]?.name).join(", ")})` : "(--all)"}
-  2. Start MCP server (for manual testing)
-  3. Show help
-  4. Exit
-`);
-
-	const rl = readline.createInterface({
-		input: process.stdin,
-		output: process.stdout,
-	});
-
-	rl.question("  Enter choice (1-4): ", (answer) => {
-		rl.close();
-		console.log("");
-
-		switch (answer.trim()) {
-			case "1":
-				console.log("Installing Memoria rules...\n");
-				if (detected.length > 0) {
-					installRules(detected, cwd, false);
-				} else {
-					// No tools detected - install all
-					console.log(
-						"No AI tools detected. Installing rules for all supported tools.\n",
-					);
-					installRules(Object.keys(RULES), cwd, false);
-				}
-				break;
-			case "2":
-				console.log("Starting MCP server (Ctrl+C to stop)...\n");
-				runServer();
-				break;
-			case "3":
-				printHelp();
-				break;
-			case "4":
-			default:
-				console.log("Goodbye!");
-				process.exit(0);
+			console.log(`  ${cursor} ${highlight}${checkbox} ${opt.label}${reset}`);
+			console.log(`      ${opt.description}`);
+			console.log();
 		}
+
+		console.log("  ─────────────────────────────────────────────────────────");
+		const selectedCount = options.filter((o) => o.selected).length;
+		console.log(
+			`\n  ${selectedCount} item(s) selected. Press Enter to install.\n`,
+		);
+	};
+
+	// Enable raw mode for keyboard input
+	if (process.stdin.isTTY) {
+		process.stdin.setRawMode(true);
+	}
+	process.stdin.resume();
+
+	render();
+
+	process.stdin.on("data", (key: Buffer) => {
+		const keyStr = key.toString();
+
+		// q or Ctrl+C to quit
+		if (keyStr === "q" || keyStr === "\x03") {
+			process.stdout.write("\x1B[0m"); // Reset colors
+			console.log("\n  Cancelled.\n");
+			process.exit(0);
+		}
+
+		// Enter to confirm
+		if (keyStr === "\r" || keyStr === "\n") {
+			process.stdin.setRawMode(false);
+			process.stdin.pause();
+			process.stdout.write("\x1B[0m"); // Reset colors
+			const selected = options.filter((o) => o.selected).map((o) => o.id);
+			onComplete(selected);
+			return;
+		}
+
+		// Space to toggle
+		if (keyStr === " ") {
+			options[currentIndex].selected = !options[currentIndex].selected;
+			render();
+			return;
+		}
+
+		// Arrow keys
+		if (keyStr === "\x1B[A" || keyStr === "k") {
+			// Up
+			currentIndex = (currentIndex - 1 + options.length) % options.length;
+			render();
+		} else if (keyStr === "\x1B[B" || keyStr === "j") {
+			// Down
+			currentIndex = (currentIndex + 1) % options.length;
+			render();
+		}
+	});
+}
+
+function showInteractiveMenu(cwd: string): void {
+	const detectedTools = detectTools(cwd);
+	const detectedMcpConfigs = detectMcpConfigs(cwd);
+
+	// Build description strings
+	const mcpConfigNames = detectedMcpConfigs
+		.map((k) => MCP_CONFIGS[k]?.name)
+		.filter(Boolean);
+	const ruleToolNames = detectedTools
+		.map((k) => RULES[k]?.name)
+		.filter(Boolean);
+
+	const mcpDescription =
+		mcpConfigNames.length > 0
+			? `Will add to: ${mcpConfigNames.join(", ")}`
+			: "No MCP configs detected - will create for Cursor";
+
+	const rulesDescription =
+		ruleToolNames.length > 0
+			? `Will install for: ${ruleToolNames.join(", ")}`
+			: "Will install for all supported tools";
+
+	const options: CheckboxOption[] = [
+		{
+			id: "mcp",
+			label: "Install MCP server config",
+			description: mcpDescription,
+			selected: true,
+		},
+		{
+			id: "rules",
+			label: "Install AI tool rules",
+			description: rulesDescription,
+			selected: true,
+		},
+	];
+
+	showCheckboxMenu(cwd, options, (selected) => {
+		console.log("\n");
+
+		if (selected.length === 0) {
+			console.log("  Nothing selected. Goodbye!\n");
+			process.exit(0);
+		}
+
+		if (selected.includes("mcp")) {
+			console.log("  Installing MCP server configs...\n");
+			const configs =
+				detectedMcpConfigs.length > 0 ? detectedMcpConfigs : ["cursor"];
+			installMcpConfigs(configs, cwd);
+			console.log();
+		}
+
+		if (selected.includes("rules")) {
+			console.log("  Installing AI tool rules...\n");
+			const tools =
+				detectedTools.length > 0 ? detectedTools : Object.keys(RULES);
+			installRules(tools, cwd, false);
+			console.log();
+		}
+
+		console.log("  ✓ Done! Memoria is ready to use.\n");
+		console.log(
+			"  Your AI will now check for hidden dependencies before editing files.\n",
+		);
 	});
 }
 
@@ -356,11 +540,9 @@ function main() {
 	// No arguments - check if interactive terminal vs MCP client
 	if (args.length === 0) {
 		if (process.stdin.isTTY && process.stdout.isTTY) {
-			// Interactive terminal - show menu
 			showInteractiveMenu(cwd);
 			return;
 		}
-		// Non-interactive (MCP client) - start server silently
 		runServer();
 		return;
 	}
@@ -380,8 +562,7 @@ function main() {
 	// Check for init command
 	if (args[0] !== "init") {
 		console.error(`Unknown command: ${args[0]}`);
-		console.log('Run "memoria init --help" for usage');
-		console.log('Run "memoria" (no args) to start the MCP server');
+		console.log('Run "memoria --help" for usage');
 		process.exit(1);
 	}
 
@@ -389,22 +570,17 @@ function main() {
 	const flags = args.slice(1).filter((a) => a.startsWith("--"));
 	const force = flags.includes("--force");
 
-	// Filter out non-tool flags for tool selection
 	const toolFlags = flags.filter((f) => f !== "--force" && f !== "--all");
 	let tools: string[] = [];
 
 	if (flags.includes("--all")) {
 		tools = Object.keys(RULES);
 	} else if (toolFlags.length > 0) {
-		tools = toolFlags.map((f) => f.slice(2)); // Remove "--" prefix
+		tools = toolFlags.map((f) => f.slice(2));
 	} else {
-		// Auto-detect
 		tools = detectTools(cwd);
 		if (tools.length === 0) {
-			console.log("No AI tools detected in current directory.");
-			console.log(
-				"Use --cursor, --claude, --windsurf, --cline, or --all to specify which rules to install.",
-			);
+			console.log("No AI tools detected. Use --all or specify tools.");
 			process.exit(0);
 		}
 		console.log(
