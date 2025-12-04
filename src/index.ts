@@ -50,8 +50,8 @@ const MemoriaConfigSchema = z
 
 export type MemoriaConfig = z.infer<typeof MemoriaConfigSchema>;
 
-// Export configSchema for Smithery
-export const configSchema = MemoriaConfigSchema;
+// Export configSchema for Smithery (without strict to allow empty config)
+export const configSchema = z.object({}).optional().describe("Memoria configuration (optional)");
 
 // Load and validate .memoria.json config file (cached)
 export async function loadConfig(
@@ -2046,7 +2046,7 @@ export function generateAiInstructions(
 }
 
 // --- SERVER FACTORY (for Smithery) ---
-export default function createServer() {
+export default function createServer(_options?: { config?: Record<string, unknown> }) {
 	const server = new Server(
 		{ name: "memoria", version: "1.0.0" },
 		{ capabilities: { tools: {}, prompts: {}, resources: {} } },
@@ -2191,8 +2191,31 @@ function setupServer(server: Server): Server {
 
 				return { content: [{ type: "text", text: report }] };
 			} catch (error: any) {
+				// Check for common git-related errors
+				const errorMsg = error.message || String(error);
+				const isGitError =
+					errorMsg.includes("not a git repository") ||
+					errorMsg.includes("Cannot find git root") ||
+					errorMsg.includes("git") && errorMsg.includes("fatal");
+
+				if (isGitError) {
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`⚠️ **Git Repository Required**\n\n` +
+									`This file is not inside a git repository. Memoria requires git history to analyze file dependencies and risks.\n\n` +
+									`**To use Memoria:**\n` +
+									`1. Navigate to a directory that is a git repository\n` +
+									`2. Provide the absolute path to a file within that repository`,
+							},
+						],
+					};
+				}
+
 				return {
-					content: [{ type: "text", text: `Analysis Error: ${error.message}` }],
+					content: [{ type: "text", text: `Analysis Error: ${errorMsg}` }],
 					isError: true,
 				};
 			}
@@ -2293,9 +2316,32 @@ function setupServer(server: Server): Server {
 
 				return { content: [{ type: "text", text: report }] };
 			} catch (error: any) {
+				// Check for common git-related errors
+				const errorMsg = error.message || String(error);
+				const isGitError =
+					errorMsg.includes("not a git repository") ||
+					errorMsg.includes("Cannot find git root") ||
+					errorMsg.includes("git") && errorMsg.includes("fatal");
+
+				if (isGitError) {
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`⚠️ **Git Repository Required**\n\n` +
+									`This operation requires a git repository. Memoria searches git history to find why code was written.\n\n` +
+									`**To use Memoria:**\n` +
+									`1. Run this command from within a git repository\n` +
+									`2. Or provide a path to a file inside a git repository`,
+							},
+						],
+					};
+				}
+
 				return {
 					content: [
-						{ type: "text", text: `History Search Error: ${error.message}` },
+						{ type: "text", text: `History Search Error: ${errorMsg}` },
 					],
 					isError: true,
 				};
