@@ -11,6 +11,67 @@ An MCP server that prevents your AI from breaking code by revealing hidden file 
 
 ---
 
+## ⚡ Quick Install
+
+### One-Click Install (Smithery)
+
+<a href="https://smithery.ai/server/@byronwade/memoria"><img src="https://smithery.ai/badge/@byronwade/memoria" alt="Smithery - Install Memoria" height="28" /></a>
+
+Click the badge above to install Memoria with one click via Smithery.
+
+### Quick Copy-Paste Config
+
+Add this to your MCP config file (works with Claude, Cursor, Windsurf, Cline):
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "npx",
+      "args": ["-y", "@byronwade/memoria"]
+    }
+  }
+}
+```
+
+### Terminal One-Liners
+
+| Tool | Command |
+|------|---------|
+| **Claude Code** | `claude mcp add memoria -- npx -y @byronwade/memoria` |
+| **Claude Desktop** | `npx @anthropic/claude-code mcp add memoria -- npx -y @byronwade/memoria` |
+| **Cursor** | `mkdir -p .cursor && echo '{"mcpServers":{"memoria":{"command":"npx","args":["-y","@byronwade/memoria"]}}}' > .cursor/mcp.json` |
+| **npm global** | `npm install -g @byronwade/memoria` |
+
+<details>
+<summary><strong>🪟 Windows PowerShell Install</strong></summary>
+
+```powershell
+# Claude Desktop
+$config = "$env:APPDATA\Claude\claude_desktop_config.json"
+$json = if(Test-Path $config){Get-Content $config | ConvertFrom-Json}else{@{}}
+$json.mcpServers = @{memoria=@{command="npx";args=@("-y","@byronwade/memoria")}}
+$json | ConvertTo-Json -Depth 10 | Set-Content $config
+```
+
+</details>
+
+<details>
+<summary><strong>🍎 macOS Manual Install</strong></summary>
+
+```bash
+# Claude Desktop (requires jq: brew install jq)
+echo '{"mcpServers":{"memoria":{"command":"npx","args":["-y","@byronwade/memoria"]}}}' | \
+  jq -s '.[0] * .[1]' ~/Library/Application\ Support/Claude/claude_desktop_config.json - > tmp.json && \
+  mv tmp.json ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+</details>
+
+**Then restart your AI tool. That's it!**
+
+---
+
 ## Why Memoria?
 
 You ask your AI to refactor a file. It does a perfect job. You run your app. **It crashes.**
@@ -45,10 +106,67 @@ Your code never leaves your computer.
 
 ## Installation
 
-### Claude Desktop
+Choose your AI tool:
 
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+| Tool | One-Liner | Config File |
+|------|-----------|-------------|
+| ![Claude](https://img.shields.io/badge/Claude_Desktop-cc785c?style=flat-square&logo=anthropic&logoColor=white) | `npx @anthropic/claude-code mcp add memoria -- npx -y @byronwade/memoria` | See below |
+| ![Claude Code](https://img.shields.io/badge/Claude_Code-cc785c?style=flat-square&logo=anthropic&logoColor=white) | `claude mcp add memoria -- npx -y @byronwade/memoria` | Automatic |
+| ![Cursor](https://img.shields.io/badge/Cursor-000?style=flat-square&logo=cursor&logoColor=white) | `mkdir -p .cursor && echo '{"mcpServers":{"memoria":{"command":"npx","args":["-y","@byronwade/memoria"]}}}' > .cursor/mcp.json` | `.cursor/mcp.json` |
+| ![Windsurf](https://img.shields.io/badge/Windsurf-0ea5e9?style=flat-square&logo=codeium&logoColor=white) | Manual config | `~/.codeium/windsurf/mcp_config.json` |
+| ![VS Code](https://img.shields.io/badge/Continue-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white) | Manual config | `~/.continue/config.json` |
+| ![Cline](https://img.shields.io/badge/Cline-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white) | Settings UI | Cline MCP Settings |
+
+---
+
+<details>
+<summary><strong>📦 Claude Desktop</strong></summary>
+
+**Config location:**
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+**Option 1: Claude Code CLI (Recommended)**
+```bash
+npx @anthropic/claude-code mcp add memoria -- npx -y @byronwade/memoria
+```
+
+**Option 2: Manual config**
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "npx",
+      "args": ["-y", "@byronwade/memoria"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>📦 Claude Code (CLI)</strong></summary>
+
+```bash
+claude mcp add memoria -- npx -y @byronwade/memoria
+```
+
+Done! Claude Code handles everything automatically.
+
+</details>
+
+<details>
+<summary><strong>📦 Cursor</strong></summary>
+
+**One-liner (project-level):**
+```bash
+mkdir -p .cursor && echo '{"mcpServers":{"memoria":{"command":"npx","args":["-y","@byronwade/memoria"]}}}' > .cursor/mcp.json
+```
+
+**Config locations:**
+- Project: `.cursor/mcp.json` (in project root)
+- Global: `~/.cursor/mcp.json`
 
 ```json
 {
@@ -61,23 +179,10 @@ Your code never leaves your computer.
 }
 ```
 
-### Cursor
+</details>
 
-**Project:** `.cursor/mcp.json` (in project root)
-**Global:** `~/.cursor/mcp.json`
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "npx",
-      "args": ["-y", "@byronwade/memoria"]
-    }
-  }
-}
-```
-
-### Windsurf
+<details>
+<summary><strong>📦 Windsurf</strong></summary>
 
 **Config:** `~/.codeium/windsurf/mcp_config.json`
 
@@ -92,7 +197,10 @@ Your code never leaves your computer.
 }
 ```
 
-### Continue (VS Code)
+</details>
+
+<details>
+<summary><strong>📦 Continue (VS Code)</strong></summary>
 
 **Config:** `~/.continue/config.json`
 
@@ -112,7 +220,10 @@ Your code never leaves your computer.
 }
 ```
 
-### Cline (VS Code)
+</details>
+
+<details>
+<summary><strong>📦 Cline (VS Code)</strong></summary>
 
 Open Cline settings → MCP Servers → Add new server:
 
@@ -127,9 +238,12 @@ Open Cline settings → MCP Servers → Add new server:
 }
 ```
 
-### Other MCP Clients
+</details>
 
-Any MCP-compatible client works. Use this config:
+<details>
+<summary><strong>📦 Other MCP Clients</strong></summary>
+
+Any MCP-compatible client works. Use this universal config:
 
 ```json
 {
@@ -142,7 +256,25 @@ Any MCP-compatible client works. Use this config:
 }
 ```
 
-**After configuring, restart your AI tool.**
+</details>
+
+**⚠️ After configuring, restart your AI tool.**
+
+### Verify Installation
+
+After restarting, ask your AI:
+
+```
+"What MCP tools do you have available?"
+```
+
+You should see `analyze_file` and `ask_history` in the list.
+
+Or test directly:
+
+```
+"Use the analyze_file tool on any file in this project"
+```
 
 ---
 
@@ -342,6 +474,65 @@ npm install
 npm run build
 npm test        # 294 tests
 ```
+
+---
+
+## Troubleshooting
+
+<details>
+<summary><strong>❌ "Tool not found" or "analyze_file not available"</strong></summary>
+
+1. **Restart your AI tool** - MCP servers only load on startup
+2. **Check config syntax** - JSON must be valid (no trailing commas)
+3. **Verify Node.js 18+** - Run `node --version` to check
+4. **Check file path** - Config file must be in the exact location for your tool
+
+</details>
+
+<details>
+<summary><strong>❌ "Not a git repository"</strong></summary>
+
+Memoria requires a git repository with history. Make sure:
+1. You're in a git repo (`git status` should work)
+2. The repo has at least a few commits
+3. You're passing an **absolute path** to `analyze_file`
+
+</details>
+
+<details>
+<summary><strong>❌ npx is slow or times out</strong></summary>
+
+Install globally for faster startup:
+```bash
+npm install -g @byronwade/memoria
+```
+
+Then update your config to use `memoria` directly:
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "memoria"
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>❌ Windows path issues</strong></summary>
+
+Use forward slashes or escaped backslashes in paths:
+```json
+"args": ["-y", "@byronwade/memoria"]
+```
+
+If issues persist, install globally and use the command directly.
+
+</details>
+
+**Still stuck?** [Open an issue](https://github.com/byronwade/memoria/issues) with your config and error message.
 
 ---
 
