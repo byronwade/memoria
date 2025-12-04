@@ -855,6 +855,10 @@ export async function getCoupledFiles(
 		});
 		if (log.total === 0) return [];
 
+		// Cold start filter: fewer than 3 commits means coupling data is statistically noise
+		// (e.g., "coupled to .gitignore" on initial commit is true but useless)
+		if (log.total < 3) return [];
+
 		// Track both count AND the most recent commit info
 		const couplingMap: Record<
 			string,
@@ -2061,14 +2065,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		{
 			name: "ask_history",
 			description:
-				"Search git history for WHY code was written. Use when asking 'why does this exist?' or before removing code.",
+				"Search git history for WHY code was written. IMPORTANT: Use SHORT, SPECIFIC KEYWORDS (e.g., 'serialization', 'race condition', 'timeout'). Do NOT use full sentences or long descriptions - they will return 0 results. Use when asking 'why does this exist?' or before removing code.",
 			inputSchema: {
 				type: "object",
 				properties: {
 					query: {
 						type: "string",
 						description:
-							"Keyword to search for in commit messages and code changes (e.g. 'setTimeout', 'authentication', 'workaround')",
+							"A single keyword or short phrase (1-3 words max). Examples: 'serialization', 'race condition', 'Safari fix'. Do NOT use full sentences - git grep requires exact matches.",
 					},
 					path: {
 						type: "string",
