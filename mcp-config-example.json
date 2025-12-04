@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "repo-forensics": {
+      "command": "node",
+      "args": ["C:\\Users\\bcw19\\OneDrive\\Desktop\\Memoria\\dist\\index.js"],
+      "cwd": "C:\\Users\\bcw19\\OneDrive\\Desktop\\Memoria"
+    }
+  }
+}
+
