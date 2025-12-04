@@ -1,6 +1,6 @@
 {
 	"name": "@byronwade/memoria",
-	"version": "1.0.4",
+	"version": "1.0.5",
 	"description": "The Memory Your AI Lacks - MCP server giving AI Senior Developer Intuition through git forensics",
 	"type": "module",
 	"main": "dist/index.js",
