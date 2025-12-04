@@ -45,6 +45,9 @@
 	"engines": {
 		"node": ">=18.0.0"
 	},
+	"knip": {
+		"ignore": ["benchmarks/**"]
+	},
 	"publishConfig": {
 		"access": "public"
 	},

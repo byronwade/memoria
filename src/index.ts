@@ -718,7 +718,8 @@ export async function getDiffSnippet(
 		const diff = await git.show([commitHash, "--", relativeFilePath]);
 
 		// Check for git's binary file marker in the output
-		if (diff.includes("Binary files") && diff.includes("differ")) {
+		// The marker format is "Binary files a/path and b/path differ" at start of line
+		if (/^Binary files .+ differ$/m.test(diff)) {
 			cache.set(cacheKey, "[Binary file]");
 			return "[Binary file]";
 		}
@@ -731,14 +732,14 @@ export async function getDiffSnippet(
 		const maxLength = 1000;
 		let result: string;
 		if (cleanDiff.length > maxLength) {
-			result = `${cleanDiff.slice(0, maxLength)}\n...(truncated)`;
+			result = cleanDiff.slice(0, maxLength) + "\n...(truncated)";
 		} else {
 			result = cleanDiff;
 		}
 
 		cache.set(cacheKey, result);
 		return result;
-	} catch (_e) {
+	} catch (e) {
 		// File might not exist in that commit, or other git errors
 		cache.set(cacheKey, "");
 		return "";

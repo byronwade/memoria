@@ -29,7 +29,8 @@
 			"Bash(npm test:*)",
 			"Bash(npx knip)",
 			"Bash(npx biome:*)",
-			"Bash(npx @biomejs/biome check:*)"
+			"Bash(npx @biomejs/biome check:*)",
+			"Bash(npx tsx:*)"
 		],
 		"deny": [],
 		"ask": []

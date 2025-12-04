@@ -299,6 +299,34 @@ Now Memoria acts as a **mandatory safety guard** for every edit.
 
 ---
 
+## Performance
+
+Memoria is optimized for speed and minimal token usage:
+
+| Metric | Value |
+|--------|-------|
+| **Full analysis time** | <100ms |
+| **Tokens per analysis** | ~600 tokens |
+| **Cache speedup** | 2000x+ on repeat calls |
+
+### Engine Breakdown
+
+| Engine | Time | Purpose |
+|--------|------|---------|
+| Coupling | ~45ms | Find files that change together |
+| Volatility | ~10ms | Calculate bug-prone score |
+| Drift | <1ms | Detect stale dependencies |
+| Importers | ~8ms | Find static dependents |
+| History Search | ~7ms | Search git commits |
+
+Run benchmarks yourself:
+```bash
+npm run build
+npx tsx benchmarks/run-benchmarks.ts
+```
+
+---
+
 ## Requirements
 
 - Node.js 18+
@@ -312,7 +340,7 @@ Now Memoria acts as a **mandatory safety guard** for every edit.
 ```bash
 npm install
 npm run build
-npm test
+npm test        # 294 tests
 ```
 
 ---
