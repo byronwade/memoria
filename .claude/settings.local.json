@@ -16,7 +16,17 @@
       "WebFetch(domain:www.npmjs.com)",
       "Bash(npm view:*)",
       "Bash(npm pack:*)",
-      "Bash(npx create-next-app@latest memoria-site --typescript --tailwind --eslint --app --src-dir --no-import-alias --turbopack)"
+      "Bash(npx create-next-app@latest memoria-site --typescript --tailwind --eslint --app --src-dir --no-import-alias --turbopack)",
+      "Bash(node test-server.js:*)",
+      "Bash(ls:*)",
+      "Bash(npm whoami:*)",
+      "Bash(npm publish:*)",
+      "Bash(node test-local.js:*)",
+      "Bash(node -e:*)",
+      "Bash(node --experimental-vm-modules -e:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(npm test:*)"
     ],
     "deny": [],
     "ask": []

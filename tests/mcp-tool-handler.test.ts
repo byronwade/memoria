@@ -48,7 +48,7 @@ describe("MCP Tool Handler", () => {
 			expect(report.length).toBeGreaterThan(0);
 		});
 
-		it("should produce report with all three sections", async () => {
+		it("should produce report with all sections", async () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 
 			const [volatility, coupled] = await Promise.all([
@@ -59,9 +59,10 @@ describe("MCP Tool Handler", () => {
 			const drift = await checkDrift(filePath, coupled);
 			const report = generateAiInstructions(filePath, volatility, coupled, drift);
 
-			// Should have Pre-Flight and Risk sections at minimum
+			// Should have Pre-Flight, Risk, and Volatility sections at minimum
 			expect(report).toContain("PRE-FLIGHT CHECKLIST");
-			expect(report).toContain("RISK ASSESSMENT");
+			expect(report).toContain("RISK:");
+			expect(report).toContain("VOLATILITY");
 		});
 
 		it("should include coupled files in report when they exist", async () => {
@@ -76,7 +77,7 @@ describe("MCP Tool Handler", () => {
 			const report = generateAiInstructions(filePath, volatility, coupled, drift);
 
 			if (coupled.length > 0) {
-				expect(report).toContain("DETECTIVE WORK REQUIRED");
+				expect(report).toContain("COUPLED FILES");
 				expect(report).toContain(coupled[0].file);
 			}
 		});
@@ -161,7 +162,7 @@ describe("MCP Tool Handler", () => {
 			expect(report).toContain("- [ ]");
 		});
 
-		it("should include system instructions for AI", async () => {
+		it("should include relationship instructions for AI", async () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 			const coupled = [
 				{
@@ -169,15 +170,22 @@ describe("MCP Tool Handler", () => {
 					score: 50,
 					reason: "shared logic",
 					lastHash: "abc123",
-					evidence: "some code",
+					evidence: {
+						additions: [],
+						removals: [],
+						hunks: 0,
+						netChange: 0,
+						hasBreakingChange: false,
+						changeType: 'schema' as const,
+					},
 				},
 			];
 
 			const volatility = await getVolatility(filePath);
 			const report = generateAiInstructions(filePath, volatility, coupled, []);
 
-			// Should contain system instruction for AI
-			expect(report).toContain("System Instruction");
+			// Should contain relationship-specific instructions for AI
+			expect(report).toContain("type definitions");
 		});
 	});
 

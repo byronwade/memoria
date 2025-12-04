@@ -171,34 +171,35 @@ describe("Diff Snippet (Evidence Bag)", () => {
 		});
 	});
 
-	describe("File Content Verification", () => {
-		it("should return actual file content, not diff format", async () => {
+	describe("Diff Format Verification", () => {
+		it("should return diff format showing what changed", async () => {
 			const log = await git.log({ file: "package.json", maxCount: 1 });
 			if (log.total === 0) return;
 
 			const commitHash = log.latest!.hash;
 			const result = await getDiffSnippet(projectRoot, "package.json", commitHash);
 
-			// package.json should start with { if it's actual content
+			// Diff format should start with "diff --git" after cleanup
 			if (result.length > 0) {
 				const trimmed = result.trim();
-				expect(trimmed.startsWith("{")).toBe(true);
+				expect(trimmed.startsWith("diff --git")).toBe(true);
 			}
 		});
 
-		it("should return complete file snapshot at that commit", async () => {
+		it("should show code changes with +/- markers", async () => {
 			const log = await git.log({ file: "src/index.ts", maxCount: 1 });
 			if (log.total === 0) return;
 
 			const commitHash = log.latest!.hash;
 			const result = await getDiffSnippet(projectRoot, "src/index.ts", commitHash);
 
-			// Should contain typical TypeScript patterns
+			// Diff should contain typical diff markers (+, -, @@)
 			if (result.length > 0) {
 				expect(
-					result.includes("import") ||
-						result.includes("export") ||
-						result.includes("function")
+					result.includes("@@") ||
+						result.includes("+") ||
+						result.includes("-") ||
+						result.includes("diff --git")
 				).toBe(true);
 			}
 		});

@@ -70,11 +70,11 @@ describe("Coupling Engine (Entanglement)", () => {
 		it("should cache results for subsequent calls", async () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 
-			// First call
+			// First call (no config = empty config key suffix)
 			const result1 = await getCoupledFiles(filePath);
 
-			// Verify it's in cache
-			const cacheKey = `coupling:${filePath}`;
+			// Verify it's in cache (cache key includes empty config suffix when no config)
+			const cacheKey = `coupling:${filePath}:`;
 			expect(cache.has(cacheKey)).toBe(true);
 
 			// Second call should return cached result
@@ -91,13 +91,27 @@ describe("Coupling Engine (Entanglement)", () => {
 		});
 	});
 
-	describe("Evidence Fetching", () => {
-		it("should include evidence (diff snippet) for coupled files", async () => {
+	describe("Evidence Fetching (Structured DiffSummary)", () => {
+		it("should include structured evidence for coupled files", async () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 			const result = await getCoupledFiles(filePath);
 
 			result.forEach((item) => {
-				expect(typeof item.evidence).toBe("string");
+				expect(typeof item.evidence).toBe("object");
+				expect(item.evidence).toHaveProperty("additions");
+				expect(item.evidence).toHaveProperty("removals");
+				expect(item.evidence).toHaveProperty("changeType");
+				expect(item.evidence).toHaveProperty("hasBreakingChange");
+			});
+		});
+
+		it("should classify change type for each coupled file", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getCoupledFiles(filePath);
+
+			const validChangeTypes = ['schema', 'api', 'config', 'import', 'test', 'style', 'unknown'];
+			result.forEach((item) => {
+				expect(validChangeTypes).toContain(item.evidence.changeType);
 			});
 		});
 

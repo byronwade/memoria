@@ -61,11 +61,11 @@ describe("Volatility Engine", () => {
 		it("should cache results for subsequent calls", async () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 
-			// First call
+			// First call (no config = empty config key suffix)
 			const result1 = await getVolatility(filePath);
 
-			// Verify it's in cache
-			const cacheKey = `volatility:${filePath}`;
+			// Verify it's in cache (cache key includes empty config suffix when no config)
+			const cacheKey = `volatility:${filePath}:`;
 			expect(cache.has(cacheKey)).toBe(true);
 
 			// Second call should return cached result
@@ -130,6 +130,135 @@ describe("Volatility Engine", () => {
 			// commitCount returns log.total which is the actual count from git
 			// It should be at least 1 for an existing file
 			expect(result.commitCount).toBeGreaterThanOrEqual(0);
+		});
+	});
+
+	describe("Time Decay (Recency Bias)", () => {
+		let calculateRecencyDecay: (commitDate: Date) => number;
+
+		beforeEach(async () => {
+			const module = await import("../src/index.js");
+			calculateRecencyDecay = module.calculateRecencyDecay;
+		});
+
+		it("should return recencyDecay object with decay statistics", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			expect(result.recencyDecay).toBeDefined();
+			expect(result.recencyDecay).toHaveProperty("oldestCommitDays");
+			expect(result.recencyDecay).toHaveProperty("newestCommitDays");
+			expect(result.recencyDecay).toHaveProperty("decayFactor");
+		});
+
+		it("should have decayFactor between 0 and 1", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			expect(result.recencyDecay.decayFactor).toBeGreaterThanOrEqual(0);
+			expect(result.recencyDecay.decayFactor).toBeLessThanOrEqual(1);
+		});
+
+		it("should calculate oldestCommitDays >= newestCommitDays", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			expect(result.recencyDecay.oldestCommitDays).toBeGreaterThanOrEqual(
+				result.recencyDecay.newestCommitDays
+			);
+		});
+
+		it("calculateRecencyDecay should return ~1.0 for commits from today", () => {
+			const today = new Date();
+			const decay = calculateRecencyDecay(today);
+			expect(decay).toBeCloseTo(1, 1);
+		});
+
+		it("calculateRecencyDecay should return ~0.5 for commits from 30 days ago", () => {
+			const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+			const decay = calculateRecencyDecay(thirtyDaysAgo);
+			expect(decay).toBeCloseTo(0.5, 1);
+		});
+
+		it("calculateRecencyDecay should return ~0.25 for commits from 60 days ago", () => {
+			const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+			const decay = calculateRecencyDecay(sixtyDaysAgo);
+			expect(decay).toBeCloseTo(0.25, 1);
+		});
+
+		it("calculateRecencyDecay should return very small value for old commits (180 days)", () => {
+			const old = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+			const decay = calculateRecencyDecay(old);
+			expect(decay).toBeLessThan(0.05);
+		});
+	});
+
+	describe("Bus Factor (Author Details)", () => {
+		it("should return authorDetails array", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			expect(Array.isArray(result.authorDetails)).toBe(true);
+		});
+
+		it("should have author details with required properties", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			if (result.authorDetails.length > 0) {
+				const author = result.authorDetails[0];
+				expect(author).toHaveProperty("name");
+				expect(author).toHaveProperty("email");
+				expect(author).toHaveProperty("commits");
+				expect(author).toHaveProperty("percentage");
+				expect(author).toHaveProperty("firstCommit");
+				expect(author).toHaveProperty("lastCommit");
+			}
+		});
+
+		it("should sort authors by commit count (descending)", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			if (result.authorDetails.length >= 2) {
+				for (let i = 0; i < result.authorDetails.length - 1; i++) {
+					expect(result.authorDetails[i].commits).toBeGreaterThanOrEqual(
+						result.authorDetails[i + 1].commits
+					);
+				}
+			}
+		});
+
+		it("should return topAuthor matching first authorDetails entry", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			if (result.authorDetails.length > 0) {
+				expect(result.topAuthor).not.toBeNull();
+				expect(result.topAuthor?.name).toBe(result.authorDetails[0].name);
+			}
+		});
+
+		it("should have author percentages summing to approximately 100", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			if (result.authorDetails.length > 0) {
+				const totalPercentage = result.authorDetails.reduce(
+					(sum: number, a: any) => sum + a.percentage, 0
+				);
+				// Allow some rounding error
+				expect(totalPercentage).toBeGreaterThanOrEqual(95);
+				expect(totalPercentage).toBeLessThanOrEqual(105);
+			}
+		});
+
+		it("should maintain backward compatibility with authors count", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getVolatility(filePath);
+
+			expect(typeof result.authors).toBe("number");
+			expect(result.authors).toBe(result.authorDetails.length);
 		});
 	});
 });

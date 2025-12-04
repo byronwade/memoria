@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import type { DiffSummary } from "../src/index.js";
 
 describe("Output Formatter (generateAiInstructions)", () => {
 	let generateAiInstructions: (
@@ -11,6 +12,17 @@ describe("Output Formatter (generateAiInstructions)", () => {
 	beforeEach(async () => {
 		const module = await import("../src/index.js");
 		generateAiInstructions = module.generateAiInstructions;
+	});
+
+	// Helper to create a valid DiffSummary
+	const createEvidence = (overrides: Partial<DiffSummary> = {}): DiffSummary => ({
+		additions: [],
+		removals: [],
+		hunks: 0,
+		netChange: 0,
+		hasBreakingChange: false,
+		changeType: 'unknown',
+		...overrides,
 	});
 
 	describe("Basic Structure", () => {
@@ -48,7 +60,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 			expect(result).toContain("PRE-FLIGHT CHECKLIST");
 		});
 
-		it("should include Risk Assessment section", () => {
+		it("should include compound risk score section", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
@@ -56,19 +68,20 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("RISK ASSESSMENT");
+			expect(result).toContain("RISK:");
+			expect(result).toContain("/100");
 		});
 	});
 
-	describe("Section 1: Detective Work", () => {
-		it("should include Detective Work section when coupled files exist", () => {
+	describe("Section 1: Coupled Files", () => {
+		it("should include coupled files section when coupled files exist", () => {
 			const coupled = [
 				{
 					file: "utils.ts",
 					score: 50,
 					reason: "Refactored shared logic",
 					lastHash: "abc1234",
-					evidence: "diff content here",
+					evidence: createEvidence({ changeType: 'api' }),
 				},
 			];
 
@@ -79,10 +92,10 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("DETECTIVE WORK REQUIRED");
+			expect(result).toContain("COUPLED FILES");
 		});
 
-		it("should not include Detective Work section when no coupled files", () => {
+		it("should not include coupled files section when no coupled files", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
@@ -90,17 +103,17 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).not.toContain("DETECTIVE WORK REQUIRED");
+			expect(result).not.toContain("COUPLED FILES");
 		});
 
-		it("should include coupled file details", () => {
+		it("should include coupled file details with relationship type", () => {
 			const coupled = [
 				{
 					file: "utils.ts",
 					score: 50,
 					reason: "Refactored shared logic",
 					lastHash: "abc1234",
-					evidence: "some diff content",
+					evidence: createEvidence({ changeType: 'schema' }),
 				},
 			];
 
@@ -113,17 +126,21 @@ describe("Output Formatter (generateAiInstructions)", () => {
 
 			expect(result).toContain("utils.ts");
 			expect(result).toContain("50% coupled");
-			expect(result).toContain("Refactored shared logic");
+			expect(result).toContain("schema");
 		});
 
-		it("should include evidence in code blocks when available", () => {
+		it("should include additions and removals when present", () => {
 			const coupled = [
 				{
 					file: "utils.ts",
 					score: 50,
 					reason: "Refactored",
 					lastHash: "abc1234",
-					evidence: "const x = 1;",
+					evidence: createEvidence({
+						additions: ["const x = 1;", "const y = 2;"],
+						removals: ["const old = 0;"],
+						changeType: 'api',
+					}),
 				},
 			];
 
@@ -134,18 +151,21 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("```");
-			expect(result).toContain("const x = 1;");
+			expect(result).toContain("+ const x = 1;");
+			expect(result).toContain("- const old = 0;");
 		});
 
-		it("should handle coupled files without evidence", () => {
+		it("should show breaking change warning when detected", () => {
 			const coupled = [
 				{
 					file: "utils.ts",
 					score: 50,
 					reason: "Refactored",
 					lastHash: "abc1234",
-					evidence: "",
+					evidence: createEvidence({
+						hasBreakingChange: true,
+						changeType: 'api',
+					}),
 				},
 			];
 
@@ -156,7 +176,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("historically change together");
+			expect(result).toContain("BREAKING CHANGE DETECTED");
 		});
 	});
 
@@ -184,9 +204,15 @@ describe("Output Formatter (generateAiInstructions)", () => {
 			expect(result).toContain("primary target");
 		});
 
-		it("should list coupled files with percentages", () => {
+		it("should list coupled files with relationship type", () => {
 			const coupled = [
-				{ file: "utils.ts", score: 50, reason: "x", lastHash: "abc", evidence: "" },
+				{
+					file: "utils.ts",
+					score: 50,
+					reason: "x",
+					lastHash: "abc",
+					evidence: createEvidence({ changeType: 'schema' }),
+				},
 			];
 
 			const result = generateAiInstructions(
@@ -196,8 +222,8 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("Verify/update `utils.ts`");
-			expect(result).toContain("50% coupling");
+			expect(result).toContain("Verify `utils.ts`");
+			expect(result).toContain("schema coupling");
 		});
 
 		it("should list stale drift files with days", () => {
@@ -215,8 +241,8 @@ describe("Output Formatter (generateAiInstructions)", () => {
 		});
 	});
 
-	describe("Section 3: Risk Assessment", () => {
-		it("should show NEW status for files with 0 commits", () => {
+	describe("Section 3: Compound Risk & Volatility", () => {
+		it("should show NEW FILE for files with 0 commits", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				{ commitCount: 0, panicScore: 0, authors: 0, lastCommitDate: undefined },
@@ -224,10 +250,10 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("NEW/UNTRACKED FILE");
+			expect(result).toContain("NEW FILE");
 		});
 
-		it("should show VOLATILE status when panicScore > 25", () => {
+		it("should show high volatility indicator when panicScore > 25", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				{ commitCount: 10, panicScore: 50, authors: 1, lastCommitDate: "2024-01-01" },
@@ -235,11 +261,12 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("VOLATILE");
-			expect(result).toContain("50% Panic Score");
+			// New format shows "Moderate" status with score
+			expect(result).toContain("Moderate");
+			expect(result).toContain("50%");
 		});
 
-		it("should show STABLE status when panicScore <= 25", () => {
+		it("should show stable indicator when panicScore <= 25", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				{ commitCount: 10, panicScore: 10, authors: 1, lastCommitDate: "2024-01-01" },
@@ -247,20 +274,37 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("STABLE");
+			// New format shows "Stable" status
+			expect(result).toContain("Stable");
 		});
 
 		it("should include metadata for files with commits", () => {
+			// Create a full VolatilityResult with authorDetails
+			const volatility = {
+				commitCount: 10,
+				panicScore: 0,
+				authors: 3,
+				lastCommitDate: "2024-01-01",
+				panicCommits: [],
+				authorDetails: [
+					{ name: "Alice", email: "alice@test.com", commits: 5, percentage: 50, firstCommit: "2024-01-01", lastCommit: "2024-01-01" },
+					{ name: "Bob", email: "bob@test.com", commits: 3, percentage: 30, firstCommit: "2024-01-01", lastCommit: "2024-01-01" },
+					{ name: "Charlie", email: "charlie@test.com", commits: 2, percentage: 20, firstCommit: "2024-01-01", lastCommit: "2024-01-01" },
+				],
+				topAuthor: { name: "Alice", email: "alice@test.com", commits: 5, percentage: 50, firstCommit: "2024-01-01", lastCommit: "2024-01-01" },
+				recencyDecay: { oldestCommitDays: 30, newestCommitDays: 1, decayFactor: 0.9 },
+			};
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
-				{ commitCount: 10, panicScore: 0, authors: 3, lastCommitDate: "2024-01-01" },
+				volatility,
 				[],
 				[]
 			);
 
-			expect(result).toContain("Total commits analyzed: 10");
-			expect(result).toContain("Unique contributors: 3");
-			expect(result).toContain("Last modified: 2024-01-01");
+			// New format shows Contributors section with author details
+			expect(result).toContain("Contributors");
+			expect(result).toContain("Alice");
+			expect(result).toContain("2024-01-01");
 		});
 
 		it("should not include metadata for new files", () => {
@@ -271,10 +315,10 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).not.toContain("Total commits analyzed");
+			expect(result).not.toContain("Metadata:");
 		});
 
-		it("should include warning for volatile files", () => {
+		it("should include risk factors when present", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				{ commitCount: 10, panicScore: 50, authors: 1, lastCommitDate: "2024-01-01" },
@@ -282,8 +326,8 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[]
 			);
 
-			expect(result).toContain("historically fragile");
-			expect(result).toContain("Required Action");
+			expect(result).toContain("Risk Factors");
+			expect(result).toContain("volatility");
 		});
 	});
 
@@ -319,6 +363,50 @@ describe("Output Formatter (generateAiInstructions)", () => {
 			);
 
 			expect(result).toContain("---");
+		});
+	});
+
+	describe("Relationship Instructions", () => {
+		it("should include relationship-specific instructions for schema coupling", () => {
+			const coupled = [
+				{
+					file: "types.ts",
+					score: 75,
+					reason: "Updated shared types",
+					lastHash: "abc1234",
+					evidence: createEvidence({ changeType: 'schema' }),
+				},
+			];
+
+			const result = generateAiInstructions(
+				"/path/to/file.ts",
+				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				coupled,
+				[]
+			);
+
+			expect(result).toContain("type definitions");
+		});
+
+		it("should include relationship-specific instructions for api coupling", () => {
+			const coupled = [
+				{
+					file: "service.ts",
+					score: 60,
+					reason: "Updated API",
+					lastHash: "def5678",
+					evidence: createEvidence({ changeType: 'api' }),
+				},
+			];
+
+			const result = generateAiInstructions(
+				"/path/to/file.ts",
+				{ commitCount: 10, panicScore: 0, authors: 1, lastCommitDate: "2024-01-01" },
+				coupled,
+				[]
+			);
+
+			expect(result).toContain("API contract");
 		});
 	});
 });
