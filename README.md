@@ -4,6 +4,7 @@
 
 An MCP server that prevents your AI from breaking code by revealing hidden file dependencies through git forensics.
 
+[![smithery badge](https://smithery.ai/badge/@byronwade/memoria)](https://smithery.ai/server/@byronwade/memoria)
 [![npm version](https://img.shields.io/npm/v/@byronwade/memoria.svg)](https://www.npmjs.com/package/@byronwade/memoria)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue.svg)](https://www.typescriptlang.org/)
