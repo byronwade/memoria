@@ -2038,217 +2038,201 @@ export function generateAiInstructions(
 	return instructions;
 }
 
-// --- SERVER ---
-const server = new Server(
-	{ name: "memoria", version: "1.0.0" },
-	{ capabilities: { tools: {} } },
-);
+// --- SERVER FACTORY (for Smithery) ---
+export default function createServer() {
+	const server = new Server(
+		{ name: "memoria", version: "1.0.0" },
+		{ capabilities: { tools: {} } },
+	);
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-	tools: [
-		{
-			name: "analyze_file",
-			description:
-				"Returns forensic history, hidden dependencies, and risk assessment. USE THIS before modifying files.",
-			inputSchema: {
-				type: "object",
-				properties: {
-					path: {
-						type: "string",
-						description:
-							"The ABSOLUTE path to the file (e.g. C:/dev/project/src/file.ts)",
+	return setupServer(server);
+}
+
+// Setup server handlers and return the server
+function setupServer(server: Server): Server {
+	server.setRequestHandler(ListToolsRequestSchema, async () => ({
+		tools: [
+			{
+				name: "analyze_file",
+				description:
+					"Returns forensic history, hidden dependencies, and risk assessment. USE THIS before modifying files.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						path: {
+							type: "string",
+							description:
+								"The ABSOLUTE path to the file (e.g. C:/dev/project/src/file.ts)",
+						},
 					},
+					required: ["path"],
 				},
-				required: ["path"],
 			},
-		},
-		{
-			name: "ask_history",
-			description:
-				"Search git history for WHY code was written. IMPORTANT: Use SHORT, SPECIFIC KEYWORDS (e.g., 'serialization', 'race condition', 'timeout'). Do NOT use full sentences or long descriptions - they will return 0 results. Use when asking 'why does this exist?' or before removing code.",
-			inputSchema: {
-				type: "object",
-				properties: {
-					query: {
-						type: "string",
-						description:
-							"A single keyword or short phrase (1-3 words max). Examples: 'serialization', 'race condition', 'Safari fix'. Do NOT use full sentences - git grep requires exact matches.",
+			{
+				name: "ask_history",
+				description:
+					"Search git history for WHY code was written. IMPORTANT: Use SHORT, SPECIFIC KEYWORDS (e.g., 'serialization', 'race condition', 'timeout'). Do NOT use full sentences or long descriptions - they will return 0 results. Use when asking 'why does this exist?' or before removing code.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						query: {
+							type: "string",
+							description:
+								"A single keyword or short phrase (1-3 words max). Examples: 'serialization', 'race condition', 'Safari fix'. Do NOT use full sentences - git grep requires exact matches.",
+						},
+						path: {
+							type: "string",
+							description:
+								"Optional: ABSOLUTE path to scope search to a specific file or directory",
+						},
+						searchType: {
+							type: "string",
+							enum: ["message", "diff", "both"],
+							description:
+								"Where to search: 'message' (commit messages only), 'diff' (code changes only), 'both' (default)",
+						},
+						limit: {
+							type: "number",
+							description: "Maximum number of results to return (default: 20)",
+						},
+						startLine: {
+							type: "number",
+							description:
+								"Start line for line-range search (requires path). Shows history of specific lines using git log -L.",
+						},
+						endLine: {
+							type: "number",
+							description:
+								"End line for line-range search (requires path). Used with startLine to trace history of a code block.",
+						},
 					},
-					path: {
-						type: "string",
-						description:
-							"Optional: ABSOLUTE path to scope search to a specific file or directory",
-					},
-					searchType: {
-						type: "string",
-						enum: ["message", "diff", "both"],
-						description:
-							"Where to search: 'message' (commit messages only), 'diff' (code changes only), 'both' (default)",
-					},
-					limit: {
-						type: "number",
-						description: "Maximum number of results to return (default: 20)",
-					},
-					startLine: {
-						type: "number",
-						description:
-							"Start line for line-range search (requires path). Shows history of specific lines using git log -L.",
-					},
-					endLine: {
-						type: "number",
-						description:
-							"End line for line-range search (requires path). Used with startLine to trace history of a code block.",
-					},
+					required: ["query"],
 				},
-				required: ["query"],
 			},
-		},
-	],
-}));
+		],
+	}));
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-	if (request.params.name === "analyze_file") {
-		const rawPath = String(request.params.arguments?.path);
+	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+		if (request.params.name === "analyze_file") {
+			const rawPath = String(request.params.arguments?.path);
 
-		// 1. Sanitize Path (Handle Windows/Unix differences)
-		const targetPath = path.resolve(rawPath);
+			// 1. Sanitize Path (Handle Windows/Unix differences)
+			const targetPath = path.resolve(rawPath);
 
-		// 2. Logic: If the resolved path doesn't exist, and the input was relative,
-		// it means we resolved it against the Server's folder, not the Project folder.
-		try {
-			await fs.access(targetPath);
-		} catch (_e) {
-			// If the file doesn't exist, FAIL LOUDLY so the AI retries
-			return {
-				content: [
-					{
-						type: "text",
-						text:
-							`❌ ERROR: File not found at \`${targetPath}\`.\n\n` +
-							`The AI sent a relative path (\`${rawPath}\`), but this server runs globally.\n` +
-							`**SYSTEM INSTRUCTION:** You MUST retry this tool call using the **ABSOLUTE PATH** (e.g. C:/dev/project/src/file.ts).`,
-					},
-				],
-				isError: true,
-			};
-		}
-
-		try {
-			// 3. Create AnalysisContext ONCE (initializes git, config, ignore, metrics)
-			// This replaces 5+ redundant git/config initialization calls
-			const ctx = await createAnalysisContext(targetPath);
-
-			// 4. Run Engines on the Validated Path (all in parallel for speed)
-			// All engines now receive the shared context
-			const [volatility, coupled, importers] = await Promise.all([
-				getVolatility(targetPath, ctx),
-				getCoupledFiles(targetPath, ctx),
-				getImporters(targetPath, ctx),
-			]);
-
-			const drift = await checkDrift(targetPath, coupled, ctx);
-
-			// 5. Get sibling guidance for new files (no git history)
-			let siblingGuidance: SiblingGuidance | null = null;
-			if (volatility.commitCount === 0) {
-				siblingGuidance = await getSiblingGuidance(targetPath, ctx.config);
-			}
-
-			const report = generateAiInstructions(
-				targetPath,
-				volatility,
-				coupled,
-				drift,
-				importers,
-				ctx.config,
-				siblingGuidance,
-			);
-
-			return { content: [{ type: "text", text: report }] };
-		} catch (error: any) {
-			return {
-				content: [{ type: "text", text: `Analysis Error: ${error.message}` }],
-				isError: true,
-			};
-		}
-	}
-
-	if (request.params.name === "ask_history") {
-		const query = String(request.params.arguments?.query || "");
-		const rawPath = request.params.arguments?.path as string | undefined;
-		const searchType =
-			(request.params.arguments?.searchType as "message" | "diff" | "both") ||
-			"both";
-		const limit = Number(request.params.arguments?.limit) || 20;
-		const startLine = request.params.arguments?.startLine as number | undefined;
-		const endLine = request.params.arguments?.endLine as number | undefined;
-
-		// Empty query is allowed for line-range search (Sherlock Mode)
-		// but required for regular message/diff search
-		const isLineRangeSearch = startLine !== undefined && endLine !== undefined;
-		if (!query.trim() && !isLineRangeSearch) {
-			return {
-				content: [
-					{
-						type: "text",
-						text:
-							`❌ ERROR: Query is required.\n\n` +
-							`**SYSTEM INSTRUCTION:** Provide a keyword to search for (e.g., "setTimeout", "authentication", "fix race condition").\n` +
-							`For line-range search (Sherlock Mode), you can use an empty query with startLine/endLine.`,
-					},
-				],
-				isError: true,
-			};
-		}
-
-		// Validate line-range parameters
-		if ((startLine !== undefined || endLine !== undefined) && !rawPath) {
-			return {
-				content: [
-					{
-						type: "text",
-						text:
-							`❌ ERROR: Line-range search requires a file path.\n\n` +
-							`**SYSTEM INSTRUCTION:** Provide both \`path\` and \`startLine\`/\`endLine\` for line-range search.`,
-					},
-				],
-				isError: true,
-			};
-		}
-
-		if (startLine !== undefined && endLine !== undefined) {
-			// Normalize startLine (0 becomes 1 since git is 1-based) before validation
-			const normalizedStart = Math.max(1, startLine);
-			if (normalizedStart > endLine) {
+			// 2. Logic: If the resolved path doesn't exist, and the input was relative,
+			// it means we resolved it against the Server's folder, not the Project folder.
+			try {
+				await fs.access(targetPath);
+			} catch (_e) {
+				// If the file doesn't exist, FAIL LOUDLY so the AI retries
 				return {
 					content: [
 						{
 							type: "text",
 							text:
-								`❌ ERROR: Invalid line range (${startLine}-${endLine}).\n\n` +
-								`**SYSTEM INSTRUCTION:** startLine must be <= endLine (note: startLine 0 is treated as 1).`,
+								`❌ ERROR: File not found at \`${targetPath}\`.\n\n` +
+								`The AI sent a relative path (\`${rawPath}\`), but this server runs globally.\n` +
+								`**SYSTEM INSTRUCTION:** You MUST retry this tool call using the **ABSOLUTE PATH** (e.g. C:/dev/project/src/file.ts).`,
 						},
 					],
 					isError: true,
 				};
 			}
+
+			try {
+				// 3. Create AnalysisContext ONCE (initializes git, config, ignore, metrics)
+				// This replaces 5+ redundant git/config initialization calls
+				const ctx = await createAnalysisContext(targetPath);
+
+				// 4. Run Engines on the Validated Path (all in parallel for speed)
+				// All engines now receive the shared context
+				const [volatility, coupled, importers] = await Promise.all([
+					getVolatility(targetPath, ctx),
+					getCoupledFiles(targetPath, ctx),
+					getImporters(targetPath, ctx),
+				]);
+
+				const drift = await checkDrift(targetPath, coupled, ctx);
+
+				// 5. Get sibling guidance for new files (no git history)
+				let siblingGuidance: SiblingGuidance | null = null;
+				if (volatility.commitCount === 0) {
+					siblingGuidance = await getSiblingGuidance(targetPath, ctx.config);
+				}
+
+				const report = generateAiInstructions(
+					targetPath,
+					volatility,
+					coupled,
+					drift,
+					importers,
+					ctx.config,
+					siblingGuidance,
+				);
+
+				return { content: [{ type: "text", text: report }] };
+			} catch (error: any) {
+				return {
+					content: [{ type: "text", text: `Analysis Error: ${error.message}` }],
+					isError: true,
+				};
+			}
 		}
 
-		try {
-			// Resolve path if provided
-			let targetPath: string | undefined;
-			if (rawPath) {
-				targetPath = path.resolve(rawPath);
-				try {
-					await fs.access(targetPath);
-				} catch {
+		if (request.params.name === "ask_history") {
+			const query = String(request.params.arguments?.query || "");
+			const rawPath = request.params.arguments?.path as string | undefined;
+			const searchType =
+				(request.params.arguments?.searchType as "message" | "diff" | "both") ||
+				"both";
+			const limit = Number(request.params.arguments?.limit) || 20;
+			const startLine = request.params.arguments?.startLine as number | undefined;
+			const endLine = request.params.arguments?.endLine as number | undefined;
+
+			// Empty query is allowed for line-range search (Sherlock Mode)
+			// but required for regular message/diff search
+			const isLineRangeSearch = startLine !== undefined && endLine !== undefined;
+			if (!query.trim() && !isLineRangeSearch) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`❌ ERROR: Query is required.\n\n` +
+								`**SYSTEM INSTRUCTION:** Provide a keyword to search for (e.g., "setTimeout", "authentication", "fix race condition").\n` +
+								`For line-range search (Sherlock Mode), you can use an empty query with startLine/endLine.`,
+						},
+					],
+					isError: true,
+				};
+			}
+
+			// Validate line-range parameters
+			if ((startLine !== undefined || endLine !== undefined) && !rawPath) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`❌ ERROR: Line-range search requires a file path.\n\n` +
+								`**SYSTEM INSTRUCTION:** Provide both \`path\` and \`startLine\`/\`endLine\` for line-range search.`,
+						},
+					],
+					isError: true,
+				};
+			}
+
+			if (startLine !== undefined && endLine !== undefined) {
+				// Normalize startLine (0 becomes 1 since git is 1-based) before validation
+				const normalizedStart = Math.max(1, startLine);
+				if (normalizedStart > endLine) {
 					return {
 						content: [
 							{
 								type: "text",
 								text:
-									`❌ ERROR: Path not found at \`${targetPath}\`.\n\n` +
-									`**SYSTEM INSTRUCTION:** Use an ABSOLUTE path or omit the path to search the entire repository.`,
+									`❌ ERROR: Invalid line range (${startLine}-${endLine}).\n\n` +
+									`**SYSTEM INSTRUCTION:** startLine must be <= endLine (note: startLine 0 is treated as 1).`,
 							},
 						],
 						isError: true,
@@ -2256,29 +2240,60 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 				}
 			}
 
-			const results = await searchHistory(
-				query,
-				targetPath,
-				searchType,
-				limit,
-				startLine,
-				endLine,
-			);
-			const report = formatHistoryResults(results);
+			try {
+				// Resolve path if provided
+				let targetPath: string | undefined;
+				if (rawPath) {
+					targetPath = path.resolve(rawPath);
+					try {
+						await fs.access(targetPath);
+					} catch {
+						return {
+							content: [
+								{
+									type: "text",
+									text:
+										`❌ ERROR: Path not found at \`${targetPath}\`.\n\n` +
+										`**SYSTEM INSTRUCTION:** Use an ABSOLUTE path or omit the path to search the entire repository.`,
+								},
+							],
+							isError: true,
+						};
+					}
+				}
 
-			return { content: [{ type: "text", text: report }] };
-		} catch (error: any) {
-			return {
-				content: [
-					{ type: "text", text: `History Search Error: ${error.message}` },
-				],
-				isError: true,
-			};
+				const results = await searchHistory(
+					query,
+					targetPath,
+					searchType,
+					limit,
+					startLine,
+					endLine,
+				);
+				const report = formatHistoryResults(results);
+
+				return { content: [{ type: "text", text: report }] };
+			} catch (error: any) {
+				return {
+					content: [
+						{ type: "text", text: `History Search Error: ${error.message}` },
+					],
+					isError: true,
+				};
+			}
 		}
-	}
 
-	throw new Error("Tool not found");
-});
+		throw new Error("Tool not found");
+	});
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+	return server;
+}
+
+// --- STDIO STARTUP (for CLI usage) ---
+// Only run when executed directly, not when imported by Smithery
+const isDirectExecution = process.argv[1]?.includes("index") || process.argv[1]?.includes("memoria");
+if (isDirectExecution) {
+	const server = createServer();
+	const transport = new StdioServerTransport();
+	server.connect(transport);
+}
