@@ -4,8 +4,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline";
 import { fileURLToPath } from "node:url";
+import * as p from "@clack/prompts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -87,7 +87,6 @@ const MCP_CONFIGS: Record<string, McpConfig> = {
 							"Claude",
 							"claude_desktop_config.json",
 						);
-			// Check if Claude Desktop directory exists
 			return fs.existsSync(path.dirname(configPath));
 		},
 	},
@@ -96,7 +95,8 @@ const MCP_CONFIGS: Record<string, McpConfig> = {
 			path.join(os.homedir(), ".codeium", "windsurf", "mcp_config.json"),
 		name: "Windsurf",
 		scope: "global",
-		detect: () => fs.existsSync(path.join(os.homedir(), ".codeium", "windsurf")),
+		detect: () =>
+			fs.existsSync(path.join(os.homedir(), ".codeium", "windsurf")),
 	},
 };
 
@@ -116,7 +116,7 @@ Usage:
   memoria serve             Start MCP server
 
 Commands:
-  (no args)  Interactive setup with checkboxes
+  (no args)  Interactive setup
   init       Install Memoria rules for AI tools
   serve      Start the MCP server
 
@@ -147,18 +147,6 @@ function detectTools(cwd: string): string[] {
 	}
 	if (fs.existsSync(path.join(cwd, ".claude"))) {
 		detected.push("claude");
-	}
-
-	return detected;
-}
-
-function detectMcpConfigs(cwd: string): string[] {
-	const detected: string[] = [];
-
-	for (const [key, config] of Object.entries(MCP_CONFIGS)) {
-		if (config.detect(cwd)) {
-			detected.push(key);
-		}
 	}
 
 	return detected;
@@ -241,24 +229,34 @@ function installRule(
 	return "appended";
 }
 
-function installRules(tools: string[], cwd: string, force: boolean): void {
+interface RuleInstallSummary {
+	created: string[];
+	appended: string[];
+	updated: string[];
+	skipped: string[];
+}
+
+function installRulesQuiet(
+	tools: string[],
+	cwd: string,
+	force: boolean,
+): RuleInstallSummary {
 	let rulesDir = path.join(__dirname, "../rules");
 
 	if (!fs.existsSync(rulesDir)) {
 		rulesDir = path.join(__dirname, "../../rules");
 	}
 
-	if (!fs.existsSync(rulesDir)) {
-		console.error("Error: Could not find rules directory");
-		process.exit(1);
-	}
-
-	const results: Record<InstallResult, string[]> = {
+	const results: RuleInstallSummary = {
 		created: [],
 		appended: [],
 		updated: [],
 		skipped: [],
 	};
+
+	if (!fs.existsSync(rulesDir)) {
+		return results;
+	}
 
 	for (const tool of tools) {
 		const rule = RULES[tool];
@@ -271,21 +269,25 @@ function installRules(tools: string[], cwd: string, force: boolean): void {
 
 		const result = installRule(srcPath, destPath, force);
 		results[result].push(rule.dest);
+	}
 
-		switch (result) {
-			case "created":
-				console.log(`  ✓ Created ${rule.dest}`);
-				break;
-			case "appended":
-				console.log(`  ✓ Appended to ${rule.dest}`);
-				break;
-			case "updated":
-				console.log(`  ✓ Updated ${rule.dest}`);
-				break;
-			case "skipped":
-				console.log(`  ⊘ Skipped ${rule.dest} (already installed)`);
-				break;
-		}
+	return results;
+}
+
+function installRules(tools: string[], cwd: string, force: boolean): void {
+	const results = installRulesQuiet(tools, cwd, force);
+
+	for (const dest of results.created) {
+		console.log(`  ✓ Created ${dest}`);
+	}
+	for (const dest of results.appended) {
+		console.log(`  ✓ Appended to ${dest}`);
+	}
+	for (const dest of results.updated) {
+		console.log(`  ✓ Updated ${dest}`);
+	}
+	for (const dest of results.skipped) {
+		console.log(`  ⊘ Skipped ${dest} (already installed)`);
 	}
 }
 
@@ -309,14 +311,12 @@ function installMcpConfig(configKey: string, cwd: string): McpInstallResult {
 			existingConfig = JSON.parse(content);
 		}
 
-		// Check if memoria is already configured
 		const mcpServers =
 			(existingConfig.mcpServers as Record<string, unknown>) || {};
 		if (mcpServers.memoria) {
 			return "exists";
 		}
 
-		// Add memoria to mcpServers
 		existingConfig.mcpServers = {
 			...mcpServers,
 			memoria: MEMORIA_MCP_ENTRY,
@@ -330,29 +330,39 @@ function installMcpConfig(configKey: string, cwd: string): McpInstallResult {
 	}
 }
 
-function installMcpConfigs(configKeys: string[], cwd: string): void {
-	for (const key of configKeys) {
-		const config = MCP_CONFIGS[key];
+interface McpInstallSummary {
+	added: string[];
+	exists: string[];
+	error: string[];
+}
+
+function installMcpConfigsQuiet(
+	tools: string[],
+	cwd: string,
+): McpInstallSummary {
+	const results: McpInstallSummary = { added: [], exists: [], error: [] };
+
+	for (const tool of tools) {
+		// Map rule tool names to MCP config keys
+		const mcpKey = tool === "claude" ? "claude-desktop" : tool;
+		const config = MCP_CONFIGS[mcpKey];
 		if (!config) continue;
 
-		const result = installMcpConfig(key, cwd);
+		const result = installMcpConfig(mcpKey, cwd);
 		const configPath = config.getPath(cwd);
 		const displayPath =
 			config.scope === "global" ? configPath : path.relative(cwd, configPath);
 
-		switch (result) {
-			case "created":
-			case "added":
-				console.log(`  ✓ Added to ${displayPath}`);
-				break;
-			case "exists":
-				console.log(`  ⊘ Already in ${displayPath}`);
-				break;
-			case "error":
-				console.log(`  ✗ Failed: ${displayPath}`);
-				break;
+		if (result === "created" || result === "added") {
+			results.added.push(displayPath);
+		} else if (result === "exists") {
+			results.exists.push(displayPath);
+		} else {
+			results.error.push(displayPath);
 		}
 	}
+
+	return results;
 }
 
 function runServer(): void {
@@ -372,175 +382,112 @@ function runServer(): void {
 	});
 }
 
-interface CheckboxOption {
-	id: string;
-	label: string;
-	description: string;
-	selected: boolean;
-}
+async function showInteractiveSetup(cwd: string): Promise<void> {
+	console.clear();
 
-function showCheckboxMenu(
-	cwd: string,
-	options: CheckboxOption[],
-	onComplete: (selected: string[]) => void,
-): void {
-	let currentIndex = 0;
+	p.intro("Memoria - The Memory Your AI Lacks");
 
-	const render = () => {
-		// Clear screen and move cursor to top
-		process.stdout.write("\x1B[2J\x1B[H");
-
-		console.log(`
-┌─────────────────────────────────────────────────────────────┐
-│  Memoria - The Memory Your AI Lacks                        │
-└─────────────────────────────────────────────────────────────┘
-
-  Use ↑/↓ to navigate, Space to toggle, Enter to confirm, q to quit
-`);
-
-		for (let i = 0; i < options.length; i++) {
-			const opt = options[i];
-			const checkbox = opt.selected ? "[x]" : "[ ]";
-			const cursor = i === currentIndex ? ">" : " ";
-			const highlight = i === currentIndex ? "\x1B[36m" : "\x1B[0m"; // Cyan for selected
-			const reset = "\x1B[0m";
-
-			console.log(`  ${cursor} ${highlight}${checkbox} ${opt.label}${reset}`);
-			console.log(`      ${opt.description}`);
-			console.log();
-		}
-
-		console.log("  ─────────────────────────────────────────────────────────");
-		const selectedCount = options.filter((o) => o.selected).length;
-		console.log(
-			`\n  ${selectedCount} item(s) selected. Press Enter to install.\n`,
-		);
-	};
-
-	// Enable raw mode for keyboard input
-	if (process.stdin.isTTY) {
-		process.stdin.setRawMode(true);
-	}
-	process.stdin.resume();
-
-	render();
-
-	process.stdin.on("data", (key: Buffer) => {
-		const keyStr = key.toString();
-
-		// q or Ctrl+C to quit
-		if (keyStr === "q" || keyStr === "\x03") {
-			process.stdout.write("\x1B[0m"); // Reset colors
-			console.log("\n  Cancelled.\n");
-			process.exit(0);
-		}
-
-		// Enter to confirm
-		if (keyStr === "\r" || keyStr === "\n") {
-			process.stdin.setRawMode(false);
-			process.stdin.pause();
-			process.stdout.write("\x1B[0m"); // Reset colors
-			const selected = options.filter((o) => o.selected).map((o) => o.id);
-			onComplete(selected);
-			return;
-		}
-
-		// Space to toggle
-		if (keyStr === " ") {
-			options[currentIndex].selected = !options[currentIndex].selected;
-			render();
-			return;
-		}
-
-		// Arrow keys
-		if (keyStr === "\x1B[A" || keyStr === "k") {
-			// Up
-			currentIndex = (currentIndex - 1 + options.length) % options.length;
-			render();
-		} else if (keyStr === "\x1B[B" || keyStr === "j") {
-			// Down
-			currentIndex = (currentIndex + 1) % options.length;
-			render();
-		}
-	});
-}
-
-function showInteractiveMenu(cwd: string): void {
 	const detectedTools = detectTools(cwd);
-	const detectedMcpConfigs = detectMcpConfigs(cwd);
 
-	// Build description strings
-	const mcpConfigNames = detectedMcpConfigs
-		.map((k) => MCP_CONFIGS[k]?.name)
-		.filter(Boolean);
-	const ruleToolNames = detectedTools
-		.map((k) => RULES[k]?.name)
-		.filter(Boolean);
-
-	const mcpDescription =
-		mcpConfigNames.length > 0
-			? `Will add to: ${mcpConfigNames.join(", ")}`
-			: "No MCP configs detected - will create for Cursor";
-
-	const rulesDescription =
-		ruleToolNames.length > 0
-			? `Will install for: ${ruleToolNames.join(", ")}`
-			: "Will install for all supported tools";
-
-	const options: CheckboxOption[] = [
+	const result = await p.group(
 		{
-			id: "mcp",
-			label: "Install MCP server config",
-			description: mcpDescription,
-			selected: true,
+			actions: () =>
+				p.multiselect({
+					message: "What would you like to set up?",
+					options: [
+						{
+							value: "mcp",
+							label: "Install MCP server config",
+							hint: "adds memoria to mcp.json",
+						},
+						{
+							value: "rules",
+							label: "Install AI tool rules",
+							hint: "creates rule files for your AI tools",
+						},
+					],
+					initialValues: ["mcp", "rules"],
+					required: true,
+				}),
+			tools: () =>
+				p.multiselect({
+					message: "Which AI tools do you use?",
+					options: [
+						{ value: "cursor", label: "Cursor", hint: ".cursor/mcp.json" },
+						{
+							value: "claude",
+							label: "Claude Code",
+							hint: ".claude/CLAUDE.md",
+						},
+						{ value: "windsurf", label: "Windsurf", hint: ".windsurfrules" },
+						{ value: "cline", label: "Cline", hint: ".clinerules" },
+					],
+					initialValues:
+						detectedTools.length > 0 ? detectedTools : ["cursor", "claude"],
+					required: true,
+				}),
 		},
 		{
-			id: "rules",
-			label: "Install AI tool rules",
-			description: rulesDescription,
-			selected: true,
+			onCancel: () => {
+				p.cancel("Setup cancelled.");
+				process.exit(0);
+			},
 		},
-	];
+	);
 
-	showCheckboxMenu(cwd, options, (selected) => {
-		console.log("\n");
+	const actions = result.actions as string[];
+	const tools = result.tools as string[];
 
-		if (selected.length === 0) {
-			console.log("  Nothing selected. Goodbye!\n");
-			process.exit(0);
+	const s = p.spinner();
+	s.start("Setting up Memoria...");
+
+	const installResults: string[] = [];
+
+	// Install MCP configs
+	if (actions.includes("mcp")) {
+		const mcpResults = installMcpConfigsQuiet(tools, cwd);
+		for (const file of mcpResults.added) {
+			installResults.push(`Added MCP config to ${file}`);
 		}
-
-		if (selected.includes("mcp")) {
-			console.log("  Installing MCP server configs...\n");
-			const configs =
-				detectedMcpConfigs.length > 0 ? detectedMcpConfigs : ["cursor"];
-			installMcpConfigs(configs, cwd);
-			console.log();
+		for (const file of mcpResults.exists) {
+			installResults.push(`MCP config already in ${file}`);
 		}
+	}
 
-		if (selected.includes("rules")) {
-			console.log("  Installing AI tool rules...\n");
-			const tools =
-				detectedTools.length > 0 ? detectedTools : Object.keys(RULES);
-			installRules(tools, cwd, false);
-			console.log();
+	// Install rules
+	if (actions.includes("rules")) {
+		const ruleResults = installRulesQuiet(tools, cwd, false);
+		for (const file of ruleResults.created) {
+			installResults.push(`Created ${file}`);
 		}
+		for (const file of ruleResults.appended) {
+			installResults.push(`Appended to ${file}`);
+		}
+		for (const file of ruleResults.skipped) {
+			installResults.push(`Skipped ${file} (already installed)`);
+		}
+	}
 
-		console.log("  ✓ Done! Memoria is ready to use.\n");
-		console.log(
-			"  Your AI will now check for hidden dependencies before editing files.\n",
-		);
-	});
+	s.stop("Setup complete!");
+
+	// Show what was installed
+	if (installResults.length > 0) {
+		p.note(installResults.join("\n"), "Changes made");
+	}
+
+	p.outro(
+		"Your AI will now check for hidden dependencies before editing files.",
+	);
 }
 
-function main() {
+async function main() {
 	const args = process.argv.slice(2);
 	const cwd = process.cwd();
 
 	// No arguments - check if interactive terminal vs MCP client
 	if (args.length === 0) {
 		if (process.stdin.isTTY && process.stdout.isTTY) {
-			showInteractiveMenu(cwd);
+			await showInteractiveSetup(cwd);
 			return;
 		}
 		runServer();
@@ -592,4 +539,4 @@ function main() {
 	installRules(tools, cwd, force);
 }
 
-main();
+main().catch(console.error);
