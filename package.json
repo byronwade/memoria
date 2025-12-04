@@ -4,6 +4,7 @@
 	"description": "The Memory Your AI Lacks - MCP server giving AI Senior Developer Intuition through git forensics",
 	"type": "module",
 	"main": "dist/index.js",
+	"module": "./src/index.ts",
 	"bin": {
 		"memoria": "dist/cli.js",
 		"memoria-server": "dist/index.js"
