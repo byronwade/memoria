@@ -1,9 +1,17 @@
 {
-  "name": "memoria",
+  "name": "@byronwade/memoria",
   "version": "1.0.0",
-  "description": "The Memory Your AI Lacks - A JIT analyzer giving AI Senior Developer Intuition through git forensics",
+  "description": "The Memory Your AI Lacks - MCP server giving AI Senior Developer Intuition through git forensics",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "memoria": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
@@ -11,7 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
     "mcp",
@@ -19,10 +28,26 @@
     "memoria",
     "memory",
     "forensics",
-    "code-analysis"
+    "code-analysis",
+    "model-context-protocol",
+    "ai-tools"
   ],
-  "author": "",
+  "author": "Byron Wade",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/byronwade/memoria.git"
+  },
+  "homepage": "https://github.com/byronwade/memoria",
+  "bugs": {
+    "url": "https://github.com/byronwade/memoria/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "ignore": "^7.0.5",

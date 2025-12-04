@@ -1,0 +1,23 @@
+# Source files (compiled to dist/)
+src/
+
+# Test files
+*.test.ts
+test-*.js
+vitest.config.ts
+coverage/
+
+# Config files
+tsconfig.json
+.github/
+
+# Documentation (keep README, exclude dev docs)
+CLAUDE.md
+
+# IDE and local files
+.vscode/
+.idea/
+*.log
+
+# Example configs
+mcp-config-example.json

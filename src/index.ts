@@ -11,10 +11,10 @@ import ignore from "ignore";
 
 // --- CONFIGURATION & CACHE ---
 // Cache results for 5 minutes
-const cache = new LRUCache<string, any>({ max: 100, ttl: 1000 * 60 * 5 });
+export const cache = new LRUCache<string, any>({ max: 100, ttl: 1000 * 60 * 5 });
 
 // Universal ignore patterns covering multiple languages and ecosystems
-const UNIVERSAL_IGNORE_PATTERNS = [
+export const UNIVERSAL_IGNORE_PATTERNS = [
 	// JavaScript/Node.js
 	"node_modules/", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-debug.log",
 	"dist/", "build/", ".next/", ".nuxt/", ".cache/", "coverage/",
@@ -58,13 +58,13 @@ const UNIVERSAL_IGNORE_PATTERNS = [
 ];
 
 // Helper: Get a git instance for the specific file's directory
-function getGitForFile(filePath: string) {
+export function getGitForFile(filePath: string) {
 	const dir = path.dirname(filePath);
 	return simpleGit(dir);
 }
 
 // Helper: Get the actual code diff for a specific file at a specific commit
-async function getDiffSnippet(repoRoot: string, relativeFilePath: string, commitHash: string): Promise<string> {
+export async function getDiffSnippet(repoRoot: string, relativeFilePath: string, commitHash: string): Promise<string> {
 	try {
 		const git = simpleGit(repoRoot);
 		// Get diff of that file in that commit (show the changes made)
@@ -83,7 +83,7 @@ async function getDiffSnippet(repoRoot: string, relativeFilePath: string, commit
 }
 
 // Helper: Parse .gitignore and create ignore filter
-async function getIgnoreFilter(repoRoot: string) {
+export async function getIgnoreFilter(repoRoot: string) {
 	const cacheKey = `gitignore:${repoRoot}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
@@ -106,14 +106,14 @@ async function getIgnoreFilter(repoRoot: string) {
 }
 
 // Helper: Check if a file should be ignored
-function shouldIgnoreFile(filePath: string, ig: ReturnType<typeof ignore>) {
+export function shouldIgnoreFile(filePath: string, ig: ReturnType<typeof ignore>) {
 	// Normalize path for cross-platform compatibility
 	const normalizedPath = filePath.replace(/\\/g, "/");
 	return ig.ignores(normalizedPath);
 }
 
 // --- ENGINE 1: ENTANGLEMENT (Enhanced with Context + Evidence) ---
-async function getCoupledFiles(filePath: string) {
+export async function getCoupledFiles(filePath: string) {
 	const cacheKey = `coupling:${filePath}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
@@ -193,7 +193,7 @@ async function getCoupledFiles(filePath: string) {
 }
 
 // --- ENGINE 2: DRIFT ---
-async function checkDrift(sourceFile: string, coupledFiles: { file: string }[]) {
+export async function checkDrift(sourceFile: string, coupledFiles: { file: string }[]) {
 	const alerts = [];
 	try {
 		const sourceStats = await fs.stat(sourceFile);
@@ -223,7 +223,7 @@ async function checkDrift(sourceFile: string, coupledFiles: { file: string }[]) 
 }
 
 // --- ENGINE 3: VOLATILITY ---
-async function getVolatility(filePath: string) {
+export async function getVolatility(filePath: string) {
 	const cacheKey = `volatility:${filePath}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
@@ -248,7 +248,7 @@ async function getVolatility(filePath: string) {
 }
 
 // --- OUTPUT FORMATTER (Detective Work + Checklist Format) ---
-function generateAiInstructions(filePath: string, volatility: any, coupled: any[], drift: any[]) {
+export function generateAiInstructions(filePath: string, volatility: any, coupled: any[], drift: any[]) {
 	const fileName = path.basename(filePath);
 	let instructions = `### 🧠 Forensics for \`${fileName}\`\n\n`;
 

@@ -9,7 +9,14 @@
       "Bash(git commit:*)",
       "Bash(git remote add:*)",
       "Bash(git branch:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(npm pkg get:*)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(npm view:*)",
+      "Bash(npm pack:*)",
+      "Bash(npx create-next-app@latest memoria-site --typescript --tailwind --eslint --app --src-dir --no-import-alias --turbopack)"
     ],
     "deny": [],
     "ask": []
