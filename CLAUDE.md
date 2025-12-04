@@ -11,10 +11,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Core Engines
 
 1. **Volatility Engine** - Analyzes commit history for panic keywords (fix, bug, revert, urgent, hotfix, oops) to calculate risk scores
-2. **Entanglement Engine** - Identifies files that frequently change together in commits (coupling correlation >15%)
+2. **Entanglement Engine (Enhanced)** - Identifies files that frequently change together in commits (coupling correlation >15%), now includes:
+   - **Context Engine**: Captures commit messages explaining WHY files are coupled
+   - **Evidence Bag**: Fetches actual code diffs from commits to show WHAT changed together
 3. **Sentinel Engine** - Detects drift when coupled files are out of sync (>7 days difference)
 
-The server uses **System Prompt Injection** to deliver behavioral instructions rather than raw data, forcing AI attention on high-risk operations.
+The server uses **System Prompt Injection** with a **Detective Work Format** to force AI analysis of evidence rather than passive data consumption.
 
 ## Architecture
 
@@ -87,20 +89,44 @@ Test files use `@modelcontextprotocol/sdk/client` to manually verify the server 
 - Git history MUST be accessible
 
 **Output Format:**
-Markdown report containing:
-- Risk level assessment (based on panic score %)
-- Behavioral instructions (e.g., "You MUST review twice")
-- Coupled files list (>15% correlation threshold)
-- Stale dependency warnings (>7 days drift)
+Three-section markdown report with **Detective Work Format**:
+
+**Section 1: Detective Work Required**
+- Shows each coupled file with context (commit message) and evidence (code diff)
+- Instructs AI to analyze the diff and determine the relationship
+- Max 1000 chars per diff to balance context vs. token usage
+
+**Section 2: Pre-Flight Checklist**
+- Actionable checklist format the AI must follow
+- Lists all coupled files and stale dependencies
+- Uses `- [ ]` markdown checkbox format for clarity
+
+**Section 3: Risk Assessment**
+- Volatility score with status (Stable/Volatile/New)
+- Metadata: commit count, contributors, last modified date
+- Explicit behavioral instructions for high-risk files
 
 ## Key Implementation Details
 
-### Coupling Calculation
-- Analyzes last 50 commits for target file (src/index.ts:31)
-- For each commit, uses `git show --name-only` to find co-changed files (src/index.ts:39)
-- Filters out same filename, ignored patterns (src/index.ts:43)
-- Calculates coupling percentage: `(co-changes / total commits) * 100` (src/index.ts:53)
-- Only returns top 5 coupled files with >15% correlation (src/index.ts:55)
+### Coupling Calculation (Enhanced)
+- Analyzes last 50 commits for target file (src/index.ts:128)
+- For each commit, uses `git show --name-only` to find co-changed files (src/index.ts:137)
+- Filters using multi-language ignore patterns + .gitignore (src/index.ts:141-145)
+- Tracks commit message and hash for the most recent co-change (src/index.ts:148-156)
+- Calculates coupling percentage: `(co-changes / total commits) * 100` (src/index.ts:168)
+- Returns top 5 coupled files with >15% correlation (src/index.ts:172)
+- **NEW**: Fetches code diff evidence for ALL coupled files in parallel (src/index.ts:175-186)
+- Each result includes: file path, score, commit message (reason), hash, and diff (evidence)
+
+### Evidence Bag (The Intelligence Upgrade)
+- `getDiffSnippet()` function fetches actual code changes from commits (src/index.ts:67-83)
+- Uses `git show commitHash:filePath` to retrieve file content at that moment
+- Truncates diffs to 1000 characters to balance context vs. token usage (src/index.ts:74-77)
+- Handles errors gracefully (file might not exist in that commit, git errors, etc.)
+- **Why this matters**: Removes dependency on commit message quality
+  - Bad commit messages like "updates" or "stuff" are ignored
+  - Code diffs show the truth: "Added userId field to User type and validation logic"
+  - AI analyzes the actual code changes to determine relationship type
 
 ### Drift Detection
 - Compares file modification times using `fs.stat()` (src/index.ts:68-78)

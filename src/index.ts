@@ -63,6 +63,25 @@ function getGitForFile(filePath: string) {
 	return simpleGit(dir);
 }
 
+// Helper: Get the actual code diff for a specific file at a specific commit
+async function getDiffSnippet(repoRoot: string, relativeFilePath: string, commitHash: string): Promise<string> {
+	try {
+		const git = simpleGit(repoRoot);
+		// Get diff of that file in that commit (show the changes made)
+		const diff = await git.show([`${commitHash}:${relativeFilePath}`]);
+
+		// Truncate if too large (save tokens, but keep enough for context)
+		const maxLength = 1000;
+		if (diff.length > maxLength) {
+			return diff.slice(0, maxLength) + "\n...(truncated)";
+		}
+		return diff;
+	} catch (e) {
+		// File might not exist in that commit, or other git errors
+		return "";
+	}
+}
+
 // Helper: Parse .gitignore and create ignore filter
 async function getIgnoreFilter(repoRoot: string) {
 	const cacheKey = `gitignore:${repoRoot}`;
@@ -93,13 +112,13 @@ function shouldIgnoreFile(filePath: string, ig: ReturnType<typeof ignore>) {
 	return ig.ignores(normalizedPath);
 }
 
-// --- ENGINE 1: ENTANGLEMENT ---
+// --- ENGINE 1: ENTANGLEMENT (Enhanced with Context + Evidence) ---
 async function getCoupledFiles(filePath: string) {
 	const cacheKey = `coupling:${filePath}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = getGitForFile(filePath); // <--- DYNAMIC GIT INSTANCE
+		const git = getGitForFile(filePath);
 		const root = await git.revparse(["--show-toplevel"]);
 		const repoRoot = root.trim();
 
@@ -107,35 +126,64 @@ async function getCoupledFiles(filePath: string) {
 		const ig = await getIgnoreFilter(repoRoot);
 
 		const log = await git.log({ file: filePath, maxCount: 50 });
-		const hashes = log.all.map((c) => c.hash);
-		if (hashes.length === 0) return [];
+		if (log.total === 0) return [];
 
-		const couplingMap: Record<string, number> = {};
+		// Track both count AND the most recent commit info
+		const couplingMap: Record<string, { count: number; lastHash: string; lastMsg: string }> = {};
 
+		// Process all commits to find co-changes
 		await Promise.all(
-			hashes.map(async (hash) => {
-				const show = await git.show([hash, "--name-only", "--format="]);
+			log.all.map(async (commit) => {
+				const show = await git.show([commit.hash, "--name-only", "--format="]);
 				const files = show
 					.split("\n")
 					.map((f) => f.trim())
 					.filter((f) => {
 						if (!f) return false;
 						if (f.includes(path.basename(filePath))) return false;
-						// Use the ignore filter
 						return !shouldIgnoreFile(f, ig);
 					});
-				files.forEach((f) => (couplingMap[f] = (couplingMap[f] || 0) + 1));
+
+				files.forEach((f) => {
+					if (!couplingMap[f]) {
+						// First time seeing this file - store the most recent commit
+						couplingMap[f] = {
+							count: 0,
+							lastHash: commit.hash,
+							lastMsg: commit.message,
+						};
+					}
+					couplingMap[f].count++;
+				});
 			})
 		);
 
-		const result = Object.entries(couplingMap)
-			.sort(([, a], [, b]) => b - a)
+		// Get top 5 coupled files
+		const topCoupled = Object.entries(couplingMap)
+			.sort(([, a], [, b]) => b.count - a.count)
 			.slice(0, 5)
-			.map(([file, count]) => ({
+			.map(([file, data]) => ({
 				file,
-				score: Math.round((count / hashes.length) * 100),
+				count: data.count,
+				score: Math.round((data.count / log.total) * 100),
+				lastHash: data.lastHash,
+				reason: data.lastMsg,
 			}))
 			.filter((x) => x.score > 15);
+
+		// Fetch diff evidence for all coupled files (parallel processing)
+		const result = await Promise.all(
+			topCoupled.map(async (item) => {
+				const evidence = await getDiffSnippet(repoRoot, item.file, item.lastHash);
+				return {
+					file: item.file,
+					score: item.score,
+					reason: item.reason,
+					lastHash: item.lastHash,
+					evidence,
+				};
+			})
+		);
 
 		cache.set(cacheKey, result);
 		return result;
@@ -199,33 +247,68 @@ async function getVolatility(filePath: string) {
 	return result;
 }
 
-// --- OUTPUT FORMATTER ---
+// --- OUTPUT FORMATTER (Detective Work + Checklist Format) ---
 function generateAiInstructions(filePath: string, volatility: any, coupled: any[], drift: any[]) {
-	let instructions = `### 🧠 Repo Context Analysis for \`${path.basename(filePath)}\`\n`;
-	instructions += `*System Instruction: Use this data to guide your coding decisions.*\n\n`;
+	const fileName = path.basename(filePath);
+	let instructions = `### 🧠 Forensics for \`${fileName}\`\n\n`;
 
-	if (volatility.panicScore > 25) {
-		instructions += `🔴 **HIGH RISK FILE (${volatility.panicScore}% Panic Score)**\n`;
-		instructions += `> **Instruction:** This file has a history of bugs/reverts. You MUST review your changes twice. Do not delete safety checks.\n\n`;
-	} else {
-		instructions += `🟢 **Stable File.** Standard coding practices apply.\n\n`;
-	}
-
+	// SECTION 1: DETECTIVE WORK REQUIRED (The Intelligence Layer)
 	if (coupled.length > 0) {
-		instructions += `🔗 **Entangled Files (Action Required)**\n`;
-		instructions += `> **Instruction:** These files usually change when \`${path.basename(filePath)}\` changes. Check them:\n`;
+		instructions += `**🕵️ DETECTIVE WORK REQUIRED**\n\n`;
+		instructions += `The following files are coupled with \`${fileName}\`. Analyze the evidence to understand *why* they change together:\n\n`;
+
 		coupled.forEach((c) => {
-			instructions += `- \`${c.file}\` (Coupled ${c.score}%)\n`;
+			instructions += `**File:** \`${c.file}\` (${c.score}% coupled)\n`;
+			instructions += `**Linked via:** "${c.reason.split("\n")[0].trim()}"\n`;
+
+			if (c.evidence && c.evidence.length > 0) {
+				instructions += `**Evidence (commit ${c.lastHash.substring(0, 7)}):**\n`;
+				instructions += "```\n" + c.evidence + "\n```\n";
+				instructions += `> **System Instruction:** Analyze the code above. Determine the relationship (e.g., shared types, API contract, schema dependency). Apply that logic when modifying \`${fileName}\`.\n\n`;
+			} else {
+				instructions += `> **System Instruction:** These files historically change together. Verify if your changes to \`${fileName}\` require updates to \`${c.file}\`.\n\n`;
+			}
 		});
-		instructions += `\n`;
+
+		instructions += `---\n\n`;
 	}
 
-	if (drift.length > 0) {
-		instructions += `⚠️ **Stale Siblings Detected**\n`;
-		instructions += `> **Instruction:** These related files are outdated (>7 days). Update them:\n`;
-		drift.forEach((d) => {
-			instructions += `- \`${d.file}\` (${d.daysOld} days old)\n`;
-		});
+	// SECTION 2: PRE-FLIGHT CHECKLIST (The Action Plan)
+	instructions += `**🛑 PRE-FLIGHT CHECKLIST**\n\n`;
+	instructions += `You MUST complete these steps before finalizing code changes:\n\n`;
+	instructions += `- [ ] Modify \`${fileName}\` (primary target)\n`;
+
+	coupled.forEach((c) => {
+		instructions += `- [ ] Verify/update \`${c.file}\` (${c.score}% coupling detected)\n`;
+	});
+
+	drift.forEach((d) => {
+		instructions += `- [ ] Update \`${d.file}\` (stale by ${d.daysOld} days)\n`;
+	});
+
+	instructions += `\n---\n\n`;
+
+	// SECTION 3: RISK ASSESSMENT (The Context)
+	instructions += `**📊 RISK ASSESSMENT**\n\n`;
+
+	if (volatility.commitCount === 0) {
+		instructions += `⚠️ **Status:** NEW/UNTRACKED FILE\n`;
+		instructions += `> This file has no git history. Proceed with caution - no historical data available.\n\n`;
+	} else if (volatility.panicScore > 25) {
+		instructions += `🔥 **Status:** VOLATILE (${volatility.panicScore}% Panic Score)\n`;
+		instructions += `> **Warning:** This file has ${volatility.panicScore}% panic commits (fix/bug/revert/urgent). Code is historically fragile.\n`;
+		instructions += `> **Required Action:** Review your changes twice. Do not delete safety checks or validation logic.\n\n`;
+	} else {
+		instructions += `✅ **Status:** STABLE (${volatility.panicScore}% Panic Score)\n`;
+		instructions += `> This file has a clean history. Standard coding practices apply.\n\n`;
+	}
+
+	// Add metadata
+	if (volatility.commitCount > 0) {
+		instructions += `**Metadata:**\n`;
+		instructions += `- Total commits analyzed: ${volatility.commitCount}\n`;
+		instructions += `- Unique contributors: ${volatility.authors}\n`;
+		instructions += `- Last modified: ${volatility.lastCommitDate}\n`;
 	}
 
 	return instructions;
