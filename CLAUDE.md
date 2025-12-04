@@ -458,6 +458,7 @@ Create a `.memoria.json` file in your repository root to customize Memoria's beh
 | `thresholds.couplingPercent` | number (0-100) | 15 | Minimum coupling % to report |
 | `thresholds.driftDays` | number (1-365) | 7 | Days before file is "stale" |
 | `thresholds.analysisWindow` | number (10-500) | 50 | Commits to analyze |
+| `thresholds.maxFilesPerCommit` | number (5-100) | 15 | Skip commits touching more files (filters bulk refactors/renames) |
 | `ignore` | string[] | [] | Additional glob patterns to ignore |
 | `panicKeywords` | Record<string, number> | {} | Custom panic keywords with weights |
 | `riskWeights.volatility` | number (0-1) | 0.35 | Weight for volatility in risk score |

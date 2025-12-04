@@ -28,6 +28,7 @@ const MemoriaConfigSchema = z
 				couplingPercent: z.number().min(0).max(100).optional(),
 				driftDays: z.number().min(1).max(365).optional(),
 				analysisWindow: z.number().min(10).max(500).optional(),
+				maxFilesPerCommit: z.number().min(5).max(100).optional(),
 			})
 			.optional(),
 		ignore: z.array(z.string()).optional(),
@@ -860,17 +861,26 @@ export async function getCoupledFiles(
 			{ count: number; lastHash: string; lastMsg: string }
 		> = {};
 
+		// Get max files per commit threshold (default: 15)
+		const maxFilesPerCommit = config?.thresholds?.maxFilesPerCommit ?? 15;
+
 		// Process all commits to find co-changes (limited to 5 concurrent git operations)
 		await mapConcurrent(log.all, 5, async (commit) => {
 			const show = await git.show([commit.hash, "--name-only", "--format="]);
-			const files = show
+			const allFiles = show
 				.split("\n")
 				.map((f) => f.trim())
-				.filter((f) => {
-					if (!f) return false;
-					if (f.includes(path.basename(filePath))) return false;
-					return !shouldIgnoreFile(f, ig);
-				});
+				.filter((f) => f);
+
+			// Skip bulk commits (refactors, renames, large merges) - these create false coupling
+			if (allFiles.length > maxFilesPerCommit) {
+				return;
+			}
+
+			const files = allFiles.filter((f) => {
+				if (f.includes(path.basename(filePath))) return false;
+				return !shouldIgnoreFile(f, ig);
+			});
 
 			files.forEach((f) => {
 				if (!couplingMap[f]) {
@@ -1006,10 +1016,16 @@ export async function getImporters(
 		// Load ignore filter
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
-		// Use git grep to find files that import this file
-		// This is extremely fast (~10ms) compared to parsing AST
+		// Helper to detect test files
+		const isTestFile = (f: string) => /\.(test|spec)\.[jt]sx?$/.test(f);
+		const targetIsTestFile = isTestFile(filePath);
+
+		// Use git grep to find files that actually import this file
+		// Match import/require/from statements with the filename in quotes
+		// This is more precise than just searching for the filename
+		const importPattern = `(import|from|require).*['"].*${fileName}`;
 		const grepResult = await git
-			.raw(["grep", "-l", "--", fileName])
+			.raw(["grep", "-l", "-E", "--", importPattern])
 			.catch(() => "");
 
 		// Parse results and filter
@@ -1023,6 +1039,8 @@ export async function getImporters(
 				if (path.basename(f) === path.basename(filePath)) return false;
 				// Exclude ignored files
 				if (shouldIgnoreFile(f, ig)) return false;
+				// Don't report test files as importers of other test files
+				if (targetIsTestFile && isTestFile(f)) return false;
 				return true;
 			});
 
