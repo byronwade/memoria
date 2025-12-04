@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="memoria.svg" alt="Memoria Logo" width="120">
+</p>
+
 # Memoria
 
 **The Memory Your AI Lacks.**
