@@ -37,87 +37,144 @@ const staggerContainer = {
 	},
 };
 
-// Clean, simple file analysis visualization
+// Terminal-style analysis output that developers love
 function DependencyGraph() {
-	const files = [
-		{ name: "UserService.test.ts", status: "warning", label: "stale 8d" },
-		{ name: "UserService.stories.tsx", status: "critical", label: "outdated" },
-		{ name: "api/users/route.ts", status: "critical", label: "85% coupled" },
-		{ name: "types/user.ts", status: "ok", label: "synced" },
-		{ name: "docs/user-api.md", status: "warning", label: "drift" },
-	];
+	const [step, setStep] = useState(0);
+
+	useEffect(() => {
+		const timers = [
+			setTimeout(() => setStep(1), 400),   // Show command
+			setTimeout(() => setStep(2), 900),   // Show analyzing
+			setTimeout(() => setStep(3), 1400),  // Show result header
+			setTimeout(() => setStep(4), 1700),  // Show risk
+			setTimeout(() => setStep(5), 2000),  // Show files
+			setTimeout(() => setStep(6), 2800),  // Show bottom stats
+		];
+		return () => timers.forEach(clearTimeout);
+	}, []);
 
 	return (
-		<div className="w-full h-full flex flex-col items-center justify-center gap-5 p-6">
-			{/* Main file being edited */}
-			<div className="flex items-center gap-4 px-5 py-4 rounded-lg border border-primary/30 bg-primary/5">
-				<div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-					<svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-						<path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-					</svg>
-				</div>
-				<div>
-					<div className="font-mono font-medium">UserService.ts</div>
-					<div className="text-xs text-muted-foreground">You're editing this file</div>
-				</div>
-				<div className="ml-auto text-right pl-4 border-l border-primary/20">
-					<div className="text-3xl font-bold text-primary tabular-nums">72</div>
-					<div className="text-[10px] text-muted-foreground uppercase">risk</div>
-				</div>
-			</div>
-
-			{/* Arrow */}
-			<div className="flex flex-col items-center text-muted-foreground/40">
-				<div className="w-px h-4 bg-current" />
-				<svg className="w-3 h-2" viewBox="0 0 12 8" fill="currentColor">
-					<path d="M6 8L0 0h12L6 8z" />
-				</svg>
-			</div>
-
-			{/* Hidden files list */}
-			<div className="w-full max-w-sm">
-				<div className="text-xs text-muted-foreground text-center mb-3">
-					Files that break when you change it
-				</div>
-				<div className="space-y-1.5">
-					{files.map((file) => (
-						<div
-							key={file.name}
-							className="flex items-center justify-between px-3 py-2 rounded-md bg-card/50 border border-border/40"
-						>
-							<div className="flex items-center gap-2.5">
-								<div
-									className={cn(
-										"w-2 h-2 rounded-full",
-										file.status === "critical" && "bg-red-500",
-										file.status === "warning" && "bg-yellow-500",
-										file.status === "ok" && "bg-green-500"
-									)}
-								/>
-								<span className="text-sm font-mono">{file.name}</span>
-							</div>
-							<span
-								className={cn(
-									"text-xs",
-									file.status === "critical" && "text-red-500",
-									file.status === "warning" && "text-yellow-500",
-									file.status === "ok" && "text-muted-foreground"
-								)}
-							>
-								{file.label}
-							</span>
+		<div className="w-full h-full flex items-center justify-center p-4">
+			<div className="w-full max-w-md">
+				{/* Terminal window */}
+				<div className="rounded-lg border border-border/60 bg-[#0d1117] shadow-2xl overflow-hidden">
+					{/* Terminal header */}
+					<div className="flex items-center gap-2 px-4 py-3 bg-[#161b22] border-b border-border/40">
+						<div className="flex gap-1.5">
+							<div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+							<div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+							<div className="w-3 h-3 rounded-full bg-[#27ca40]" />
 						</div>
-					))}
-				</div>
-			</div>
+						<span className="text-xs text-gray-400 ml-2 font-mono">~/project</span>
+					</div>
 
-			{/* Key insight */}
-			<div className="text-center max-w-xs">
-				<div className="text-xs text-muted-foreground">
-					<span className="text-foreground font-medium">No imports exist</span> between these files.
-					<br />
-					Your AI can't see them. Memoria can.
+					{/* Terminal content */}
+					<div className="p-4 font-mono text-sm space-y-3 min-h-[320px]">
+						{/* Command */}
+						{step >= 1 && (
+							<m.div
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								className="flex items-center gap-2"
+							>
+								<span className="text-[#7ee787]">❯</span>
+								<span className="text-gray-300">memoria analyze UserService.ts</span>
+							</m.div>
+						)}
+
+						{/* Analyzing spinner */}
+						{step >= 2 && step < 3 && (
+							<m.div
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								className="text-gray-500 flex items-center gap-2"
+							>
+								<span className="animate-spin">⠋</span>
+								<span>Analyzing git history...</span>
+							</m.div>
+						)}
+
+						{/* Results */}
+						{step >= 3 && (
+							<m.div
+								initial={{ opacity: 0, y: 5 }}
+								animate={{ opacity: 1, y: 0 }}
+								className="space-y-3"
+							>
+								{/* Header with risk */}
+								<div className="flex items-center justify-between">
+									<span className="text-gray-400">UserService.ts</span>
+									{step >= 4 && (
+										<m.span
+											initial={{ opacity: 0, scale: 0.8 }}
+											animate={{ opacity: 1, scale: 1 }}
+											className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 text-xs font-bold"
+										>
+											RISK: 72
+										</m.span>
+									)}
+								</div>
+
+								{/* Coupled files */}
+								{step >= 5 && (
+									<m.div
+										initial={{ opacity: 0 }}
+										animate={{ opacity: 1 }}
+										className="space-y-1"
+									>
+										<div className="text-gray-500 text-xs uppercase tracking-wider mb-2">
+											⚠ Hidden dependencies (no imports)
+										</div>
+										{[
+											{ file: "UserService.test.ts", pct: "78%", color: "text-yellow-400" },
+											{ file: "UserService.stories.tsx", pct: "92%", color: "text-red-400" },
+											{ file: "api/users/route.ts", pct: "85%", color: "text-red-400" },
+											{ file: "types/user.ts", pct: "67%", color: "text-yellow-400" },
+											{ file: "docs/user-api.md", pct: "45%", color: "text-gray-400" },
+										].map((item, i) => (
+											<m.div
+												key={item.file}
+												initial={{ opacity: 0, x: -10 }}
+												animate={{ opacity: 1, x: 0 }}
+												transition={{ delay: i * 0.08 }}
+												className="flex items-center justify-between text-xs"
+											>
+												<span className="text-gray-300">  {item.file}</span>
+												<span className={item.color}>{item.pct}</span>
+											</m.div>
+										))}
+									</m.div>
+								)}
+
+								{/* Bottom stats */}
+								{step >= 6 && (
+									<m.div
+										initial={{ opacity: 0 }}
+										animate={{ opacity: 1 }}
+										className="pt-3 mt-3 border-t border-gray-700/50 flex items-center justify-between text-xs"
+									>
+										<span className="text-gray-500">Completed in <span className="text-[#7ee787]">67ms</span></span>
+										<span className="text-gray-500">5 files your AI missed</span>
+									</m.div>
+								)}
+							</m.div>
+						)}
+					</div>
 				</div>
+
+				{/* Caption below terminal */}
+				{step >= 6 && (
+					<m.div
+						initial={{ opacity: 0, y: 10 }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ delay: 0.3 }}
+						className="mt-4 text-center"
+					>
+						<span className="text-sm text-muted-foreground">
+							These files change together <span className="text-primary font-medium">85% of the time</span> — but have zero imports.
+						</span>
+					</m.div>
+				)}
 			</div>
 		</div>
 	);

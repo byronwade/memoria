@@ -64,7 +64,8 @@
       "Bash(wc:*)",
       "Bash(git status:*)",
       "Bash(cloudflared tunnel:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(npm ls:*)"
     ],
     "deny": [],
     "ask": []

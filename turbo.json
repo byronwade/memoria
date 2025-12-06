@@ -1,9 +1,16 @@
 {
 	"$schema": "https://turbo.build/schema.json",
-	"pipeline": {
+	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
-			"outputs": ["dist/**", ".next/**", "out/**"]
+			"outputs": ["dist/**", ".next/**", "out/**"],
+			"env": [
+				"CONVEX_URL",
+				"NEXT_PUBLIC_CONVEX_URL",
+				"NEXT_PUBLIC_APP_URL",
+				"GITHUB_APP_ID",
+				"GITHUB_CLIENT_ID"
+			]
 		},
 		"lint": {
 			"outputs": []
@@ -13,8 +20,8 @@
 			"outputs": []
 		},
 		"dev": {
-			"cache": false
+			"cache": false,
+			"persistent": true
 		}
 	}
 }
-

@@ -1,30 +1,26 @@
 {
+	"$schema": "https://openapi.vercel.sh/vercel.json",
+	"buildCommand": "npm run build",
+	"installCommand": "npm install",
+	"framework": "nextjs",
+	"outputDirectory": "apps/web/.next",
+	"ignoreCommand": "git diff HEAD^ HEAD --quiet -- apps/web/ packages/",
 	"functions": {
-		"apps/api/api/index.ts": {
-			"runtime": "nodejs18.x",
+		"apps/web/src/app/api/**/*.ts": {
 			"memory": 1024,
-			"maxDuration": 30
+			"maxDuration": 60
 		}
 	},
-	"routes": [
-		{
-			"src": "/api/(.*)",
-			"dest": "/apps/api/api/index.ts"
-		}
-	]
-}
-{
-	"version": 2,
-	"builds": [
-		{
-			"src": "apps/web/next.config.ts",
-			"use": "@vercel/next"
-		}
-	],
-	"routes": [
-		{
-			"src": "/(.*)",
-			"dest": "/apps/web/$1"
-		}
-	]
+	"env": {
+		"CONVEX_URL": "@convex_url",
+		"NEXT_PUBLIC_CONVEX_URL": "@next_public_convex_url",
+		"GITHUB_APP_ID": "@github_app_id",
+		"GITHUB_APP_NAME": "@github_app_name",
+		"GITHUB_PRIVATE_KEY": "@github_private_key",
+		"GITHUB_CLIENT_ID": "@github_client_id",
+		"GITHUB_CLIENT_SECRET": "@github_client_secret",
+		"GITHUB_WEBHOOK_SECRET": "@github_webhook_secret",
+		"INTERNAL_API_KEY": "@internal_api_key",
+		"NEXT_PUBLIC_APP_URL": "@next_public_app_url"
+	}
 }
