@@ -11,18 +11,20 @@ import {
 	GitBranch,
 	Github,
 	LogOut,
+	Moon,
 	Plus,
 	RefreshCw,
 	Settings,
 	Shield,
+	Sun,
 	X,
 	CreditCard,
 	Crown,
 } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -34,10 +36,17 @@ import { cn } from "@/lib/utils";
 import { useDashboard } from "./dashboard-context";
 import { UpgradeModal } from "@/components/billing/upgrade-modal";
 
-const navItems = [
+// Desktop header buttons (visible on md+)
+const headerNavItems = [
 	{ href: "/dashboard/guardrails", label: "Guardrails", icon: Shield },
 	{ href: "/dashboard/memories", label: "Memories", icon: Brain },
-	{ href: "/dashboard/settings", label: "Settings", icon: Settings },
+];
+
+// All nav items for dropdown (mobile shows all, desktop shows settings only)
+const dropdownNavItems = [
+	{ href: "/dashboard/guardrails", label: "Guardrails", icon: Shield, mobileOnly: true },
+	{ href: "/dashboard/memories", label: "Memories", icon: Brain, mobileOnly: true },
+	{ href: "/dashboard/settings", label: "Settings", icon: Settings, mobileOnly: false },
 ];
 
 type DateRange = "today" | "7days" | "30days" | "90days";
@@ -64,6 +73,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 	const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
 	const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
 	const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
+	// Theme
+	const { theme, setTheme, resolvedTheme } = useTheme();
+	const [mounted, setMounted] = useState(false);
+	useEffect(() => setMounted(true), []);
 
 	const handleSync = useCallback(async () => {
 		if (syncStatus === "syncing") return;
@@ -278,15 +292,37 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 						</div>
 					</div>
 
-					{/* Right: User Menu */}
-					<div className="flex items-center gap-2">
+					{/* Right: Nav + User Menu */}
+					<div className="flex items-center gap-1 sm:gap-2">
 						{/* Trial/Plan Badge */}
 						{billingStatus?.isTrialing && (
-							<div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-sm bg-yellow-500/10 text-yellow-600 text-xs font-medium">
+							<div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-sm bg-yellow-500/10 text-yellow-600 text-xs font-medium">
 								<Crown className="h-3.5 w-3.5" />
 								Trial: {billingStatus.trialDaysRemaining} days left
 							</div>
 						)}
+
+						{/* Desktop Nav Buttons */}
+						{headerNavItems.map((item) => {
+							const isActive = pathname === item.href || pathname.startsWith(item.href);
+							return (
+								<Button
+									key={item.href}
+									variant="ghost"
+									size="sm"
+									asChild
+									className={cn(
+										"hidden md:flex items-center gap-1.5 h-8 px-2.5",
+										isActive && "bg-secondary"
+									)}
+								>
+									<Link href={item.href}>
+										<item.icon className="h-4 w-4" />
+										<span>{item.label}</span>
+									</Link>
+								</Button>
+							);
+						})}
 
 						{/* User Dropdown */}
 						<DropdownMenu>
@@ -338,9 +374,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 									)}
 								</div>
 
-								{/* Navigation */}
+								{/* Navigation - Mobile shows all, desktop shows only non-header items */}
 								<div className="py-1">
-									{navItems.map((item) => {
+									{dropdownNavItems.map((item) => {
 										const isActive =
 											pathname === item.href ||
 											(item.href !== "/dashboard" && pathname.startsWith(item.href));
@@ -350,7 +386,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 												asChild
 												className={cn(
 													"flex items-center gap-2.5 py-2",
-													isActive && "bg-secondary"
+													isActive && "bg-secondary",
+													item.mobileOnly && "md:hidden"
 												)}
 											>
 												<Link href={item.href}>
@@ -408,28 +445,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
 								<DropdownMenuSeparator />
 
-								{/* Theme Toggle */}
+								{/* Theme Toggle - Simple clickable row */}
 								<DropdownMenuItem
-									className="flex items-center gap-2.5 py-2"
-									onSelect={(e) => e.preventDefault()}
+									className="flex items-center justify-between py-2"
+									onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
 								>
-									<div className="flex items-center gap-2.5 flex-1">
-										<div className="h-4 w-4 text-muted-foreground">
-											<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-												<circle cx="12" cy="12" r="4"/>
-												<path d="M12 2v2"/>
-												<path d="M12 20v2"/>
-												<path d="m4.93 4.93 1.41 1.41"/>
-												<path d="m17.66 17.66 1.41 1.41"/>
-												<path d="M2 12h2"/>
-												<path d="M20 12h2"/>
-												<path d="m6.34 17.66-1.41 1.41"/>
-												<path d="m19.07 4.93-1.41 1.41"/>
-											</svg>
-										</div>
+									<div className="flex items-center gap-2.5">
+										{mounted && resolvedTheme === "dark" ? (
+											<Moon className="h-4 w-4 text-muted-foreground" />
+										) : (
+											<Sun className="h-4 w-4 text-muted-foreground" />
+										)}
 										<span className="text-foreground">Theme</span>
 									</div>
-									<ThemeToggle />
+									<span className="text-xs text-muted-foreground capitalize">
+										{mounted ? resolvedTheme : "system"}
+									</span>
 								</DropdownMenuItem>
 
 								<DropdownMenuSeparator />
