@@ -366,6 +366,21 @@ Uses git pickaxe (`git log -S`) to find files sharing type definitions - even wi
 ### Content Coupling
 Finds files sharing string literals (error messages, constants) that should stay in sync.
 
+### Test File Coupling
+Auto-discovers test files matching naming conventions (`*.test.*`, `*.spec.*`, `*_test.*`, etc.) and mock/fixture files - no hardcoded extensions.
+
+### Environment Variable Coupling
+Finds files sharing `ALL_CAPS_UNDERSCORE` environment variables (`API_KEY`, `DATABASE_URL`, etc.) - works across any language.
+
+### Schema/Model Coupling
+Detects database schema definitions (SQL, Prisma, TypeORM, Mongoose) and finds files that query those tables/models.
+
+### API Endpoint Coupling
+Finds client code that calls API endpoints defined in route files. Catches response shape changes that break consumers.
+
+### Re-Export Chain Coupling
+Detects barrel files (`index.ts`) that re-export your module and finds transitive importers through those barrels.
+
 ---
 
 ## Example Output
@@ -387,11 +402,20 @@ Finds files sharing string literals (error messages, constants) that should stay
   + interface SubscriptionUpdated
   - oldStatus: string
 
+**`route.test.ts`** — 90% [test]
+> Test file for this module. Update when changing exports.
+
+**`services/stripe.ts`** — 75% [env]
+> Shares env vars: STRIPE_KEY, STRIPE_SECRET
+
 **`README.md`** — 70% [docs]
 > Documentation references: generateReport, SubscriptionStatus
 
 **`types/billing.ts`** — 65% [type]
 > Shared types: SubscriptionUpdated, PaymentStatus
+
+**`features/billing/index.ts`** — 60% [transitive]
+> Re-exports this file. Changes propagate through this barrel.
 
 ---
 

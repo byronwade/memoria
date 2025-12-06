@@ -148,7 +148,7 @@ npm run dev
 # Run the MCP server
 npm start
 
-# Run test suite (362 tests)
+# Run test suite (442 tests)
 npm test
 ```
 
@@ -251,7 +251,7 @@ User highlights lines 100-150 and asks: "Why is this weird if-statement here?"
 - Tool uses `git log -L 100,150:src/api/utils.ts` to find all commits that touched those lines
 - Returns the full history of that specific code block
 
-## The 8 Engines Explained
+## The 13 Engines Explained
 
 ### Engine 1: Volatility (Panic Detection + Time-Decay + Bus Factor)
 
@@ -424,6 +424,131 @@ git grep -l -F "Authentication failed" -- "*.ts" "*.tsx"
 - Detects hardcoded strings that should be centralized
 - Labels coupled files with `[content]` in output
 
+### Engine 9: Test File Coupling (Auto-Discovery)
+
+Finds test files that should be updated when source changes. Language-agnostic - no hardcoded extensions.
+
+**How It Works:**
+```typescript
+// 1. Get basename (login.ts -> login)
+const basename = path.basename(filePath, ext);
+
+// 2. Search for test file naming patterns
+const testPatterns = [
+  `${basename}\\.test\\.`,      // login.test.ts
+  `${basename}\\.spec\\.`,      // login.spec.py
+  `${basename}_test\\.`,        // login_test.go
+  `test_${basename}\\.`,        // test_login.py
+];
+git grep -l -E "login\\.test\\.|login\\.spec\\." -- "*"
+
+// 3. Also find mocks/fixtures
+git grep -l -E "mock.*LoginService|LoginService.*mock"
+```
+
+**Why This Matters:**
+- Catches missing test updates when changing exports
+- Finds mock files that need interface updates
+- Works across all test frameworks (Jest, Vitest, pytest, Go testing)
+- Labels coupled files with `[test]` in output
+
+### Engine 10: Environment Variable Coupling (Auto-Discovery)
+
+Finds files sharing the same environment variables.
+
+**How It Works:**
+```typescript
+// 1. Extract ALL_CAPS_UNDERSCORE patterns (universal env var convention)
+const envVarRegex = /\b([A-Z][A-Z0-9_]{3,})\b/g;
+// Result: ["API_KEY", "DATABASE_URL", "STRIPE_SECRET"]
+
+// 2. Search all tracked files for these variables
+git grep -l -E "API_KEY|DATABASE_URL|STRIPE_SECRET"
+```
+
+**Why This Matters:**
+- Works across any language (JS, Python, Go, Ruby, Java, Rust)
+- Catches environment mismatches that cause runtime crashes
+- Finds config files that need updating
+- Labels coupled files with `[env]` in output
+
+### Engine 11: Schema/Model Coupling (Auto-Discovery)
+
+Finds files affected by database schema or model changes.
+
+**How It Works:**
+```typescript
+// 1. Detect schema-related content patterns
+const schemaIndicators = [
+  /CREATE\s+TABLE\s+(\w+)/gi,      // SQL
+  /model\s+(\w+)\s*\{/gi,          // Prisma
+  /@Entity|@Table|@Column/gi,      // TypeORM/Hibernate
+  /mongoose\.model\s*\(/gi,        // Mongoose
+];
+
+// 2. Extract table/model names
+const tables = extractSchemaNames(sourceCode);
+// Result: ["users", "orders", "User"]
+
+// 3. Find files referencing these tables
+git grep -l -E "\\busers\\b|\\bUser\\b"
+```
+
+**Why This Matters:**
+- Catches schema changes that break queries
+- Finds migration files that need ordering checks
+- Works with SQL, ORMs, and document databases
+- Labels coupled files with `[schema]` in output
+
+### Engine 12: API Endpoint Coupling (Auto-Discovery)
+
+Finds client code that calls API endpoints defined in the target file.
+
+**How It Works:**
+```typescript
+// 1. Detect if file defines API routes
+const apiIndicators = [
+  /app\.(get|post|put|delete)\s*\(/,    // Express
+  /@(Get|Post|Put|Delete)\s*\(/,        // NestJS/Spring
+  /export\s+function\s+(GET|POST)/,     // Next.js
+];
+
+// 2. Extract endpoint paths
+const endpoints = extractApiEndpoints(sourceCode);
+// Result: ["/api/users", "/api/auth/login"]
+
+// 3. Find files calling these endpoints
+git grep -l -F "/api/users"
+```
+
+**Why This Matters:**
+- Catches API contract violations
+- Finds UI components that break when response shapes change
+- Works with REST, GraphQL, and RPC patterns
+- Labels coupled files with `[api]` in output
+
+### Engine 13: Re-Export Chain Coupling (Transitive)
+
+Finds files affected through barrel/index re-exports.
+
+**How It Works:**
+```typescript
+// 1. Find files that re-export the target
+const reExportPattern = `export.*from.*['"].*${basename}['"]`;
+git grep -l -E "export.*from.*UserService"
+// Result: ["features/auth/index.ts"]
+
+// 2. Find transitive importers of those barrels
+git grep -l -E "from.*features/auth"
+// Result: ["app/routes.ts", "pages/login.tsx"]
+```
+
+**Why This Matters:**
+- Reveals hidden dependencies through barrel files
+- Catches breaking changes that propagate transitively
+- Common in monorepos with feature folders
+- Labels coupled files with `[transitive]` in output
+
 ### Sibling Guidance (New File Intelligence)
 
 When analyzing a file with no git history, Memoria provides intelligent guidance based on sibling files:
@@ -592,9 +717,10 @@ Plus any patterns from the project's `.gitignore`.
 
 ## Test Coverage
 
-362 tests covering:
-- All 8 engines with edge cases
+442 tests covering:
+- All 13 engines with edge cases
 - Documentation, type, and content coupling engines
+- Test file, env var, schema, API, and transitive coupling engines
 - Time-decay and bus factor tracking
 - History search (message, diff, and line-range modes)
 - Sibling guidance for new files

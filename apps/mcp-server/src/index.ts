@@ -155,7 +155,16 @@ export interface RiskAssessment {
 }
 
 // --- COUPLING SOURCE TYPES (for multi-engine coupling detection) ---
-export type CouplingSource = "git" | "docs" | "type" | "content";
+export type CouplingSource =
+	| "git" // Engine 2: Co-change correlation from git history
+	| "docs" // Engine 6: Documentation references
+	| "type" // Engine 7: Shared type definitions
+	| "content" // Engine 8: Shared string literals
+	| "test" // Engine 9: Test file coupling
+	| "env" // Engine 10: Environment variable coupling
+	| "schema" // Engine 11: Database schema coupling
+	| "api" // Engine 12: API endpoint coupling
+	| "transitive"; // Engine 13: Re-export chain coupling
 
 export interface EnhancedCoupledFile {
 	file: string;
@@ -1436,6 +1445,645 @@ export async function getContentCoupling(
 	}
 }
 
+// --- ENGINE 9: TEST FILE COUPLING (Auto-Discovery) ---
+// Finds test files that should be updated when source changes
+
+/**
+ * Find test files for a given source file based on naming conventions
+ * Works across any language - no hardcoded extensions
+ */
+export async function getTestCoupling(
+	filePath: string,
+	ctx?: AnalysisContext,
+): Promise<EnhancedCoupledFile[]> {
+	const cacheKey = `test-coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = ctx ? ctx.git : getGitForFile(filePath);
+		const repoRoot = ctx
+			? ctx.repoRoot
+			: (await git.revparse(["--show-toplevel"])).trim();
+		const relativePath = path.relative(repoRoot, filePath);
+
+		// Get basename without extension (login.ts -> login)
+		const ext = path.extname(filePath);
+		const basename = path.basename(filePath, ext);
+
+		// Skip if this is already a test file
+		if (/\.(test|spec)\.|\.(test|spec)$|_test\.|test_/i.test(path.basename(filePath))) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		// Build test file naming patterns (language-agnostic)
+		// Escape special regex chars in basename
+		const escapedBasename = basename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const testPatterns = [
+			`${escapedBasename}\\.test\\.`,      // login.test.ts, login.test.js
+			`${escapedBasename}\\.spec\\.`,      // login.spec.ts, login.spec.py
+			`${escapedBasename}_test\\.`,        // login_test.go, login_test.py
+			`test_${escapedBasename}\\.`,        // test_login.py
+			`${escapedBasename}-test\\.`,        // login-test.js
+			`${escapedBasename}-spec\\.`,        // login-spec.js
+		];
+
+		// Search using git grep for files matching test naming pattern
+		const grepResult = await git
+			.raw([
+				"--no-optional-locks",
+				"grep",
+				"-l",
+				"-E",
+				testPatterns.join("|"),
+				"--",
+				"*",
+			])
+			.catch(() => "");
+
+		const testFiles = grepResult
+			.split("\n")
+			.map((f) => f.trim())
+			.filter((f) => f && f !== relativePath);
+
+		const results: EnhancedCoupledFile[] = [];
+
+		// Add test files with high coupling score
+		for (const testFile of testFiles.slice(0, 5)) {
+			results.push({
+				file: testFile,
+				score: 85, // High score - tests should always be updated
+				source: "test",
+				reason: `Test file for ${basename}. Update when changing exports.`,
+			});
+		}
+
+		// Also look for mock/fixture files by searching for the class/function names
+		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const exports = extractExports(sourceContent);
+
+		if (exports.length > 0) {
+			const topExports = exports.slice(0, 5);
+			const mockPattern = topExports
+				.map((e) => `mock.*${e}|${e}.*[Mm]ock|fake.*${e}|${e}.*[Ff]ake|stub.*${e}`)
+				.join("|");
+
+			const mockResult = await git
+				.raw([
+					"--no-optional-locks",
+					"grep",
+					"-l",
+					"-i",
+					"-E",
+					mockPattern,
+				])
+				.catch(() => "");
+
+			const mockFiles = mockResult
+				.split("\n")
+				.map((f) => f.trim())
+				.filter((f) => f && f !== relativePath && !results.some((r) => r.file === f));
+
+			for (const mockFile of mockFiles.slice(0, 3)) {
+				results.push({
+					file: mockFile,
+					score: 70,
+					source: "test",
+					reason: `Mock/fixture file. Update if interface changes.`,
+				});
+			}
+		}
+
+		cache.set(cacheKey, results.slice(0, 5));
+		return results.slice(0, 5);
+	} catch (_e) {
+		return [];
+	}
+}
+
+// --- ENGINE 10: ENVIRONMENT VARIABLE COUPLING (Auto-Discovery) ---
+// Finds files sharing the same environment variables
+
+/**
+ * Extract environment variable names from source code
+ * Uses universal ALL_CAPS_UNDERSCORE pattern
+ */
+export function extractEnvVars(sourceCode: string): string[] {
+	// Match ALL_CAPS_UNDERSCORE pattern (common env var convention)
+	const envVarRegex = /\b([A-Z][A-Z0-9_]{3,})\b/g;
+	const matches: string[] = [];
+	let match: RegExpExecArray | null;
+
+	while ((match = envVarRegex.exec(sourceCode)) !== null) {
+		matches.push(match[1]);
+	}
+
+	// Filter to likely env vars
+	const filtered = matches.filter((v) => {
+		// Must contain underscore (API_KEY, DATABASE_URL)
+		if (!v.includes("_")) return false;
+		// Skip common non-env constants
+		const skipPatterns = [
+			"HTTP_", "HTML_", "CSS_", "JSON_", "XML_", "UTF_",
+			"CONTENT_TYPE", "STATUS_",
+		];
+		if (skipPatterns.some((p) => v.startsWith(p))) return false;
+		// Keep common env prefixes
+		const keepPrefixes = [
+			"API_", "DATABASE_", "DB_", "STRIPE_", "AUTH_", "JWT_",
+			"AWS_", "GOOGLE_", "GITHUB_", "REDIS_", "MONGO_",
+			"POSTGRES_", "MYSQL_", "SECRET_", "PRIVATE_", "PUBLIC_",
+			"NEXT_", "VITE_", "REACT_APP_", "VUE_APP_",
+		];
+		if (keepPrefixes.some((p) => v.startsWith(p))) return true;
+		// Keep if ends with common env suffixes
+		const keepSuffixes = ["_KEY", "_SECRET", "_TOKEN", "_URL", "_URI", "_HOST", "_PORT", "_PASSWORD"];
+		if (keepSuffixes.some((s) => v.endsWith(s))) return true;
+		return false;
+	});
+
+	return [...new Set(filtered)].slice(0, 10);
+}
+
+/**
+ * Find files sharing environment variables
+ */
+export async function getEnvCoupling(
+	filePath: string,
+	ctx?: AnalysisContext,
+): Promise<EnhancedCoupledFile[]> {
+	const cacheKey = `env-coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = ctx ? ctx.git : getGitForFile(filePath);
+		const repoRoot = ctx
+			? ctx.repoRoot
+			: (await git.revparse(["--show-toplevel"])).trim();
+		const relativePath = path.relative(repoRoot, filePath);
+
+		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const envVars = extractEnvVars(sourceContent);
+
+		if (envVars.length === 0) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		// Build regex pattern for env vars
+		const envPattern = envVars.join("|");
+
+		// Search all tracked files for these env vars
+		const grepResult = await git
+			.raw([
+				"--no-optional-locks",
+				"grep",
+				"-l",
+				"-E",
+				envPattern,
+			])
+			.catch(() => "");
+
+		const files = grepResult
+			.split("\n")
+			.map((f) => f.trim())
+			.filter((f) => f && f !== relativePath);
+
+		// For each file, find which env vars it shares
+		const fileEnvMap: Map<string, string[]> = new Map();
+
+		await mapConcurrent(files.slice(0, 20), 5, async (file) => {
+			const filePath = path.join(repoRoot, file);
+			const content = await fs.readFile(filePath, "utf8").catch(() => "");
+			const sharedVars = envVars.filter((v) => content.includes(v));
+			if (sharedVars.length > 0) {
+				fileEnvMap.set(file, sharedVars);
+			}
+		});
+
+		const results: EnhancedCoupledFile[] = [];
+		for (const [file, sharedVars] of fileEnvMap) {
+			results.push({
+				file,
+				score: Math.min(75, 40 + sharedVars.length * 10),
+				source: "env",
+				reason: `Shares env vars: ${sharedVars.slice(0, 3).join(", ")}${sharedVars.length > 3 ? ` (+${sharedVars.length - 3})` : ""}`,
+			});
+		}
+
+		results.sort((a, b) => b.score - a.score);
+		cache.set(cacheKey, results.slice(0, 5));
+		return results.slice(0, 5);
+	} catch (_e) {
+		return [];
+	}
+}
+
+// --- ENGINE 11: SCHEMA/MODEL COUPLING (Auto-Discovery) ---
+// Finds files affected by database schema or model changes
+
+/**
+ * Extract table/model names from schema-related source code
+ */
+export function extractSchemaNames(sourceCode: string): string[] {
+	const names: string[] = [];
+
+	// SQL: CREATE TABLE users, ALTER TABLE orders
+	const sqlPattern = /(?:CREATE|ALTER|DROP)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?["`]?(\w+)["`]?/gi;
+	let match: RegExpExecArray | null;
+	while ((match = sqlPattern.exec(sourceCode)) !== null) {
+		names.push(match[1]);
+	}
+
+	// ORM Models: class User extends Model, class OrderModel
+	const classPattern = /class\s+(\w+)(?:Model)?\s+(?:extends|implements)/gi;
+	while ((match = classPattern.exec(sourceCode)) !== null) {
+		const name = match[1].replace(/Model$/, "");
+		if (name.length > 2) names.push(name);
+	}
+
+	// Prisma: model User {
+	const prismaPattern = /model\s+(\w+)\s*\{/gi;
+	while ((match = prismaPattern.exec(sourceCode)) !== null) {
+		names.push(match[1]);
+	}
+
+	// TypeORM/Hibernate decorators: @Entity("users")
+	const decoratorPattern = /@(?:Entity|Table)\s*\(\s*["'](\w+)["']/gi;
+	while ((match = decoratorPattern.exec(sourceCode)) !== null) {
+		names.push(match[1]);
+	}
+
+	// Mongoose: new Schema({ ... }), mongoose.model("User"
+	const mongoosePattern = /mongoose\.model\s*\(\s*["'](\w+)["']/gi;
+	while ((match = mongoosePattern.exec(sourceCode)) !== null) {
+		names.push(match[1]);
+	}
+
+	// Filter and dedupe
+	const filtered = names.filter((n) => {
+		// Skip common/generic names
+		const generic = ["id", "data", "item", "entity", "model", "base", "abstract"];
+		return n.length > 2 && !generic.includes(n.toLowerCase());
+	});
+
+	return [...new Set(filtered)].slice(0, 10);
+}
+
+/**
+ * Detect if a file contains schema-related content
+ */
+export function isSchemaFile(sourceCode: string): boolean {
+	const schemaIndicators = [
+		/CREATE\s+TABLE/i,
+		/ALTER\s+TABLE/i,
+		/@Entity|@Table|@Column/,
+		/model\s+\w+\s*\{/,
+		/mongoose\.Schema/,
+		/db\.Column|db\.relationship/i,
+		/sequelize\.define/i,
+	];
+	return schemaIndicators.some((p) => p.test(sourceCode));
+}
+
+/**
+ * Find files sharing schema/model references
+ */
+export async function getSchemaCoupling(
+	filePath: string,
+	ctx?: AnalysisContext,
+): Promise<EnhancedCoupledFile[]> {
+	const cacheKey = `schema-coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = ctx ? ctx.git : getGitForFile(filePath);
+		const repoRoot = ctx
+			? ctx.repoRoot
+			: (await git.revparse(["--show-toplevel"])).trim();
+		const relativePath = path.relative(repoRoot, filePath);
+
+		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+
+		// Only analyze if file has schema-related content
+		if (!isSchemaFile(sourceContent)) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		const schemaNames = extractSchemaNames(sourceContent);
+
+		if (schemaNames.length === 0) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		// Build search pattern for table/model references
+		const patterns = schemaNames.flatMap((name) => [
+			`\\b${name}\\b`,
+			`["'\`]${name.toLowerCase()}["'\`]`,
+			`["'\`]${name}["'\`]`,
+		]);
+		const searchPattern = patterns.join("|");
+
+		const grepResult = await git
+			.raw([
+				"--no-optional-locks",
+				"grep",
+				"-l",
+				"-E",
+				searchPattern,
+			])
+			.catch(() => "");
+
+		const files = grepResult
+			.split("\n")
+			.map((f) => f.trim())
+			.filter((f) => f && f !== relativePath);
+
+		// For each file, determine what schema names it references
+		const fileSchemaMap: Map<string, string[]> = new Map();
+
+		await mapConcurrent(files.slice(0, 20), 5, async (file) => {
+			const filePath = path.join(repoRoot, file);
+			const content = await fs.readFile(filePath, "utf8").catch(() => "");
+			const sharedNames = schemaNames.filter(
+				(n) => new RegExp(`\\b${n}\\b`, "i").test(content),
+			);
+			if (sharedNames.length > 0) {
+				fileSchemaMap.set(file, sharedNames);
+			}
+		});
+
+		const results: EnhancedCoupledFile[] = [];
+		for (const [file, sharedNames] of fileSchemaMap) {
+			// Detect if it's a migration file
+			const isMigration = /migration|migrate/i.test(file);
+			const isQuery = /repo|repository|query|dao/i.test(file);
+
+			results.push({
+				file,
+				score: Math.min(80, 45 + sharedNames.length * 12),
+				source: "schema",
+				reason: isMigration
+					? `Migration for: ${sharedNames.join(", ")}. Check ordering.`
+					: isQuery
+						? `Queries: ${sharedNames.join(", ")}. Schema changes may break.`
+						: `References: ${sharedNames.join(", ")}`,
+			});
+		}
+
+		results.sort((a, b) => b.score - a.score);
+		cache.set(cacheKey, results.slice(0, 5));
+		return results.slice(0, 5);
+	} catch (_e) {
+		return [];
+	}
+}
+
+// --- ENGINE 12: API ENDPOINT COUPLING (Auto-Discovery) ---
+// Finds client code that calls API endpoints defined in the target file
+
+/**
+ * Extract API endpoint paths from source code
+ */
+export function extractApiEndpoints(sourceCode: string): string[] {
+	const endpoints: string[] = [];
+
+	// Match endpoint strings: "/api/users", "/v1/auth"
+	const endpointPattern = /["'`](\/(?:api|v\d+)\/[^"'`\s]+)["'`]/g;
+	let match: RegExpExecArray | null;
+	while ((match = endpointPattern.exec(sourceCode)) !== null) {
+		// Clean up dynamic segments: /api/users/:id -> /api/users/
+		const clean = match[1].replace(/:\w+/g, "").replace(/\/+$/, "");
+		if (clean.length > 4) endpoints.push(clean);
+	}
+
+	// Also match route definitions: app.get("/users", ...), router.post("/auth"
+	const routePattern = /\.(get|post|put|delete|patch)\s*\(\s*["'`](\/[^"'`]+)["'`]/gi;
+	while ((match = routePattern.exec(sourceCode)) !== null) {
+		const clean = match[2].replace(/:\w+/g, "").replace(/\/+$/, "");
+		if (clean.length > 1) endpoints.push(clean);
+	}
+
+	// Decorator routes: @Get("/users"), @Post("/auth")
+	const decoratorPattern = /@(?:Get|Post|Put|Delete|Patch)\s*\(\s*["'`](\/[^"'`]*)["'`]/gi;
+	while ((match = decoratorPattern.exec(sourceCode)) !== null) {
+		const clean = match[1].replace(/:\w+/g, "").replace(/\/+$/, "");
+		if (clean.length > 0) endpoints.push(clean || "/");
+	}
+
+	return [...new Set(endpoints)].slice(0, 10);
+}
+
+/**
+ * Detect if a file defines API routes
+ */
+export function isApiDefinitionFile(sourceCode: string): boolean {
+	const apiIndicators = [
+		/\.(get|post|put|delete|patch)\s*\(/i,
+		/@(Get|Post|Put|Delete|Patch)\s*\(/,
+		/router\.(get|post|put|delete)/i,
+		/app\.(get|post|put|delete)/i,
+		/createRouter|useRouter/,
+		/export\s+(?:async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH)\b/, // Next.js API routes
+	];
+	return apiIndicators.some((p) => p.test(sourceCode));
+}
+
+/**
+ * Find files that consume API endpoints
+ */
+export async function getApiCoupling(
+	filePath: string,
+	ctx?: AnalysisContext,
+): Promise<EnhancedCoupledFile[]> {
+	const cacheKey = `api-coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = ctx ? ctx.git : getGitForFile(filePath);
+		const repoRoot = ctx
+			? ctx.repoRoot
+			: (await git.revparse(["--show-toplevel"])).trim();
+		const relativePath = path.relative(repoRoot, filePath);
+
+		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+
+		// Only analyze if file defines API routes
+		if (!isApiDefinitionFile(sourceContent)) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		const endpoints = extractApiEndpoints(sourceContent);
+
+		if (endpoints.length === 0) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		// Search for files that call these endpoints
+		const allConsumers: Map<string, string[]> = new Map();
+
+		await mapConcurrent(endpoints.slice(0, 5), 3, async (endpoint) => {
+			// Use fixed string search for exact endpoint matches
+			const grepResult = await git
+				.raw([
+					"--no-optional-locks",
+					"grep",
+					"-l",
+					"-F",
+					endpoint,
+				])
+				.catch(() => "");
+
+			const files = grepResult
+				.split("\n")
+				.map((f) => f.trim())
+				.filter((f) => f && f !== relativePath);
+
+			for (const file of files) {
+				if (!allConsumers.has(file)) {
+					allConsumers.set(file, []);
+				}
+				allConsumers.get(file)!.push(endpoint);
+			}
+		});
+
+		const results: EnhancedCoupledFile[] = [];
+		for (const [file, endpoints] of allConsumers) {
+			// Skip the source file itself and other route definition files
+			const fileContent = await fs.readFile(path.join(repoRoot, file), "utf8").catch(() => "");
+			if (isApiDefinitionFile(fileContent)) continue;
+
+			results.push({
+				file,
+				score: Math.min(85, 50 + endpoints.length * 12),
+				source: "api",
+				reason: `Calls: ${endpoints.slice(0, 2).join(", ")}${endpoints.length > 2 ? ` (+${endpoints.length - 2})` : ""}. Response changes will break this.`,
+			});
+		}
+
+		results.sort((a, b) => b.score - a.score);
+		cache.set(cacheKey, results.slice(0, 5));
+		return results.slice(0, 5);
+	} catch (_e) {
+		return [];
+	}
+}
+
+// --- ENGINE 13: RE-EXPORT CHAIN COUPLING (Transitive) ---
+// Finds files affected through barrel/index re-exports
+
+/**
+ * Find files that re-export the target file
+ */
+export async function getTransitiveCoupling(
+	filePath: string,
+	ctx?: AnalysisContext,
+): Promise<EnhancedCoupledFile[]> {
+	const cacheKey = `transitive-coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = ctx ? ctx.git : getGitForFile(filePath);
+		const repoRoot = ctx
+			? ctx.repoRoot
+			: (await git.revparse(["--show-toplevel"])).trim();
+		const relativePath = path.relative(repoRoot, filePath);
+
+		// Get filename without extension
+		const ext = path.extname(filePath);
+		const basename = path.basename(filePath, ext);
+		const escapedBasename = basename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+		// Find files that re-export this file
+		// Pattern: export * from './UserService' or export { x } from './UserService'
+		const reExportPattern = `export.*from.*['"].*${escapedBasename}['"]`;
+
+		const grepResult = await git
+			.raw([
+				"--no-optional-locks",
+				"grep",
+				"-l",
+				"-E",
+				reExportPattern,
+			])
+			.catch(() => "");
+
+		const barrels = grepResult
+			.split("\n")
+			.map((f) => f.trim())
+			.filter((f) => f && f !== relativePath);
+
+		if (barrels.length === 0) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		const results: EnhancedCoupledFile[] = [];
+
+		// Add barrel files as direct coupling
+		for (const barrel of barrels.slice(0, 3)) {
+			results.push({
+				file: barrel,
+				score: 60,
+				source: "transitive",
+				reason: `Re-exports this file. Changes propagate through this barrel.`,
+			});
+		}
+
+		// Find transitive importers (files that import from the barrels)
+		const transitiveImporters: Map<string, string> = new Map();
+
+		await mapConcurrent(barrels.slice(0, 3), 3, async (barrel) => {
+			const barrelBasename = path.basename(barrel, path.extname(barrel));
+			const barrelDir = path.dirname(barrel);
+
+			// Search for imports from this barrel
+			const importPattern = `from.*['"].*${barrelDir === "." ? "" : barrelDir + "/"}${barrelBasename}['"]|from.*['"].*${barrelDir}['"]`;
+
+			const importResult = await git
+				.raw([
+					"--no-optional-locks",
+					"grep",
+					"-l",
+					"-E",
+					importPattern,
+				])
+				.catch(() => "");
+
+			const importers = importResult
+				.split("\n")
+				.map((f) => f.trim())
+				.filter((f) => f && f !== relativePath && f !== barrel);
+
+			for (const importer of importers) {
+				if (!transitiveImporters.has(importer)) {
+					transitiveImporters.set(importer, barrel);
+				}
+			}
+		});
+
+		// Add transitive importers
+		for (const [importer, viaBarrel] of transitiveImporters) {
+			results.push({
+				file: importer,
+				score: 55,
+				source: "transitive",
+				reason: `Imports via ${path.basename(viaBarrel)}. Indirect dependency.`,
+			});
+		}
+
+		results.sort((a, b) => b.score - a.score);
+		cache.set(cacheKey, results.slice(0, 5));
+		return results.slice(0, 5);
+	} catch (_e) {
+		return [];
+	}
+}
+
 // --- MERGE COUPLING RESULTS ---
 // Combines results from all coupling engines into a unified list
 
@@ -1444,6 +2092,11 @@ export function mergeCouplingResults(
 	docsCoupled: EnhancedCoupledFile[],
 	typeCoupled: EnhancedCoupledFile[],
 	contentCoupled: EnhancedCoupledFile[],
+	testCoupled: EnhancedCoupledFile[] = [],
+	envCoupled: EnhancedCoupledFile[] = [],
+	schemaCoupled: EnhancedCoupledFile[] = [],
+	apiCoupled: EnhancedCoupledFile[] = [],
+	transitiveCoupled: EnhancedCoupledFile[] = [],
 ): EnhancedCoupledFile[] {
 	const merged: EnhancedCoupledFile[] = [];
 	const seenFiles = new Set<string>();
@@ -1463,7 +2116,39 @@ export function mergeCouplingResults(
 		}
 	}
 
-	// Add docs coupling (second priority)
+	// Add test coupling (high priority - tests should be updated)
+	for (const c of testCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push(c);
+		}
+	}
+
+	// Add API coupling (response changes break consumers)
+	for (const c of apiCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push(c);
+		}
+	}
+
+	// Add schema coupling (data integrity critical)
+	for (const c of schemaCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push(c);
+		}
+	}
+
+	// Add env coupling (runtime errors if mismatched)
+	for (const c of envCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push(c);
+		}
+	}
+
+	// Add docs coupling
 	for (const c of docsCoupled) {
 		if (!seenFiles.has(c.file)) {
 			seenFiles.add(c.file);
@@ -1471,8 +2156,16 @@ export function mergeCouplingResults(
 		}
 	}
 
-	// Add type coupling (third priority)
+	// Add type coupling
 	for (const c of typeCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push(c);
+		}
+	}
+
+	// Add transitive coupling (barrel re-exports)
+	for (const c of transitiveCoupled) {
 		if (!seenFiles.has(c.file)) {
 			seenFiles.add(c.file);
 			merged.push(c);
@@ -1487,8 +2180,8 @@ export function mergeCouplingResults(
 		}
 	}
 
-	// Sort by score descending and return top 10
-	return merged.sort((a, b) => b.score - a.score).slice(0, 10);
+	// Sort by score descending and return top 15 (expanded from 10)
+	return merged.sort((a, b) => b.score - a.score).slice(0, 15);
 }
 
 // --- ENGINE 7: SIBLING GUIDANCE (Smart New File Guidance) ---
@@ -2338,10 +3031,15 @@ export function generateAiInstructions(
 
 		// Source label mapping
 		const SOURCE_LABELS: Record<string, string> = {
-			git: "",      // No label for git (default/historical)
+			git: "",           // No label for git (default/historical)
 			docs: "docs",
 			type: "type",
 			content: "content",
+			test: "test",      // Engine 9: Test file coupling
+			env: "env",        // Engine 10: Environment variable coupling
+			schema: "schema",  // Engine 11: Schema/model coupling
+			api: "api",        // Engine 12: API endpoint coupling
+			transitive: "transitive", // Engine 13: Re-export chain coupling
 		};
 
 		// Source-specific instructions
@@ -2349,6 +3047,11 @@ export function generateAiInstructions(
 			docs: "Documentation references this file. Update docs if you change the API.",
 			type: "Shares type definitions. Interface changes may require updates here.",
 			content: "Contains shared literals. Ensure consistency across files.",
+			test: "Test file for this module. Update tests when changing exports.",
+			env: "Shares environment variables. Ensure values are consistent.",
+			schema: "References same schema/model. Changes may break queries.",
+			api: "Calls endpoints from this file. Response changes will break this.",
+			transitive: "Imports via barrel/re-export. Indirect dependency.",
 		};
 
 		coupled.forEach((c) => {
@@ -2641,17 +3344,45 @@ function setupServer(server: Server): Server {
 
 				// 4. Run Engines on the Validated Path (all in parallel for speed)
 				// All engines now receive the shared context
-				const [volatility, gitCoupled, importers, docsCoupled, typeCoupled, contentCoupled] = await Promise.all([
+				// 13 coupling engines run in parallel for comprehensive analysis
+				const [
+					volatility,
+					gitCoupled,
+					importers,
+					docsCoupled,
+					typeCoupled,
+					contentCoupled,
+					testCoupled,
+					envCoupled,
+					schemaCoupled,
+					apiCoupled,
+					transitiveCoupled,
+				] = await Promise.all([
 					getVolatility(targetPath, ctx),
 					getCoupledFiles(targetPath, ctx),
 					getImporters(targetPath, ctx),
 					getDocsCoupling(targetPath, ctx),
 					getTypeCoupling(targetPath, ctx),
 					getContentCoupling(targetPath, ctx),
+					getTestCoupling(targetPath, ctx),
+					getEnvCoupling(targetPath, ctx),
+					getSchemaCoupling(targetPath, ctx),
+					getApiCoupling(targetPath, ctx),
+					getTransitiveCoupling(targetPath, ctx),
 				]);
 
 				// Merge all coupling sources into unified list
-				const coupled = mergeCouplingResults(gitCoupled, docsCoupled, typeCoupled, contentCoupled);
+				const coupled = mergeCouplingResults(
+					gitCoupled,
+					docsCoupled,
+					typeCoupled,
+					contentCoupled,
+					testCoupled,
+					envCoupled,
+					schemaCoupled,
+					apiCoupled,
+					transitiveCoupled,
+				);
 
 				const drift = await checkDrift(targetPath, gitCoupled, ctx);
 

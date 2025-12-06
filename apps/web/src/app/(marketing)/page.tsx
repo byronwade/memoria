@@ -17,6 +17,11 @@ import {
 	FileText,
 	Code,
 	FileCode,
+	TestTube,
+	Settings,
+	Database,
+	Globe,
+	Share2,
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
@@ -265,7 +270,7 @@ function FAQItem({ question, answer, isOpen, onClick }: { question: string; answ
 	);
 }
 
-// The 8 engines
+// The 13 engines
 const engines = [
 	{
 		icon: Flame,
@@ -314,6 +319,36 @@ const engines = [
 		title: "Content Coupling",
 		description: "Detects files sharing string literals like error messages and constants.",
 		metric: "~30ms",
+	},
+	{
+		icon: TestTube,
+		title: "Test File Coupling",
+		description: "Auto-discovers test and mock files matching source file naming patterns.",
+		metric: "~20ms",
+	},
+	{
+		icon: Settings,
+		title: "Environment Coupling",
+		description: "Finds files sharing the same environment variables (ALL_CAPS_UNDERSCORE).",
+		metric: "~15ms",
+	},
+	{
+		icon: Database,
+		title: "Schema Coupling",
+		description: "Detects files affected by database schema or model changes.",
+		metric: "~25ms",
+	},
+	{
+		icon: Globe,
+		title: "API Endpoint Coupling",
+		description: "Finds client code calling API endpoints defined in the target file.",
+		metric: "~30ms",
+	},
+	{
+		icon: Share2,
+		title: "Transitive Coupling",
+		description: "Discovers files affected through barrel/index re-exports.",
+		metric: "~40ms",
 	},
 ];
 
@@ -378,11 +413,11 @@ const totalRiskFiles = riskDistribution.critical + riskDistribution.high + riskD
 const faqs = [
 	{
 		question: "How does Memoria work with my AI coding assistant?",
-		answer: "Memoria runs as an MCP (Model Context Protocol) server that your AI assistant connects to. When you edit a file, your AI calls Memoria's analyze_file tool to get risk scores, coupled files, and a pre-flight checklist. This takes ~70ms and gives your AI context it couldn't get otherwise.",
+		answer: "Memoria runs as an MCP (Model Context Protocol) server that your AI assistant connects to. When you edit a file, your AI calls Memoria's analyze_file tool to get risk scores, coupled files, and a pre-flight checklist. This takes ~150ms and gives your AI context it couldn't get otherwise.",
 	},
 	{
 		question: "Does Memoria slow down my development workflow?",
-		answer: "Not at all. Memoria analyzes files in about 70ms total. It uses smart caching (5-minute TTL) so repeated analyses of the same file are instant. The analysis runs in the background while you work.",
+		answer: "Not at all. Memoria analyzes files in about 150ms total. It uses smart caching (5-minute TTL) so repeated analyses of the same file are instant. The analysis runs in the background while you work.",
 	},
 	{
 		question: "What AI tools does Memoria support?",
@@ -589,7 +624,7 @@ export default function Home() {
 								whileHover={{ scale: 1.02 }}
 								transition={{ type: "spring", stiffness: 300 }}
 							>
-								<div className="text-5xl font-bold text-primary mb-2">~70ms</div>
+								<div className="text-5xl font-bold text-primary mb-2">~150ms</div>
 								<div className="text-lg font-medium text-foreground">Analysis Time</div>
 								<div className="text-sm text-muted-foreground mt-1">Full file forensics</div>
 							</m.div>
@@ -684,34 +719,37 @@ export default function Home() {
 									RISK: 65/100 (HIGH)
 								</div>
 								<div className="text-background/60 text-xs mt-1 mb-4">
-									High volatility (45%) • Tightly coupled (3 files) • 8 dependents
+									High volatility (45%) • Tightly coupled (5 files) • 8 dependents
 								</div>
 
 								<div className="text-primary font-semibold mt-4">COUPLED FILES</div>
-								<div className="text-blue-400 mt-2">`billing/page.tsx` — 85% (schema)</div>
+								<div className="text-blue-400 mt-2">`billing/page.tsx` — 85% [schema]</div>
 								<div className="text-background/50 italic pl-4 border-l-2 border-background/20 my-2">
-									These files share type definitions. Update both.
+									References: billing_records table. Schema changes may break queries.
 								</div>
-								<div className="text-cyan-400 mt-2">`README.md` — 70% [docs]</div>
+								<div className="text-green-400 mt-2">`route.test.ts` — 90% [test]</div>
 								<div className="text-background/50 italic pl-4 border-l-2 border-background/20 my-2">
-									Documentation references: generateReport, PaymentStatus
+									Test file matches naming pattern. Update when changing exports.
 								</div>
-								<div className="text-purple-400 mt-2">`types/payment.ts` — 65% [type]</div>
+								<div className="text-cyan-400 mt-2">`config.ts` — 75% [env]</div>
 								<div className="text-background/50 italic pl-4 border-l-2 border-background/20 my-2">
-									Shared types: PaymentIntent, SubscriptionStatus
+									Shares env vars: STRIPE_KEY, DATABASE_URL
 								</div>
-
-								<div className="text-primary font-semibold mt-4">STATIC DEPENDENTS</div>
-								<div className="text-background/70 pl-4 mt-2 space-y-1">
-									<div>- [ ] Check `SubscriptionCard.tsx`</div>
-									<div>- [ ] Check `useSubscription.ts`</div>
+								<div className="text-purple-400 mt-2">`hooks/usePayment.ts` — 65% [api]</div>
+								<div className="text-background/50 italic pl-4 border-l-2 border-background/20 my-2">
+									Calls endpoint: POST /api/billing/charge
+								</div>
+								<div className="text-orange-400 mt-2">`features/index.ts` — [transitive]</div>
+								<div className="text-background/50 italic pl-4 border-l-2 border-background/20 my-2">
+									Re-exports this file. 12 transitive importers affected.
 								</div>
 
 								<div className="text-primary font-semibold mt-4">PRE-FLIGHT CHECKLIST</div>
 								<div className="text-background/70 pl-4 mt-2 space-y-1">
 									<div>- [ ] Modify `route.ts`</div>
-									<div>- [ ] Verify `billing/page.tsx`</div>
-									<div>- [ ] Update `stripe.test.ts` (stale 12 days)</div>
+									<div>- [ ] Verify `billing/page.tsx` [schema]</div>
+									<div>- [ ] Update `route.test.ts` [test]</div>
+									<div>- [ ] Check `hooks/usePayment.ts` [api]</div>
 								</div>
 							</div>
 						</div>
@@ -907,7 +945,7 @@ export default function Home() {
 							variants={fadeInUp}
 							className="text-3xl md:text-4xl font-bold tracking-tight"
 						>
-							Eight engines working in parallel
+							Thirteen engines working in parallel
 						</m.h2>
 						<m.p
 							variants={fadeInUp}
@@ -960,7 +998,7 @@ export default function Home() {
 						viewport={{ once: true }}
 					>
 						<p className="text-sm text-muted-foreground">
-							Total analysis time: <span className="text-primary font-semibold">~100ms</span> — all engines run in parallel
+							Total analysis time: <span className="text-primary font-semibold">~150ms</span> — all engines run in parallel
 						</p>
 					</m.div>
 				</Container>

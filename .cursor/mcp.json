@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@byronwade/memoria"
+      ]
+    }
+  }
+}

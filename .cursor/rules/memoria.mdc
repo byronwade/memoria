@@ -3,6 +3,151 @@ description: Memoria MCP integration - provides AI with senior developer intuiti
 globs: ["**/*.{ts,tsx,js,jsx,py,go,rs,java,rb,php,swift,kt,c,cpp,h,hpp,cs}"]
 alwaysApply: true
 ---
+<!-- MEMORIA:START -->
+
+
+# Memoria MCP Tools
+
+Memoria gives you memory of what broke before. ALWAYS use these tools - never create workaround scripts.
+
+## Tool 1: `analyze_file`
+
+**Purpose:** Analyze a file BEFORE modifying it to understand hidden dependencies, risk level, and coupled files.
+
+**When to use:**
+- Before editing ANY code file
+- When asked to modify, refactor, or fix a file
+- Before deleting or moving files
+
+**How to call:**
+```json
+{
+  "tool": "analyze_file",
+  "arguments": {
+    "path": "/absolute/path/to/file.ts"
+  }
+}
+```
+
+**CRITICAL:** Always use the ABSOLUTE path, not relative.
+
+**What you get back:**
+- **Risk Score (0-100):** LOW (0-24), MEDIUM (25-49), HIGH (50-74), CRITICAL (75+)
+- **Coupled Files:** Files that historically change together - check these before committing
+- **Static Dependents:** Files that import this file - will break if you change the API
+- **Volatility:** How "buggy" this file has been historically
+- **Pre-flight Checklist:** Files to verify before your change is complete
+
+**Example workflow:**
+1. User asks: "Fix the bug in UserService.ts"
+2. FIRST call: `analyze_file` with `/project/src/services/UserService.ts`
+3. Review the coupled files and risk score
+4. Read the coupled files if risk is HIGH or CRITICAL
+5. Make your changes
+6. Verify all files in the pre-flight checklist
+
+---
+
+## Tool 2: `ask_history`
+
+**Purpose:** Search git history to understand WHY code was written a certain way. Solves Chesterton's Fence - understand before changing.
+
+**IMPORTANT:** Use SHORT, SPECIFIC KEYWORDS (1-3 words). Do NOT use full sentences - git grep requires exact matches.
+
+**When to use:**
+- When you see "weird" or confusing code
+- Before removing code that looks unnecessary
+- When user asks "why is this here?"
+- When investigating a bug's origin
+- When you need context about a setTimeout, try/catch, or workaround
+
+**How to call:**
+```json
+{
+  "tool": "ask_history",
+  "arguments": {
+    "query": "setTimeout",
+    "path": "/optional/path/to/scope/search.ts",
+    "searchType": "both",
+    "limit": 20
+  }
+}
+```
+
+**Parameters:**
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `query` | Yes | - | Short keyword (e.g., "setTimeout", "Safari", "race condition") |
+| `path` | No | repo root | Scope search to specific file or directory |
+| `searchType` | No | "both" | Where to search: "message", "diff", or "both" |
+| `limit` | No | 20 | Max results to return |
+| `startLine` | No | - | Start line for Sherlock Mode (line-range search) |
+| `endLine` | No | - | End line for Sherlock Mode (line-range search) |
+
+**Sherlock Mode (Line-Range Search):**
+When investigating specific lines of code:
+```json
+{
+  "tool": "ask_history",
+  "arguments": {
+    "query": "",
+    "path": "/project/src/utils.ts",
+    "searchType": "diff",
+    "startLine": 100,
+    "endLine": 150
+  }
+}
+```
+This finds ALL commits that ever touched lines 100-150, showing the full evolution of that code block.
+
+**What you get back:**
+- Commit hashes, dates, and authors
+- Full commit messages explaining WHY changes were made
+- Files changed in each commit
+- Warnings if bug fixes are detected (don't remove that code!)
+
+**Example workflow:**
+1. You see: `setTimeout(() => resolve(), 0)` and think "this is useless"
+2. Call: `ask_history` with query "setTimeout" and the file path
+3. Find: Commit from 2 years ago - "Fix race condition in Safari where API returns before DOM ready"
+4. Decision: Keep the setTimeout, it's a critical Safari fix
+
+---
+
+## MANDATORY RULES
+
+1. **ALWAYS call `analyze_file` before modifying any code file** - no exceptions
+2. **NEVER create workaround scripts** - use the MCP tools directly
+3. **If risk is CRITICAL (75+):** Stop and ask the user before proceeding
+4. **If risk is HIGH (50-74):** Read all coupled files before making changes
+5. **Before removing "unnecessary" code:** Call `ask_history` to check if it's a bug fix
+6. **Use absolute paths** - the tools require full paths like `/Users/name/project/src/file.ts`
+
+---
+
+## Quick Reference
+
+| Situation | Tool | Example |
+|-----------|------|---------|
+| About to edit a file | `analyze_file` | `{"path": "/abs/path/to/file.ts"}` |
+| See confusing code | `ask_history` | `{"query": "workaround", "path": "/abs/path/to/file.ts"}` |
+| User asks "why is X here?" | `ask_history` | `{"query": "X", "searchType": "both"}` |
+| Investigating specific lines | `ask_history` | `{"query": "", "startLine": 50, "endLine": 75}` |
+| Before deleting code | `ask_history` | `{"query": "deleted_function_name"}` |
+
+---
+
+## Error Handling
+
+If the tool returns an error:
+- **"Not a git repository":** The path is outside a git repo
+- **"File not found":** Check the path is absolute and correct
+- **"No results":** Try broader search terms or remove the path filter
+
+Never fall back to creating scripts - report the error to the user instead.
+
+<!-- MEMORIA:END -->
+
 
 # Memoria MCP Tools
 
