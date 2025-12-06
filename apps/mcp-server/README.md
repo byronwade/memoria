@@ -299,6 +299,72 @@ Memoria returns:
 
 ---
 
+## CLI Commands
+
+Memoria includes a full CLI for manual analysis - the same capabilities your AI uses:
+
+```bash
+# Full forensic analysis (same as AI's analyze_file)
+memoria analyze src/index.ts
+
+# Quick risk assessment
+memoria risk src/api/route.ts
+
+# Show coupled files
+memoria coupled src/auth.ts
+
+# Find files that import the target
+memoria importers src/types.ts
+
+# Search git history (same as AI's ask_history)
+memoria history "setTimeout" src/utils.ts
+memoria history "fix" --type=message
+```
+
+### Output Options
+
+```bash
+# JSON output for scripting/CI
+memoria analyze src/index.ts --json
+
+# Pipe to other tools
+memoria risk src/api/route.ts --json | jq '.riskScore'
+```
+
+### Example Output
+
+```
+$ memoria analyze src/index.ts
+
+Forensics for `index.ts`
+
+RISK: 45/100 (MEDIUM)
+Risk factors: High volatility (38%) • Coupled (5 files) • 3 dependents
+
+VOLATILITY
+  Panic score: 38% | Commits: 24
+  Top author: Dave (72%)
+
+COUPLED FILES
+  85% billing/page.tsx [schema]
+      References: billing_records table. Schema changes may break queries.
+  90% index.test.ts [test]
+      Test file matches naming pattern. Update when changing exports.
+  75% config.ts [env]
+      Shares env vars: API_KEY, DATABASE_URL
+  65% hooks/useData.ts [api]
+      Calls endpoint: GET /api/data
+
+STATIC DEPENDENTS
+  - [ ] Check `cli.ts`
+  - [ ] Check `server.ts`
+  - [ ] Check `utils.ts`
+
+Analysis completed in 142ms
+```
+
+---
+
 ## Configuration (Optional)
 
 Create a `.memoria.json` in your project root to customize thresholds:

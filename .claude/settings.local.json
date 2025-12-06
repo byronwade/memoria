@@ -69,7 +69,8 @@
       "Bash(npm outdated:*)",
       "Bash(npx vitest:*)",
       "Bash(git --version:*)",
-      "Bash(git help:*)"
+      "Bash(git help:*)",
+      "mcp__memoria__analyze_file"
     ],
     "deny": [],
     "ask": []

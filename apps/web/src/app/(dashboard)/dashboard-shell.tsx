@@ -35,23 +35,9 @@ const navItems = [
 	{ href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
-function getHealthColor(health: number) {
-	if (health >= 80) return "text-primary";
-	if (health >= 60) return "text-yellow-500";
-	if (health >= 40) return "text-orange-500";
-	return "text-red-500";
-}
-
-function getHealthBg(health: number) {
-	if (health >= 80) return "bg-primary";
-	if (health >= 60) return "bg-yellow-500";
-	if (health >= 40) return "bg-orange-500";
-	return "bg-red-500";
-}
-
 type DateRange = "today" | "7days" | "30days" | "90days";
 type RiskFilter = "all" | "critical" | "high" | "medium" | "low";
-type SyncStatus = "idle" | "syncing" | "success";
+type SyncStatus = "idle" | "syncing" | "success" | "error";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
 	const pathname = usePathname();
@@ -65,6 +51,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 		billingStatus,
 		canAddRepo,
 		repoLimit,
+		isSwitchingOrg,
 		logout,
 	} = useDashboard();
 
@@ -73,14 +60,39 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 	const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
 	const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
-	const handleSync = useCallback(() => {
+	const handleSync = useCallback(async () => {
 		if (syncStatus === "syncing") return;
-		setSyncStatus("syncing");
-		setTimeout(() => {
-			setSyncStatus("success");
+
+		// Get current repo from pathname
+		const repoName = pathname.split("/dashboard/repositories/")[1]?.split("/")[0];
+		const currentRepo = activeRepos.find(r => r.fullName.split("/")[1] === repoName);
+
+		if (!currentRepo) {
+			setSyncStatus("error");
 			setTimeout(() => setSyncStatus("idle"), 2000);
-		}, 2000);
-	}, [syncStatus]);
+			return;
+		}
+
+		setSyncStatus("syncing");
+		try {
+			const response = await fetch(`/api/repositories/${currentRepo._id}/sync`, {
+				method: "POST",
+			});
+
+			if (response.ok) {
+				setSyncStatus("success");
+				// Refresh to show updated data
+				router.refresh();
+			} else {
+				setSyncStatus("error");
+			}
+		} catch (error) {
+			console.error("Sync failed:", error);
+			setSyncStatus("error");
+		} finally {
+			setTimeout(() => setSyncStatus("idle"), 2000);
+		}
+	}, [syncStatus, pathname, activeRepos, router]);
 
 	const handleAddRepo = () => {
 		if (!canAddRepo) {
@@ -259,10 +271,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 										/>
 									) : (
 										<div className="h-6 w-6 rounded-sm bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
-											{user.name?.[0] || user.email[0].toUpperCase()}
+											{user.name?.[0] || (user.email && user.email.length > 0 ? user.email[0].toUpperCase() : "?")}
 										</div>
 									)}
-									<span className="hidden sm:inline">{user.name || user.email.split("@")[0]}</span>
+									<span className="hidden sm:inline">{user.name || (user.email ? user.email.split("@")[0] : "User")}</span>
 									<ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
 								</Button>
 							</DropdownMenuTrigger>
@@ -278,12 +290,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 											/>
 										) : (
 											<div className="h-9 w-9 rounded-sm bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
-												{user.name?.[0] || user.email[0].toUpperCase()}
+												{user.name?.[0] || (user.email && user.email.length > 0 ? user.email[0].toUpperCase() : "?")}
 											</div>
 										)}
 										<div className="flex-1 min-w-0">
-											<div className="font-medium text-sm">{user.name || user.email.split("@")[0]}</div>
-											<div className="text-xs text-muted-foreground truncate">{user.email}</div>
+											<div className="font-medium text-sm">{user.name || (user.email ? user.email.split("@")[0] : "User")}</div>
+											<div className="text-xs text-muted-foreground truncate">{user.email || "No email"}</div>
 										</div>
 									</div>
 									{billingStatus?.plan && (
@@ -323,14 +335,24 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 										<DropdownMenuItem
 											className="flex items-center gap-2.5 py-2"
 											onClick={async () => {
-												const response = await fetch("/api/billing/portal", {
-													method: "POST",
-													headers: { "Content-Type": "application/json" },
-													body: JSON.stringify({ orgId: currentOrg?._id }),
-												});
-												const data = await response.json();
-												if (data.url) {
-													window.location.href = data.url;
+												try {
+													const response = await fetch("/api/billing/portal", {
+														method: "POST",
+														headers: { "Content-Type": "application/json" },
+														body: JSON.stringify({ orgId: currentOrg?._id }),
+													});
+													if (!response.ok) {
+														console.error("Failed to open billing portal");
+														return;
+													}
+													const data = await response.json();
+													if (data.url) {
+														window.location.href = data.url;
+													} else {
+														console.error("No billing portal URL returned");
+													}
+												} catch (error) {
+													console.error("Failed to open billing portal:", error);
 												}
 											}}
 										>
@@ -479,12 +501,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 												? "bg-primary/10 text-primary border-primary/30"
 												: syncStatus === "success"
 												? "bg-green-500/10 text-green-600 border-green-500/30"
+												: syncStatus === "error"
+												? "bg-red-500/10 text-red-600 border-red-500/30"
 												: "bg-secondary/50 hover:bg-secondary text-foreground border-border/50 hover:border-border"
 										)}
 									>
 										<RefreshCw className={cn("h-3.5 w-3.5", syncStatus === "syncing" && "animate-spin")} />
 										<span className="hidden sm:inline">
-											{syncStatus === "syncing" ? "Syncing..." : syncStatus === "success" ? "Synced" : "Sync"}
+											{syncStatus === "syncing" ? "Syncing..." : syncStatus === "success" ? "Synced" : syncStatus === "error" ? "Failed" : "Sync"}
 										</span>
 									</button>
 

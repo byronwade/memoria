@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, ReactNode, useState, useCallback } from "react";
+import { createContext, useContext, ReactNode, useState, useCallback, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type {
 	DashboardData,
@@ -21,6 +21,7 @@ interface DashboardContextType {
 	canAddRepo: boolean;
 	repoLimit: number;
 	isLoading: boolean;
+	isSwitchingOrg: boolean;
 	logout: () => Promise<void>;
 }
 
@@ -45,6 +46,7 @@ export function DashboardProvider({ children, initialData }: DashboardProviderPr
 		initialData.currentOrg
 	);
 	const [isLoading, setIsLoading] = useState(false);
+	const [isSwitchingOrg, startOrgTransition] = useTransition();
 
 	const activeRepos = initialData.repositories.filter(r => r.isActive);
 	const repoLimit = initialData.billingStatus?.plan?.maxRepos ?? 1;
@@ -65,8 +67,11 @@ export function DashboardProvider({ children, initialData }: DashboardProviderPr
 
 	const handleSetCurrentOrg = useCallback((org: DashboardOrganization) => {
 		setCurrentOrg(org);
-		// TODO: Refetch repositories for new org
-	}, []);
+		// Trigger a router refresh to refetch data for the new org
+		startOrgTransition(() => {
+			router.refresh();
+		});
+	}, [router]);
 
 	return (
 		<DashboardContext.Provider
@@ -81,6 +86,7 @@ export function DashboardProvider({ children, initialData }: DashboardProviderPr
 				canAddRepo,
 				repoLimit,
 				isLoading,
+				isSwitchingOrg,
 				logout,
 			}}
 		>

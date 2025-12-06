@@ -4,11 +4,8 @@ import {
 	Bell,
 	Check,
 	ChevronRight,
-	Copy,
 	CreditCard,
 	ExternalLink,
-	Eye,
-	EyeOff,
 	FolderGit2,
 	Github,
 	Key,
@@ -23,7 +20,7 @@ import {
 	User,
 	Zap,
 } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,17 +33,20 @@ interface Installation {
 	accountLogin: string;
 	status: string;
 	providerType: string;
+	providerInstallationId: string;
 }
 
 export default function SettingsPage() {
 	const router = useRouter();
 	const { user, currentOrg, billingStatus, activeRepos, repoLimit, repositories, canAddRepo } = useDashboard();
-	const [showApiKey, setShowApiKey] = useState(false);
-	const [copied, setCopied] = useState(false);
+	// API key state - to be used when API keys feature is available
+	// const [showApiKey, setShowApiKey] = useState(false);
+	// const [copied, setCopied] = useState(false);
 	const [installations, setInstallations] = useState<Installation[]>([]);
 	const [loadingInstallations, setLoadingInstallations] = useState(true);
 	const [updatingRepo, setUpdatingRepo] = useState<string | null>(null);
 	const [repoStatuses, setRepoStatuses] = useState<Record<string, boolean>>({});
+	const [isRefreshing, startRefreshTransition] = useTransition();
 
 	// Initialize repo statuses from repositories
 	useEffect(() => {
@@ -76,12 +76,12 @@ export default function SettingsPage() {
 		fetchInstallations();
 	}, [currentOrg]);
 
-	const handleCopyApiKey = () => {
-		// TODO: Implement real API key copy when API keys are implemented
-		navigator.clipboard.writeText("mem_sk_live_1234567890abcdef");
-		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
-	};
+	// API key copy functionality - to be implemented when API keys feature is available
+	// const handleCopyApiKey = (apiKey: string) => {
+	// 	navigator.clipboard.writeText(apiKey);
+	// 	setCopied(true);
+	// 	setTimeout(() => setCopied(false), 2000);
+	// };
 
 	const handleToggleRepo = useCallback(async (repoId: string, currentStatus: boolean) => {
 		const newStatus = !currentStatus;
@@ -109,8 +109,10 @@ export default function SettingsPage() {
 				setRepoStatuses(prev => ({ ...prev, [repoId]: currentStatus }));
 				console.error("Failed to update repository status");
 			} else {
-				// Refresh the page to get updated context
-				router.refresh();
+				// Refresh the page to get updated context with transition
+				startRefreshTransition(() => {
+					router.refresh();
+				});
 			}
 		} catch (error) {
 			// Revert on error
@@ -357,13 +359,13 @@ export default function SettingsPage() {
 													</div>
 												</div>
 												<div className="flex items-center gap-3">
-													{isUpdating ? (
+													{isUpdating || isRefreshing ? (
 														<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
 													) : (
 														<Switch
 															checked={isActive}
 															onCheckedChange={() => handleToggleRepo(repo._id, isActive)}
-															disabled={cannotActivate}
+															disabled={cannotActivate || isRefreshing}
 															aria-label={`Toggle monitoring for ${repo.fullName}`}
 														/>
 													)}
@@ -390,7 +392,7 @@ export default function SettingsPage() {
 									{githubInstallation && canAddRepo && (
 										<div className="mt-4 pt-4 border-t border-border/50">
 											<Button variant="outline" size="sm" asChild>
-												<a href={`https://github.com/apps/memoria-dev/installations/${githubInstallation._id}`} target="_blank" rel="noopener noreferrer">
+												<a href={`https://github.com/apps/memoria-dev/installations/${githubInstallation.providerInstallationId}`} target="_blank" rel="noopener noreferrer">
 													<Plus className="h-4 w-4 mr-1.5" />
 													Add More Repositories
 													<ExternalLink className="h-3 w-3 ml-1.5 opacity-50" />

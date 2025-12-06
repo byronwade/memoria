@@ -946,8 +946,9 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 						d={`
 							M 0 ${chartHeight - (chartData[0].analyses / maxAnalyses) * (chartHeight - 20)}
 							${chartData
+								.slice(1)
 								.map((d, i) => {
-									const x = (i / (chartData.length - 1)) * 1200;
+									const x = ((i + 1) / (chartData.length - 1)) * 1200;
 									const y = chartHeight - (d.analyses / maxAnalyses) * (chartHeight - 20);
 									return `L ${x} ${y}`;
 								})
@@ -965,8 +966,9 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 						d={`
 							M 0 ${chartHeight - (chartData[0].prevented / maxAnalyses) * (chartHeight - 20)}
 							${chartData
+								.slice(1)
 								.map((d, i) => {
-									const x = (i / (chartData.length - 1)) * 1200;
+									const x = ((i + 1) / (chartData.length - 1)) * 1200;
 									const y = chartHeight - (d.prevented / maxAnalyses) * (chartHeight - 20);
 									return `L ${x} ${y}`;
 								})
@@ -1363,6 +1365,12 @@ export default function RepositoryDetailPage() {
 		? repo.riskDistribution.critical + repo.riskDistribution.high + repo.riskDistribution.medium + repo.riskDistribution.low
 		: 0;
 
+	// Helper to safely calculate percentage (avoids division by zero)
+	const getRiskPercent = (count: number) => {
+		if (totalRiskFiles === 0) return 0;
+		return (count / totalRiskFiles) * 100;
+	};
+
 	// Scan status polling
 	const [scanStatus, setScanStatus] = useState<{
 		status: "none" | "pending" | "running" | "completed" | "failed";
@@ -1577,7 +1585,7 @@ export default function RepositoryDetailPage() {
 								"bg-red-500 transition-all cursor-pointer relative",
 								hoveredRiskSegment === "critical" && "brightness-110 z-10"
 							)}
-							style={{ width: `${(repo.riskDistribution.critical / totalRiskFiles) * 100}%` }}
+							style={{ width: `${getRiskPercent(repo.riskDistribution.critical)}%` }}
 							onMouseEnter={() => setHoveredRiskSegment("critical")}
 							onMouseLeave={() => setHoveredRiskSegment(null)}
 						>
@@ -1585,7 +1593,7 @@ export default function RepositoryDetailPage() {
 								"absolute -top-10 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-2 py-1 rounded-sm whitespace-nowrap shadow-lg transition-opacity pointer-events-none",
 								hoveredRiskSegment === "critical" ? "opacity-100" : "opacity-0"
 							)}>
-								{repo.riskDistribution.critical} critical ({Math.round((repo.riskDistribution.critical / totalRiskFiles) * 100)}%)
+								{repo.riskDistribution.critical} critical ({Math.round(getRiskPercent(repo.riskDistribution.critical))}%)
 							</div>
 						</div>
 						<div
@@ -1593,7 +1601,7 @@ export default function RepositoryDetailPage() {
 								"bg-orange-500 transition-all cursor-pointer relative",
 								hoveredRiskSegment === "high" && "brightness-110 z-10"
 							)}
-							style={{ width: `${(repo.riskDistribution.high / totalRiskFiles) * 100}%` }}
+							style={{ width: `${getRiskPercent(repo.riskDistribution.high)}%` }}
 							onMouseEnter={() => setHoveredRiskSegment("high")}
 							onMouseLeave={() => setHoveredRiskSegment(null)}
 						>
@@ -1601,7 +1609,7 @@ export default function RepositoryDetailPage() {
 								"absolute -top-10 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-xs px-2 py-1 rounded-sm whitespace-nowrap shadow-lg transition-opacity pointer-events-none",
 								hoveredRiskSegment === "high" ? "opacity-100" : "opacity-0"
 							)}>
-								{repo.riskDistribution.high} high ({Math.round((repo.riskDistribution.high / totalRiskFiles) * 100)}%)
+								{repo.riskDistribution.high} high ({Math.round(getRiskPercent(repo.riskDistribution.high))}%)
 							</div>
 						</div>
 						<div
@@ -1609,7 +1617,7 @@ export default function RepositoryDetailPage() {
 								"bg-yellow-500 transition-all cursor-pointer relative",
 								hoveredRiskSegment === "medium" && "brightness-110 z-10"
 							)}
-							style={{ width: `${(repo.riskDistribution.medium / totalRiskFiles) * 100}%` }}
+							style={{ width: `${getRiskPercent(repo.riskDistribution.medium)}%` }}
 							onMouseEnter={() => setHoveredRiskSegment("medium")}
 							onMouseLeave={() => setHoveredRiskSegment(null)}
 						>
@@ -1617,7 +1625,7 @@ export default function RepositoryDetailPage() {
 								"absolute -top-10 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-xs px-2 py-1 rounded-sm whitespace-nowrap shadow-lg transition-opacity pointer-events-none",
 								hoveredRiskSegment === "medium" ? "opacity-100" : "opacity-0"
 							)}>
-								{repo.riskDistribution.medium} medium ({Math.round((repo.riskDistribution.medium / totalRiskFiles) * 100)}%)
+								{repo.riskDistribution.medium} medium ({Math.round(getRiskPercent(repo.riskDistribution.medium))}%)
 							</div>
 						</div>
 						<div
@@ -1625,7 +1633,7 @@ export default function RepositoryDetailPage() {
 								"bg-primary transition-all cursor-pointer relative",
 								hoveredRiskSegment === "low" && "brightness-110 z-10"
 							)}
-							style={{ width: `${(repo.riskDistribution.low / totalRiskFiles) * 100}%` }}
+							style={{ width: `${getRiskPercent(repo.riskDistribution.low)}%` }}
 							onMouseEnter={() => setHoveredRiskSegment("low")}
 							onMouseLeave={() => setHoveredRiskSegment(null)}
 						>
@@ -1633,7 +1641,7 @@ export default function RepositoryDetailPage() {
 								"absolute -top-10 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs px-2 py-1 rounded-sm whitespace-nowrap shadow-lg transition-opacity pointer-events-none",
 								hoveredRiskSegment === "low" ? "opacity-100" : "opacity-0"
 							)}>
-								{repo.riskDistribution.low} low ({Math.round((repo.riskDistribution.low / totalRiskFiles) * 100)}%)
+								{repo.riskDistribution.low} low ({Math.round(getRiskPercent(repo.riskDistribution.low))}%)
 							</div>
 						</div>
 					</div>

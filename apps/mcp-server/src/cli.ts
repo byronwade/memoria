@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
+import chalk from "chalk";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -108,31 +109,43 @@ const MEMORIA_MCP_ENTRY = {
 
 function printHelp() {
 	console.log(`
-Memoria - The Memory Your AI Lacks
+${chalk.bold("Memoria")} - The Memory Your AI Lacks
 
-Usage:
-  memoria                   Interactive setup (recommended)
-  memoria init [options]    Install AI tool rules in your project
-  memoria serve             Start MCP server
+${chalk.dim("Usage:")}
+  memoria                        Interactive setup (recommended)
+  memoria init [options]         Install AI tool rules in your project
+  memoria serve                  Start MCP server
 
-Commands:
-  (no args)  Interactive setup
-  init       Install Memoria rules for AI tools
-  serve      Start the MCP server
+${chalk.bold.cyan("Analysis Commands:")}
+  memoria analyze <file>         Full forensic analysis of a file
+  memoria risk <file>            Show risk score breakdown
+  memoria coupled <file>         Show files coupled to target
+  memoria importers <file>       Show files that import target
+  memoria history <query> [file] Search git history for context
 
-Init Options:
+${chalk.bold.cyan("Setup Commands:")}
+  memoria init                   Install Memoria rules for AI tools
+  memoria serve                  Start the MCP server
+
+${chalk.dim("Init Options:")}
   --cursor     Install Cursor rules (.cursor/rules/memoria.mdc)
   --claude     Install Claude Code rules (.claude/CLAUDE.md)
   --windsurf   Install Windsurf rules (.windsurfrules)
   --cline      Install Cline/Continue rules (.clinerules)
   --all        Install all rule files
-  --force      Update existing Memoria rules (default: skip if already installed)
-  --help       Show this help message
+  --force      Update existing Memoria rules
 
-Examples:
-  memoria                   Interactive setup
-  memoria init --cursor     Install only Cursor rules
-  memoria init --all        Install all rule files
+${chalk.dim("Analysis Options:")}
+  --json       Output as JSON (for scripting)
+  --no-color   Disable colored output
+
+${chalk.dim("Examples:")}
+  memoria analyze src/index.ts          Full analysis with risk score
+  memoria risk src/api/route.ts         Quick risk assessment
+  memoria coupled src/auth.ts           See what files change together
+  memoria importers src/types.ts        Find all files importing this
+  memoria history "setTimeout" src/     Why was setTimeout added?
+  memoria history "fix" --type=message  Search commit messages only
 `);
 }
 
@@ -382,6 +395,363 @@ function runServer(): void {
 	});
 }
 
+// ============================================================================
+// Analysis Commands - Same capabilities as MCP tools, for manual use
+// ============================================================================
+
+interface CliOptions {
+	json?: boolean;
+	noColor?: boolean;
+	type?: "message" | "diff" | "both";
+	limit?: number;
+}
+
+function parseCliOptions(args: string[]): CliOptions {
+	const options: CliOptions = {};
+	for (const arg of args) {
+		if (arg === "--json") options.json = true;
+		if (arg === "--no-color") options.noColor = true;
+		if (arg === "--type=message") options.type = "message";
+		if (arg === "--type=diff") options.type = "diff";
+		if (arg === "--type=both") options.type = "both";
+		if (arg.startsWith("--limit=")) {
+			options.limit = parseInt(arg.split("=")[1], 10);
+		}
+	}
+	return options;
+}
+
+function resolveFilePath(filePath: string): string {
+	if (path.isAbsolute(filePath)) return filePath;
+	return path.resolve(process.cwd(), filePath);
+}
+
+function getRiskColor(score: number): (text: string) => string {
+	if (score >= 75) return chalk.red;
+	if (score >= 50) return chalk.yellow;
+	if (score >= 25) return chalk.cyan;
+	return chalk.green;
+}
+
+function getRiskLabel(score: number): string {
+	if (score >= 75) return "CRITICAL";
+	if (score >= 50) return "HIGH";
+	if (score >= 25) return "MEDIUM";
+	return "LOW";
+}
+
+async function runAnalyze(filePath: string, options: CliOptions): Promise<void> {
+	const absolutePath = resolveFilePath(filePath);
+
+	if (!fs.existsSync(absolutePath)) {
+		console.error(chalk.red(`Error: File not found: ${filePath}`));
+		process.exit(1);
+	}
+
+	const startTime = Date.now();
+
+	// Dynamically import the analysis functions
+	const memoria = await import("./index.js");
+
+	const ctx = await memoria.createAnalysisContext(absolutePath);
+
+	// Run all analyses in parallel (same as MCP tool)
+	const [
+		volatility,
+		coupledFiles,
+		importers,
+		siblingGuidance,
+	] = await Promise.all([
+		memoria.getVolatility(absolutePath, ctx),
+		memoria.getCoupledFiles(absolutePath, ctx),
+		memoria.getImporters(absolutePath, ctx),
+		memoria.getSiblingGuidance(absolutePath),
+	]);
+
+	// checkDrift needs coupled files as input
+	const driftFiles = await memoria.checkDrift(absolutePath, coupledFiles, ctx);
+
+	const riskAssessment = memoria.calculateCompoundRisk(
+		volatility,
+		coupledFiles,
+		driftFiles,
+		importers,
+	);
+
+	const duration = Date.now() - startTime;
+
+	if (options.json) {
+		console.log(JSON.stringify({
+			file: filePath,
+			absolutePath,
+			riskScore: riskAssessment.score,
+			riskLevel: riskAssessment.level.toUpperCase(),
+			volatility,
+			coupledFiles,
+			driftFiles,
+			importers,
+			siblingGuidance,
+			analysisTime: `${duration}ms`,
+		}, null, 2));
+		return;
+	}
+
+	// Pretty print output
+	const fileName = path.basename(filePath);
+	const riskColor = getRiskColor(riskAssessment.score);
+
+	console.log();
+	console.log(chalk.bold(`Forensics for \`${fileName}\``));
+	console.log();
+	console.log(riskColor(`RISK: ${riskAssessment.score}/100 (${riskAssessment.level.toUpperCase()})`));
+
+	// Risk factors summary
+	const factors: string[] = [];
+	if (volatility.panicScore > 30) factors.push(`High volatility (${volatility.panicScore}%)`);
+	if (coupledFiles.length > 0) factors.push(`Coupled (${coupledFiles.length} files)`);
+	if (importers.length > 0) factors.push(`${importers.length} dependents`);
+	if (driftFiles.length > 0) factors.push(`${driftFiles.length} stale`);
+
+	if (factors.length > 0) {
+		console.log(chalk.dim(`Risk factors: ${factors.join(" • ")}`));
+	}
+	console.log();
+
+	// Volatility details
+	if (volatility.panicScore > 0 || volatility.commitCount > 0) {
+		console.log(chalk.bold.cyan("VOLATILITY"));
+		console.log(chalk.dim(`  Panic score: ${volatility.panicScore}% | Commits: ${volatility.commitCount}`));
+		if (volatility.topAuthor) {
+			const pct = volatility.authorDetails?.[0]?.percentage || 0;
+			console.log(chalk.dim(`  Top author: ${volatility.topAuthor.name} (${pct}%)`));
+		}
+		console.log();
+	}
+
+	// Coupled files
+	if (coupledFiles.length > 0) {
+		console.log(chalk.bold.cyan("COUPLED FILES"));
+		for (const cf of coupledFiles) {
+			const sourceLabel = cf.source ? `[${cf.source}]` : "";
+			console.log(chalk.blue(`  ${cf.file} — ${cf.score}% ${sourceLabel}`));
+			if (cf.reason) {
+				console.log(chalk.dim(`    ${cf.reason}`));
+			}
+		}
+		console.log();
+	}
+
+	// Drift warnings
+	if (driftFiles.length > 0) {
+		console.log(chalk.bold.yellow("DRIFT WARNINGS"));
+		for (const df of driftFiles) {
+			console.log(chalk.yellow(`  ${df.file} — stale ${df.daysOld} days`));
+		}
+		console.log();
+	}
+
+	// Static importers
+	if (importers.length > 0) {
+		console.log(chalk.bold.cyan("STATIC DEPENDENTS"));
+		for (const imp of importers.slice(0, 10)) {
+			console.log(chalk.dim(`  - [ ] Check \`${imp}\``));
+		}
+		if (importers.length > 10) {
+			console.log(chalk.dim(`  ... and ${importers.length - 10} more`));
+		}
+		console.log();
+	}
+
+	// Sibling guidance for new files
+	if (siblingGuidance && volatility.commitCount === 0) {
+		console.log(chalk.bold.magenta("NEW FILE GUIDANCE"));
+		console.log(chalk.dim(memoria.formatSiblingGuidance(siblingGuidance)));
+		console.log();
+	}
+
+	console.log(chalk.dim(`Analysis completed in ${duration}ms`));
+}
+
+async function runRisk(filePath: string, options: CliOptions): Promise<void> {
+	const absolutePath = resolveFilePath(filePath);
+
+	if (!fs.existsSync(absolutePath)) {
+		console.error(chalk.red(`Error: File not found: ${filePath}`));
+		process.exit(1);
+	}
+
+	const memoria = await import("./index.js");
+	const ctx = await memoria.createAnalysisContext(absolutePath);
+
+	const [volatility, coupledFiles, importers] = await Promise.all([
+		memoria.getVolatility(absolutePath, ctx),
+		memoria.getCoupledFiles(absolutePath, ctx),
+		memoria.getImporters(absolutePath, ctx),
+	]);
+
+	const driftFiles = await memoria.checkDrift(absolutePath, coupledFiles, ctx);
+	const riskAssessment = memoria.calculateCompoundRisk(volatility, coupledFiles, driftFiles, importers);
+	const config = await memoria.loadConfig(absolutePath);
+	const weights = memoria.getEffectiveRiskWeights(config);
+
+	if (options.json) {
+		console.log(JSON.stringify({
+			file: filePath,
+			riskScore: riskAssessment.score,
+			riskLevel: riskAssessment.level.toUpperCase(),
+			breakdown: {
+				volatility: { score: volatility.panicScore, weight: weights.volatility },
+				coupling: { count: coupledFiles.length, weight: weights.coupling },
+				drift: { count: driftFiles.length, weight: weights.drift },
+				importers: { count: importers.length, weight: weights.importers },
+			},
+		}, null, 2));
+		return;
+	}
+
+	const riskColor = getRiskColor(riskAssessment.score);
+	console.log();
+	console.log(chalk.bold(`Risk Assessment: \`${path.basename(filePath)}\``));
+	console.log();
+	console.log(riskColor(`  ${riskAssessment.score}/100 ${riskAssessment.level.toUpperCase()}`));
+	console.log();
+	console.log(chalk.dim("Breakdown:"));
+	console.log(`  Volatility:  ${volatility.panicScore.toString().padStart(3)}% × ${(weights.volatility * 100).toFixed(0)}% weight`);
+	console.log(`  Coupling:    ${coupledFiles.length.toString().padStart(3)} files × ${(weights.coupling * 100).toFixed(0)}% weight`);
+	console.log(`  Drift:       ${driftFiles.length.toString().padStart(3)} stale × ${(weights.drift * 100).toFixed(0)}% weight`);
+	console.log(`  Importers:   ${importers.length.toString().padStart(3)} files × ${(weights.importers * 100).toFixed(0)}% weight`);
+	console.log();
+}
+
+async function runCoupled(filePath: string, options: CliOptions): Promise<void> {
+	const absolutePath = resolveFilePath(filePath);
+
+	if (!fs.existsSync(absolutePath)) {
+		console.error(chalk.red(`Error: File not found: ${filePath}`));
+		process.exit(1);
+	}
+
+	const memoria = await import("./index.js");
+	const ctx = await memoria.createAnalysisContext(absolutePath);
+	const coupledFiles = await memoria.getCoupledFiles(absolutePath, ctx);
+
+	if (options.json) {
+		console.log(JSON.stringify({ file: filePath, coupledFiles }, null, 2));
+		return;
+	}
+
+	console.log();
+	console.log(chalk.bold(`Coupled Files for \`${path.basename(filePath)}\``));
+	console.log();
+
+	if (coupledFiles.length === 0) {
+		console.log(chalk.dim("  No coupled files detected."));
+		console.log(chalk.dim("  This file changes independently of others."));
+	} else {
+		for (const cf of coupledFiles) {
+			const sourceLabel = cf.source ? chalk.cyan(`[${cf.source}]`) : "";
+			const scoreColor = cf.score >= 50 ? chalk.yellow : chalk.green;
+			console.log(`  ${scoreColor(`${cf.score}%`)} ${cf.file} ${sourceLabel}`);
+			if (cf.reason) {
+				console.log(chalk.dim(`      ${cf.reason}`));
+			}
+		}
+	}
+	console.log();
+}
+
+async function runImporters(filePath: string, options: CliOptions): Promise<void> {
+	const absolutePath = resolveFilePath(filePath);
+
+	if (!fs.existsSync(absolutePath)) {
+		console.error(chalk.red(`Error: File not found: ${filePath}`));
+		process.exit(1);
+	}
+
+	const memoria = await import("./index.js");
+	const ctx = await memoria.createAnalysisContext(absolutePath);
+	const importers = await memoria.getImporters(absolutePath, ctx);
+
+	if (options.json) {
+		console.log(JSON.stringify({ file: filePath, importers }, null, 2));
+		return;
+	}
+
+	console.log();
+	console.log(chalk.bold(`Files importing \`${path.basename(filePath)}\``));
+	console.log();
+
+	if (importers.length === 0) {
+		console.log(chalk.dim("  No files import this file."));
+	} else {
+		for (const imp of importers) {
+			console.log(`  ${imp}`);
+		}
+		console.log();
+		console.log(chalk.dim(`Total: ${importers.length} files`));
+	}
+	console.log();
+}
+
+async function runHistory(query: string, filePath: string | undefined, options: CliOptions): Promise<void> {
+	const absolutePath = filePath ? resolveFilePath(filePath) : undefined;
+
+	if (absolutePath && !fs.existsSync(absolutePath)) {
+		console.error(chalk.red(`Error: File not found: ${filePath}`));
+		process.exit(1);
+	}
+
+	const memoria = await import("./index.js");
+	const result = await memoria.searchHistory(
+		query,
+		absolutePath,
+		options.type || "both",
+		options.limit || 20
+	);
+
+	if (options.json) {
+		console.log(JSON.stringify(result, null, 2));
+		return;
+	}
+
+	console.log();
+	console.log(chalk.bold(`History Search: "${query}"${filePath ? ` in \`${filePath}\`` : ""}`));
+	console.log();
+
+	if (result.totalFound === 0) {
+		console.log(chalk.dim("  No commits found matching your query."));
+		console.log();
+		return;
+	}
+
+	console.log(chalk.dim(`Found ${result.totalFound} commits:`));
+	console.log();
+
+	// Check if any commits have bug-related keywords
+	const bugKeywords = /fix|bug|patch|hotfix|revert/i;
+	let hasBugFixes = false;
+
+	for (const commit of result.results) {
+		const typeIcon = commit.matchType === "message" ? "💬" : "📝";
+		const dateStr = new Date(commit.date).toLocaleDateString();
+		console.log(`${typeIcon} ${chalk.yellow(`[${commit.hash.slice(0, 7)}]`)} ${dateStr} ${chalk.cyan(`@${commit.author}`)}`);
+		console.log(`   ${commit.message}`);
+		if (commit.filesChanged.length > 0) {
+			console.log(chalk.dim(`   Files: ${commit.filesChanged.slice(0, 3).join(", ")}${commit.filesChanged.length > 3 ? ` +${commit.filesChanged.length - 3} more` : ""}`));
+		}
+		console.log();
+
+		if (bugKeywords.test(commit.message)) {
+			hasBugFixes = true;
+		}
+	}
+
+	if (hasBugFixes) {
+		console.log(chalk.yellow("⚠️  Bug fixes detected! Review commits before modifying this code."));
+		console.log();
+	}
+}
+
 async function showInteractiveSetup(cwd: string): Promise<void> {
 	console.clear();
 
@@ -527,6 +897,7 @@ async function showInteractiveSetup(cwd: string): Promise<void> {
 async function main() {
 	const args = process.argv.slice(2);
 	const cwd = process.cwd();
+	const options = parseCliOptions(args);
 
 	// No arguments - check if interactive terminal vs MCP client
 	if (args.length === 0) {
@@ -550,9 +921,80 @@ async function main() {
 		process.exit(0);
 	}
 
+	// ========== Analysis Commands ==========
+
+	// memoria analyze <file>
+	if (args[0] === "analyze") {
+		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
+		const filePath = nonFlagArgs[0];
+		if (!filePath) {
+			console.error(chalk.red("Error: Please provide a file path"));
+			console.log("Usage: memoria analyze <file>");
+			process.exit(1);
+		}
+		await runAnalyze(filePath, options);
+		return;
+	}
+
+	// memoria risk <file>
+	if (args[0] === "risk") {
+		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
+		const filePath = nonFlagArgs[0];
+		if (!filePath) {
+			console.error(chalk.red("Error: Please provide a file path"));
+			console.log("Usage: memoria risk <file>");
+			process.exit(1);
+		}
+		await runRisk(filePath, options);
+		return;
+	}
+
+	// memoria coupled <file>
+	if (args[0] === "coupled") {
+		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
+		const filePath = nonFlagArgs[0];
+		if (!filePath) {
+			console.error(chalk.red("Error: Please provide a file path"));
+			console.log("Usage: memoria coupled <file>");
+			process.exit(1);
+		}
+		await runCoupled(filePath, options);
+		return;
+	}
+
+	// memoria importers <file>
+	if (args[0] === "importers") {
+		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
+		const filePath = nonFlagArgs[0];
+		if (!filePath) {
+			console.error(chalk.red("Error: Please provide a file path"));
+			console.log("Usage: memoria importers <file>");
+			process.exit(1);
+		}
+		await runImporters(filePath, options);
+		return;
+	}
+
+	// memoria history <query> [file]
+	if (args[0] === "history") {
+		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
+		const query = nonFlagArgs[0];
+		const filePath = nonFlagArgs[1];
+
+		if (!query) {
+			console.error(chalk.red("Error: Please provide a search query"));
+			console.log("Usage: memoria history <query> [file]");
+			process.exit(1);
+		}
+		await runHistory(query, filePath, options);
+		return;
+	}
+
+	// ========== Setup Commands ==========
+
 	// Check for init command
 	if (args[0] !== "init") {
-		console.error(`Unknown command: ${args[0]}`);
+		console.error(chalk.red(`Unknown command: ${args[0]}`));
 		console.log('Run "memoria --help" for usage');
 		process.exit(1);
 	}
