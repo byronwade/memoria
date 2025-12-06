@@ -361,7 +361,7 @@ Search git history to understand *why* code was written. Solves the "Chesterton'
 
 ## Example Output
 
-```markdown
+```
 # Forensics: `route.ts`
 
 **RISK: 65/100** — HIGH
@@ -375,10 +375,8 @@ Search git history to understand *why* code was written. Solves the "Chesterton'
 
 **`billing/page.tsx`** — 85% (schema)
 > These files share type definitions. If you modify types in one, update the other to match.
-```diff
-+ interface SubscriptionUpdated
-- oldStatus: string
-```
+  + interface SubscriptionUpdated
+  - oldStatus: string
 
 ---
 
