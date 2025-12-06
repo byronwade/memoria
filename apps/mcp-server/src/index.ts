@@ -2442,8 +2442,8 @@ export interface HistorySearchOptions {
 	commitTypes?: CommitType[];
 }
 
-// Helper to extract diff snippet for a specific commit
-async function getDiffSnippet(
+// Helper to extract diff snippet for a specific commit in history search
+async function getHistoryDiffSnippet(
 	git: ReturnType<typeof simpleGit>,
 	hash: string,
 	query: string,
@@ -2688,7 +2688,7 @@ export async function searchHistory(
 				const snippetResults = await mapConcurrent(
 					sortedResults,
 					5,
-					(result) => getDiffSnippet(git, result.hash, query, filePath),
+					(result) => getHistoryDiffSnippet(git, result.hash, query, filePath),
 				);
 				for (let i = 0; i < sortedResults.length; i++) {
 					const snippet = snippetResults[i];
@@ -2860,7 +2860,7 @@ export async function searchHistory(
 		const snippetResults = await mapConcurrent(
 			sortedResults,
 			5,
-			(result) => getDiffSnippet(git, result.hash, query, filePath),
+			(result) => getHistoryDiffSnippet(git, result.hash, query, filePath),
 		);
 		for (let i = 0; i < sortedResults.length; i++) {
 			const snippet = snippetResults[i];
@@ -2882,16 +2882,6 @@ export async function searchHistory(
 	return output;
 }
 
-// Emoji map for commit types
-const COMMIT_TYPE_EMOJI: Record<CommitType, string> = {
-	bugfix: "🐛",
-	feature: "✨",
-	refactor: "♻️",
-	docs: "📝",
-	test: "🧪",
-	chore: "🔧",
-	unknown: "📦",
-};
 
 // Format history search results for AI consumption
 export function formatHistoryResults(output: HistorySearchOutput): string {
@@ -2918,22 +2908,22 @@ export function formatHistoryResults(output: HistorySearchOutput): string {
 	const hasBugFixes = results.some((r) => r.commitType === "bugfix");
 
 	if (hasBugFixes) {
-		report += `> 🐛 Bug fixes detected — review commits before modifying this code.\n\n`;
+		report += `> [BUGFIX] Bug fixes detected — review commits before modifying this code.\n\n`;
 	}
 
 	report += `---\n\n`;
 
 	results.forEach((r, i) => {
 		const matchType = r.matchType === "message" ? "msg" : "diff";
-		const typeEmoji = COMMIT_TYPE_EMOJI[r.commitType] || "📦";
-		report += `**${i + 1}. ${typeEmoji} \`${r.hash}\`** ${r.date} · @${r.author} · ${matchType} · ${r.commitType}\n`;
+		const typeLabel = r.commitType ? `[${r.commitType.toUpperCase()}]` : "";
+		report += `**${i + 1}. \`${r.hash}\`** ${r.date} · @${r.author} · ${matchType} ${typeLabel}\n`;
 		report += `> ${r.message}\n`;
 		if (r.filesChanged.length > 0) {
 			report += `Files: ${r.filesChanged.map((f) => `\`${f}\``).join(", ")}\n`;
 		}
 		// Show diff snippet if available
 		if (r.diffSnippet) {
-			const changeLabel = r.changeType === "added" ? "+" : r.changeType === "removed" ? "-" : "±";
+			const changeLabel = r.changeType === "added" ? "+" : r.changeType === "removed" ? "-" : "~";
 			report += `\n**Code Change (${changeLabel}):**\n\`\`\`diff\n${r.diffSnippet}\n\`\`\`\n`;
 		}
 		report += "\n";
@@ -3286,7 +3276,7 @@ export function generateAiInstructions(
 
 			// Breaking change warning (git coupling only)
 			if (source === "git" && typeof evidence === "object" && evidence?.hasBreakingChange) {
-				output += `> ⚠ Breaking change detected in last co-commit\n`;
+				output += `> WARNING: Breaking change detected in last co-commit\n`;
 			}
 
 			// Compact diff evidence (git coupling only)
@@ -3555,7 +3545,7 @@ function setupServer(server: Server): Server {
 						{
 							type: "text",
 							text:
-								`❌ ERROR: File not found at \`${targetPath}\`.\n\n` +
+								`ERROR: File not found at \`${targetPath}\`.\n\n` +
 								`The AI sent a relative path (\`${rawPath}\`), but this server runs globally.\n` +
 								`**SYSTEM INSTRUCTION:** You MUST retry this tool call using the **ABSOLUTE PATH** (e.g. C:/dev/project/src/file.ts).`,
 						},
@@ -3644,7 +3634,7 @@ function setupServer(server: Server): Server {
 							{
 								type: "text",
 								text:
-									`⚠️ **Git Repository Required**\n\n` +
+									`**Git Repository Required**\n\n` +
 									`This file is not inside a git repository. Memoria requires git history to analyze file dependencies and risks.\n\n` +
 									`**To use Memoria:**\n` +
 									`1. Navigate to a directory that is a git repository\n` +
@@ -3686,7 +3676,7 @@ function setupServer(server: Server): Server {
 						{
 							type: "text",
 							text:
-								`❌ ERROR: Query is required.\n\n` +
+								`ERROR: Query is required.\n\n` +
 								`**SYSTEM INSTRUCTION:** Provide a keyword to search for (e.g., "setTimeout", "authentication", "fix race condition").\n` +
 								`For line-range search (Sherlock Mode), you can use an empty query with startLine/endLine.`,
 						},
@@ -3702,7 +3692,7 @@ function setupServer(server: Server): Server {
 						{
 							type: "text",
 							text:
-								`❌ ERROR: Line-range search requires a file path.\n\n` +
+								`ERROR: Line-range search requires a file path.\n\n` +
 								`**SYSTEM INSTRUCTION:** Provide both \`path\` and \`startLine\`/\`endLine\` for line-range search.`,
 						},
 					],
@@ -3719,7 +3709,7 @@ function setupServer(server: Server): Server {
 							{
 								type: "text",
 								text:
-									`❌ ERROR: Invalid line range (${startLine}-${endLine}).\n\n` +
+									`ERROR: Invalid line range (${startLine}-${endLine}).\n\n` +
 									`**SYSTEM INSTRUCTION:** startLine must be <= endLine (note: startLine 0 is treated as 1).`,
 							},
 						],
@@ -3741,7 +3731,7 @@ function setupServer(server: Server): Server {
 								{
 									type: "text",
 									text:
-										`❌ ERROR: Path not found at \`${targetPath}\`.\n\n` +
+										`ERROR: Path not found at \`${targetPath}\`.\n\n` +
 										`**SYSTEM INSTRUCTION:** Use an ABSOLUTE path or omit the path to search the entire repository.`,
 								},
 							],
@@ -3780,7 +3770,7 @@ function setupServer(server: Server): Server {
 							{
 								type: "text",
 								text:
-									`⚠️ **Git Repository Required**\n\n` +
+									`**Git Repository Required**\n\n` +
 									`This operation requires a git repository. Memoria searches git history to find why code was written.\n\n` +
 									`**To use Memoria:**\n` +
 									`1. Run this command from within a git repository\n` +

@@ -204,7 +204,12 @@ Search git history to understand WHY code was written a certain way. Solves the 
   "searchType": "both",
   "limit": 20,
   "startLine": 100,
-  "endLine": 150
+  "endLine": 150,
+  "since": "30days",
+  "until": "2024-06-01",
+  "author": "dave",
+  "includeDiff": true,
+  "commitTypes": ["bugfix", "feature"]
 }
 ```
 
@@ -215,6 +220,20 @@ Search git history to understand WHY code was written a certain way. Solves the 
 - `limit` (optional) - Maximum results to return (default: 20)
 - `startLine` (optional) - Start line for line-range search (Sherlock Mode)
 - `endLine` (optional) - End line for line-range search (Sherlock Mode)
+- `since` (optional) - Filter commits after date (e.g., `"30days"`, `"2024-01-01"`, `"3months"`)
+- `until` (optional) - Filter commits before date
+- `author` (optional) - Filter by author name or email pattern
+- `includeDiff` (optional) - Include code snippets in results (default: auto for ≤5 results)
+- `commitTypes` (optional) - Filter by commit type: `["bugfix", "feature", "refactor", "docs", "test", "chore"]`
+
+**Commit Type Auto-Classification:**
+Memoria auto-classifies commits based on message patterns:
+- `bugfix` - fix, bug, patch, hotfix, resolve, issue, crash, error, regression
+- `feature` - feat, add, new, implement, support, enable, introduce
+- `refactor` - refactor, restructure, reorganize, simplify, clean, improve
+- `docs` - doc, readme, comment, jsdoc, typedef, changelog
+- `test` - test, spec, coverage, mock, stub, e2e, unit
+- `chore` - chore, deps, upgrade, bump, ci, build, release, version
 
 **Output Structure:**
 ```markdown
@@ -222,17 +241,24 @@ Search git history to understand WHY code was written a certain way. Solves the 
 
 **Found 3 relevant commits:**
 
-**1. 💬 [a1b2c3] 2022-03-15 @developer**
+**1. 🐛 `a1b2c3`** 2022-03-15 · @developer · msg · bugfix
 > Fix race condition in Safari where API returns before DOM ready
-> Files: `utils.ts`, `safari-polyfill.ts`
+Files: `utils.ts`, `safari-polyfill.ts`
 
-**2. 📝 [d4e5f6] 2021-11-20 @senior-dev**
+**Code Change (+):**
+```diff
++  setTimeout(() => {
++    resolve(data);
++  }, 0);
+```
+
+**2. ✨ `d4e5f6`** 2021-11-20 · @senior-dev · diff · feature
 > Add timeout fallback for slow network conditions
-> Files: `utils.ts`, `config.ts`
+Files: `utils.ts`, `config.ts`
 
 ---
 
-⚠️ **Bug fixes detected!** Review these commits carefully before modifying this code.
+🐛 **Bug fixes detected!** Review these commits carefully before modifying this code.
 
 **AI INSTRUCTION:**
 Before removing or modifying code matching "setTimeout":

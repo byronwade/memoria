@@ -321,6 +321,29 @@ memoria history "setTimeout" src/utils.ts
 memoria history "fix" --type=message
 ```
 
+### History Search Options
+
+```bash
+# Filter by time
+memoria history "bug" --since=30days
+memoria history "refactor" --since=2024-01-01 --until=2024-06-01
+
+# Filter by author
+memoria history "API" --author=dave
+
+# Filter by commit type (auto-classified)
+memoria history "auth" --commit-type=bugfix
+memoria history "component" --commit-type=feature,refactor
+
+# Include code snippets (auto for ≤5 results)
+memoria history "setTimeout" --diff
+
+# Combine filters
+memoria history "fix" --since=30days --commit-type=bugfix --diff --json
+```
+
+**Commit Types:** `bugfix`, `feature`, `refactor`, `docs`, `test`, `chore`, `unknown`
+
 ### Output Options
 
 ```bash

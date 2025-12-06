@@ -48,6 +48,10 @@ interface ApiRepositoryStats {
 		fileAnalyses: number;
 		couplingDetections: number;
 	};
+	// Comparison metrics (vs last period)
+	issuesPreventedChange?: number;
+	avgRiskScoreChange?: number;
+	totalAnalysesChange?: number;
 }
 
 interface ApiRiskyFile {
@@ -441,6 +445,10 @@ interface RepoData {
 		avgRiskScore: number;
 		criticalFiles: number;
 		highRiskFiles: number;
+		// Comparison metrics (vs last period)
+		issuesPreventedChange?: number; // percentage change
+		avgRiskScoreChange?: number;
+		totalAnalysesChange?: number;
 	};
 	riskDistribution: {
 		critical: number;
@@ -636,6 +644,10 @@ const buildRepoDataFromApi = (
 			avgRiskScore: stats?.avgRiskScore || 0,
 			criticalFiles: riskDistribution.high, // Map high to critical for display
 			highRiskFiles: riskDistribution.medium,
+			// Comparison metrics - calculate from stats if available
+			issuesPreventedChange: stats?.issuesPreventedChange,
+			avgRiskScoreChange: stats?.avgRiskScoreChange,
+			totalAnalysesChange: stats?.totalAnalysesChange,
 		},
 		riskDistribution: {
 			critical: 0, // We only track high/medium/low in the API
@@ -737,6 +749,31 @@ function getActivityIcon(type: string) {
 		default:
 			return <Zap className="h-4 w-4 text-primary" />;
 	}
+}
+
+// Trend indicator component for showing comparison metrics
+function TrendIndicator({ change, inverted = false }: { change?: number; inverted?: boolean }) {
+	if (change === undefined || change === 0) return null;
+
+	const isPositive = inverted ? change < 0 : change > 0;
+	const absChange = Math.abs(change);
+
+	return (
+		<span
+			className={cn(
+				"inline-flex items-center gap-0.5 text-xs font-medium",
+				isPositive ? "text-green-500" : "text-red-500"
+			)}
+			aria-label={`${isPositive ? "Increased" : "Decreased"} by ${absChange}% from last period`}
+		>
+			{change > 0 ? (
+				<TrendingUp className="h-3 w-3" aria-hidden="true" />
+			) : (
+				<TrendingDown className="h-3 w-3" aria-hidden="true" />
+			)}
+			{absChange}%
+		</span>
+	);
 }
 
 // ============================================================================
@@ -1530,9 +1567,10 @@ export default function RepositoryDetailPage() {
 								<span className={cn("text-3xl font-semibold tabular-nums transition-colors", hoveredStat === "prevented" && "text-green-500")}>
 									{repo.stats.issuesPrevented}
 								</span>
+								<TrendIndicator change={repo.stats.issuesPreventedChange} />
 							</div>
 							<div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
-								<ShieldCheck className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "prevented" && "text-green-500")} />
+								<ShieldCheck className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "prevented" && "text-green-500")} aria-hidden="true" />
 								Issues Prevented
 							</div>
 						</div>
@@ -1548,9 +1586,10 @@ export default function RepositoryDetailPage() {
 								<span className={cn("text-3xl font-semibold tabular-nums transition-colors", hoveredStat === "risk" && "text-primary")}>
 									{repo.stats.avgRiskScore}
 								</span>
+								<TrendIndicator change={repo.stats.avgRiskScoreChange} inverted />
 							</div>
 							<div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
-								<Shield className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "risk" && "text-primary")} />
+								<Shield className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "risk" && "text-primary")} aria-hidden="true" />
 								Avg Risk Score
 							</div>
 						</div>
@@ -1566,15 +1605,87 @@ export default function RepositoryDetailPage() {
 								<span className={cn("text-3xl font-semibold tabular-nums transition-colors", hoveredStat === "analyses" && "text-primary")}>
 									{repo.stats.totalAnalyses}
 								</span>
+								<TrendIndicator change={repo.stats.totalAnalysesChange} />
 							</div>
 							<div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
-								<Zap className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "analyses" && "text-primary")} />
+								<Zap className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "analyses" && "text-primary")} aria-hidden="true" />
 								Total Analyses
 							</div>
 						</div>
 					</div>
 				</div>
 			</div>
+
+			{/* Actionable Insights */}
+			{(() => {
+				const insights: { type: "warning" | "success" | "info"; message: string; action?: string }[] = [];
+
+				// Generate insights based on repository data
+				if (repo.riskDistribution.high > 5) {
+					insights.push({
+						type: "warning",
+						message: `${repo.riskDistribution.high} high-risk files need attention`,
+						action: "Review files →",
+					});
+				}
+				if (repo.trend === "down" && repo.health < 70) {
+					insights.push({
+						type: "warning",
+						message: "Repository health is declining. Consider reviewing recent changes.",
+					});
+				}
+				if (repo.stats.issuesPrevented > 0 && repo.stats.issuesPreventedChange && repo.stats.issuesPreventedChange > 20) {
+					insights.push({
+						type: "success",
+						message: `Great work! ${repo.stats.issuesPreventedChange}% more issues prevented this period.`,
+					});
+				}
+				if (repo.health >= 90) {
+					insights.push({
+						type: "success",
+						message: "Excellent repository health! Keep up the good practices.",
+					});
+				}
+				if (repo.stats.totalAnalyses === 0) {
+					insights.push({
+						type: "info",
+						message: "No analyses yet. Create a pull request to see Memoria in action.",
+					});
+				}
+
+				if (insights.length === 0) return null;
+
+				return (
+					<div className="max-w-6xl mx-auto px-4 md:px-6 mt-6">
+						<div className="flex flex-wrap gap-3">
+							{insights.slice(0, 3).map((insight, index) => (
+								<div
+									key={index}
+									className={cn(
+										"flex items-center gap-2 px-3 py-2 rounded-sm text-sm border",
+										insight.type === "warning" && "bg-orange-500/10 border-orange-500/20 text-orange-700 dark:text-orange-400",
+										insight.type === "success" && "bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-400",
+										insight.type === "info" && "bg-blue-500/10 border-blue-500/20 text-blue-700 dark:text-blue-400"
+									)}
+								>
+									{insight.type === "warning" && <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />}
+									{insight.type === "success" && <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />}
+									{insight.type === "info" && <Zap className="h-4 w-4 shrink-0" aria-hidden="true" />}
+									<span>{insight.message}</span>
+									{insight.action && (
+										<button
+											className="font-medium hover:underline shrink-0"
+											onClick={() => setSelectedTab("files")}
+										>
+											{insight.action}
+										</button>
+									)}
+								</div>
+							))}
+						</div>
+					</div>
+				);
+			})()}
 
 			{/* Risk Distribution Bar - Interactive (no layout shift) */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-8">

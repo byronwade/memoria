@@ -18,6 +18,7 @@ import {
 	Crown,
 } from "lucide-react";
 import { useState, useCallback } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import {
@@ -68,12 +69,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 		const currentRepo = activeRepos.find(r => r.fullName.split("/")[1] === repoName);
 
 		if (!currentRepo) {
+			toast.error("No repository selected", {
+				description: "Please select a repository to sync.",
+			});
 			setSyncStatus("error");
 			setTimeout(() => setSyncStatus("idle"), 2000);
 			return;
 		}
 
 		setSyncStatus("syncing");
+		toast.loading("Syncing repository...", { id: "sync" });
+
 		try {
 			const response = await fetch(`/api/repositories/${currentRepo._id}/sync`, {
 				method: "POST",
@@ -81,14 +87,26 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
 			if (response.ok) {
 				setSyncStatus("success");
+				toast.success("Repository synced", {
+					id: "sync",
+					description: `${currentRepo.fullName} is now up to date.`,
+				});
 				// Refresh to show updated data
 				router.refresh();
 			} else {
 				setSyncStatus("error");
+				toast.error("Sync failed", {
+					id: "sync",
+					description: "Could not sync repository. Please try again.",
+				});
 			}
 		} catch (error) {
 			console.error("Sync failed:", error);
 			setSyncStatus("error");
+			toast.error("Sync failed", {
+				id: "sync",
+				description: "Network error. Please check your connection.",
+			});
 		} finally {
 			setTimeout(() => setSyncStatus("idle"), 2000);
 		}
@@ -164,13 +182,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 							<div className="flex items-center rounded-sm border border-border/50 overflow-hidden">
 								<DropdownMenu>
 									<DropdownMenuTrigger asChild>
-										<button className="flex items-center gap-1.5 sm:gap-2 px-2 sm:pl-2.5 sm:pr-2 h-8 text-sm font-medium bg-secondary/50 hover:bg-secondary transition-colors">
-											<GitBranch className="h-4 w-4 text-muted-foreground" />
+										<button
+											className="flex items-center gap-1.5 sm:gap-2 px-2 sm:pl-2.5 sm:pr-2 h-8 text-sm font-medium bg-secondary/50 hover:bg-secondary transition-colors"
+											aria-label={`Select repository. ${activeRepos.length} repositories connected`}
+										>
+											<GitBranch className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
 											<span className="hidden sm:inline">Repositories</span>
-											<span className="px-1.5 py-0.5 text-xs bg-background/80 rounded-sm tabular-nums">
+											<span className="px-1.5 py-0.5 text-xs bg-background/80 rounded-sm tabular-nums" aria-hidden="true">
 												{activeRepos.length}
 											</span>
-											<ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+											<ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
 										</button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent align="start" className="w-[calc(100vw-2rem)] sm:w-80 max-w-80">
@@ -223,9 +244,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 											))
 										)}
 										<DropdownMenuSeparator />
-										<DropdownMenuItem className="flex items-center gap-2">
-											<ExternalLink className="h-4 w-4 text-muted-foreground" />
-											<span className="text-muted-foreground">Manage on GitHub</span>
+										<DropdownMenuItem asChild className="flex items-center gap-2">
+											<a
+												href="https://github.com/settings/installations"
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												<ExternalLink className="h-4 w-4 text-muted-foreground" />
+												<span className="text-muted-foreground">Manage on GitHub</span>
+											</a>
 										</DropdownMenuItem>
 									</DropdownMenuContent>
 								</DropdownMenu>
@@ -238,6 +265,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 											: "bg-muted text-muted-foreground cursor-not-allowed border-border"
 									)}
 									onClick={handleAddRepo}
+									aria-label={canAddRepo ? "Add repository" : "Upgrade to add more repositories"}
 									title={canAddRepo ? "Add repository" : "Upgrade to add more repositories"}
 								>
 									<Plus className="h-4 w-4" />
@@ -336,23 +364,35 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 											className="flex items-center gap-2.5 py-2"
 											onClick={async () => {
 												try {
+													toast.loading("Opening billing portal...", { id: "billing" });
 													const response = await fetch("/api/billing/portal", {
 														method: "POST",
 														headers: { "Content-Type": "application/json" },
 														body: JSON.stringify({ orgId: currentOrg?._id }),
 													});
 													if (!response.ok) {
-														console.error("Failed to open billing portal");
+														toast.error("Failed to open billing portal", {
+															id: "billing",
+															description: "Please try again later.",
+														});
 														return;
 													}
 													const data = await response.json();
 													if (data.url) {
+														toast.dismiss("billing");
 														window.location.href = data.url;
 													} else {
-														console.error("No billing portal URL returned");
+														toast.error("Failed to open billing portal", {
+															id: "billing",
+															description: "No portal URL returned.",
+														});
 													}
 												} catch (error) {
 													console.error("Failed to open billing portal:", error);
+													toast.error("Failed to open billing portal", {
+														id: "billing",
+														description: "Network error. Please try again.",
+													});
 												}
 											}}
 										>
@@ -483,9 +523,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 												setDateRange("30days");
 												setRiskFilter("all");
 											}}
+											aria-label="Clear all filters"
 											className="flex items-center gap-1.5 h-8 px-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
 										>
-											<X className="h-3 w-3" />
+											<X className="h-3 w-3" aria-hidden="true" />
 											Clear
 										</button>
 									)}
@@ -495,6 +536,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 									<button
 										onClick={handleSync}
 										disabled={syncStatus === "syncing"}
+										aria-label={
+											syncStatus === "syncing"
+												? "Syncing repository data"
+												: syncStatus === "success"
+												? "Repository synced successfully"
+												: syncStatus === "error"
+												? "Sync failed, click to retry"
+												: "Sync repository data"
+										}
 										className={cn(
 											"flex items-center gap-2 h-8 px-3 text-sm font-medium rounded-sm cursor-pointer transition-all border active:scale-[0.98]",
 											syncStatus === "syncing"
@@ -506,7 +556,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 												: "bg-secondary/50 hover:bg-secondary text-foreground border-border/50 hover:border-border"
 										)}
 									>
-										<RefreshCw className={cn("h-3.5 w-3.5", syncStatus === "syncing" && "animate-spin")} />
+										<RefreshCw className={cn("h-3.5 w-3.5", syncStatus === "syncing" && "animate-spin")} aria-hidden="true" />
 										<span className="hidden sm:inline">
 											{syncStatus === "syncing" ? "Syncing..." : syncStatus === "success" ? "Synced" : syncStatus === "error" ? "Failed" : "Sync"}
 										</span>
@@ -517,9 +567,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 											href={`https://github.com/${currentRepo.fullName}`}
 											target="_blank"
 											rel="noopener noreferrer"
+											aria-label={`View ${currentRepo.fullName} on GitHub`}
 											className="flex items-center gap-2 h-8 px-3 text-sm font-medium rounded-sm cursor-pointer transition-all bg-secondary/50 hover:bg-secondary text-foreground border border-border/50 hover:border-border active:scale-[0.98]"
 										>
-											<Github className="h-3.5 w-3.5" />
+											<Github className="h-3.5 w-3.5" aria-hidden="true" />
 											<span className="hidden sm:inline">GitHub</span>
 										</a>
 									)}

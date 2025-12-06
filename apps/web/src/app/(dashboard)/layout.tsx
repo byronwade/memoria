@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getDashboardData } from "./dashboard-data";
 import { DashboardProvider } from "./dashboard-context";
 import { DashboardShell } from "./dashboard-shell";
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 
 export default async function DashboardLayout({
 	children,
@@ -22,6 +23,7 @@ export default async function DashboardLayout({
 	return (
 		<DashboardProvider initialData={data}>
 			<DashboardShell>{children}</DashboardShell>
+			<KeyboardShortcuts />
 		</DashboardProvider>
 	);
 }

@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useCallback, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -83,12 +84,14 @@ export default function SettingsPage() {
 	// 	setTimeout(() => setCopied(false), 2000);
 	// };
 
-	const handleToggleRepo = useCallback(async (repoId: string, currentStatus: boolean) => {
+	const handleToggleRepo = useCallback(async (repoId: string, currentStatus: boolean, repoName: string) => {
 		const newStatus = !currentStatus;
 
 		// Check if we're activating and at limit
 		if (newStatus && !canAddRepo) {
-			// Don't allow activation if at limit
+			toast.error("Repository limit reached", {
+				description: "Upgrade your plan to monitor more repositories.",
+			});
 			return;
 		}
 
@@ -107,8 +110,13 @@ export default function SettingsPage() {
 			if (!res.ok) {
 				// Revert on error
 				setRepoStatuses(prev => ({ ...prev, [repoId]: currentStatus }));
-				console.error("Failed to update repository status");
+				toast.error("Failed to update repository", {
+					description: "Could not change monitoring status. Please try again.",
+				});
 			} else {
+				toast.success(newStatus ? "Monitoring enabled" : "Monitoring disabled", {
+					description: `${repoName} is ${newStatus ? "now being monitored" : "no longer monitored"}.`,
+				});
 				// Refresh the page to get updated context with transition
 				startRefreshTransition(() => {
 					router.refresh();
@@ -118,6 +126,9 @@ export default function SettingsPage() {
 			// Revert on error
 			setRepoStatuses(prev => ({ ...prev, [repoId]: currentStatus }));
 			console.error("Failed to update repository status:", error);
+			toast.error("Network error", {
+				description: "Could not connect to server. Please try again.",
+			});
 		} finally {
 			setUpdatingRepo(null);
 		}
@@ -364,7 +375,7 @@ export default function SettingsPage() {
 													) : (
 														<Switch
 															checked={isActive}
-															onCheckedChange={() => handleToggleRepo(repo._id, isActive)}
+															onCheckedChange={() => handleToggleRepo(repo._id, isActive, repo.fullName)}
 															disabled={cannotActivate || isRefreshing}
 															aria-label={`Toggle monitoring for ${repo.fullName}`}
 														/>

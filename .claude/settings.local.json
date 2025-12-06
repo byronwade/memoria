@@ -71,7 +71,9 @@
       "Bash(git --version:*)",
       "Bash(git help:*)",
       "mcp__memoria__analyze_file",
-      "Bash(vercel --prod:*)"
+      "Bash(vercel --prod:*)",
+      "Bash(vercel secrets:*)",
+      "Bash(vercel env:*)"
     ],
     "deny": [],
     "ask": []

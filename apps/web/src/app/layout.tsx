@@ -5,6 +5,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { MotionProvider } from "@/components/motion-provider";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 import { siteConfig } from "@/lib/seo/constants";
 import {
 	generateOrganizationSchema,
@@ -108,6 +109,7 @@ export default function RootLayout({
 						disableTransitionOnChange
 					>
 						<MotionProvider>{children}</MotionProvider>
+						<Toaster position="bottom-right" richColors closeButton />
 					</ThemeProvider>
 				</ConvexClientProvider>
 				<Analytics />

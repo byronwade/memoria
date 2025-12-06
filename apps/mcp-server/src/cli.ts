@@ -139,13 +139,25 @@ ${chalk.dim("Analysis Options:")}
   --json       Output as JSON (for scripting)
   --no-color   Disable colored output
 
+${chalk.dim("History Search Options:")}
+  --type=<t>         Search type: message, diff, or both (default)
+  --limit=<n>        Max results to return (default: 20)
+  --since=<date>     Only commits after date (e.g., "30days", "2024-01-01")
+  --until=<date>     Only commits before date
+  --author=<name>    Filter by author name or email
+  --diff, -d         Include code snippets (auto for ≤5 results)
+  --commit-type=<t>  Filter: bugfix,feature,refactor,docs,test,chore
+
 ${chalk.dim("Examples:")}
-  memoria analyze src/index.ts          Full analysis with risk score
-  memoria risk src/api/route.ts         Quick risk assessment
-  memoria coupled src/auth.ts           See what files change together
-  memoria importers src/types.ts        Find all files importing this
-  memoria history "setTimeout" src/     Why was setTimeout added?
-  memoria history "fix" --type=message  Search commit messages only
+  memoria analyze src/index.ts                Full analysis with risk score
+  memoria risk src/api/route.ts               Quick risk assessment
+  memoria coupled src/auth.ts                 See what files change together
+  memoria importers src/types.ts              Find all files importing this
+  memoria history "setTimeout" src/           Why was setTimeout added?
+  memoria history "fix" --type=message        Search commit messages only
+  memoria history "bug" --since=30days        Bug fixes in last 30 days
+  memoria history "API" --commit-type=bugfix  Only bug fix commits
+  memoria history "auth" --author=dave --diff Show code changes by dave
 `);
 }
 
@@ -399,11 +411,19 @@ function runServer(): void {
 // Analysis Commands - Same capabilities as MCP tools, for manual use
 // ============================================================================
 
+type CommitType = "bugfix" | "feature" | "refactor" | "docs" | "test" | "chore" | "unknown";
+
 interface CliOptions {
 	json?: boolean;
 	noColor?: boolean;
 	type?: "message" | "diff" | "both";
 	limit?: number;
+	// New history search options
+	since?: string;
+	until?: string;
+	author?: string;
+	diff?: boolean;
+	commitTypes?: CommitType[];
 }
 
 function parseCliOptions(args: string[]): CliOptions {
@@ -416,6 +436,23 @@ function parseCliOptions(args: string[]): CliOptions {
 		if (arg === "--type=both") options.type = "both";
 		if (arg.startsWith("--limit=")) {
 			options.limit = parseInt(arg.split("=")[1], 10);
+		}
+		// New history search options
+		if (arg.startsWith("--since=")) {
+			options.since = arg.split("=")[1];
+		}
+		if (arg.startsWith("--until=")) {
+			options.until = arg.split("=")[1];
+		}
+		if (arg.startsWith("--author=")) {
+			options.author = arg.split("=")[1];
+		}
+		if (arg === "--diff" || arg === "-d") {
+			options.diff = true;
+		}
+		if (arg.startsWith("--commit-type=")) {
+			const types = arg.split("=")[1].split(",") as CommitType[];
+			options.commitTypes = types;
 		}
 	}
 	return options;
@@ -693,6 +730,19 @@ async function runImporters(filePath: string, options: CliOptions): Promise<void
 	console.log();
 }
 
+// Color map for commit types
+function getCommitTypeColor(type: CommitType): (text: string) => string {
+	switch (type) {
+		case "bugfix": return chalk.red;
+		case "feature": return chalk.green;
+		case "refactor": return chalk.cyan;
+		case "docs": return chalk.blue;
+		case "test": return chalk.magenta;
+		case "chore": return chalk.gray;
+		default: return chalk.white;
+	}
+}
+
 async function runHistory(query: string, filePath: string | undefined, options: CliOptions): Promise<void> {
 	const absolutePath = filePath ? resolveFilePath(filePath) : undefined;
 
@@ -702,12 +752,17 @@ async function runHistory(query: string, filePath: string | undefined, options: 
 	}
 
 	const memoria = await import("./index.js");
-	const result = await memoria.searchHistory(
+	const result = await memoria.searchHistory({
 		query,
-		absolutePath,
-		options.type || "both",
-		options.limit || 20
-	);
+		filePath: absolutePath,
+		searchType: options.type || "both",
+		limit: options.limit || 20,
+		since: options.since,
+		until: options.until,
+		author: options.author,
+		includeDiff: options.diff,
+		commitTypes: options.commitTypes,
+	});
 
 	if (options.json) {
 		console.log(JSON.stringify(result, null, 2));
@@ -716,6 +771,16 @@ async function runHistory(query: string, filePath: string | undefined, options: 
 
 	console.log();
 	console.log(chalk.bold(`History Search: "${query}"${filePath ? ` in \`${filePath}\`` : ""}`));
+
+	// Show active filters
+	const filters: string[] = [];
+	if (options.since) filters.push(`since: ${options.since}`);
+	if (options.until) filters.push(`until: ${options.until}`);
+	if (options.author) filters.push(`author: ${options.author}`);
+	if (options.commitTypes?.length) filters.push(`types: ${options.commitTypes.join(",")}`);
+	if (filters.length > 0) {
+		console.log(chalk.dim(`Filters: ${filters.join(" | ")}`));
+	}
 	console.log();
 
 	if (result.totalFound === 0) {
@@ -727,27 +792,45 @@ async function runHistory(query: string, filePath: string | undefined, options: 
 	console.log(chalk.dim(`Found ${result.totalFound} commits:`));
 	console.log();
 
-	// Check if any commits have bug-related keywords
-	const bugKeywords = /fix|bug|patch|hotfix|revert/i;
-	let hasBugFixes = false;
+	// Check for bug fixes using commitType
+	const hasBugFixes = result.results.some((c: any) => c.commitType === "bugfix");
 
 	for (const commit of result.results) {
-		const typeIcon = commit.matchType === "message" ? "💬" : "📝";
+		const commitType = (commit.commitType || "unknown") as CommitType;
+		const typeColor = getCommitTypeColor(commitType);
+		const typeLabel = typeColor(`[${commitType.toUpperCase()}]`);
+		const matchIcon = commit.matchType === "message" ? "msg" : "diff";
 		const dateStr = new Date(commit.date).toLocaleDateString();
-		console.log(`${typeIcon} ${chalk.yellow(`[${commit.hash.slice(0, 7)}]`)} ${dateStr} ${chalk.cyan(`@${commit.author}`)}`);
+		console.log(`${typeLabel} ${chalk.yellow(`[${commit.hash.slice(0, 7)}]`)} ${dateStr} ${chalk.cyan(`@${commit.author}`)} · ${matchIcon}`);
 		console.log(`   ${commit.message}`);
 		if (commit.filesChanged.length > 0) {
 			console.log(chalk.dim(`   Files: ${commit.filesChanged.slice(0, 3).join(", ")}${commit.filesChanged.length > 3 ? ` +${commit.filesChanged.length - 3} more` : ""}`));
 		}
-		console.log();
-
-		if (bugKeywords.test(commit.message)) {
-			hasBugFixes = true;
+		// Show diff snippet if available
+		if (commit.diffSnippet) {
+			const changeLabel = commit.changeType === "added" ? chalk.green("+") : commit.changeType === "removed" ? chalk.red("-") : chalk.yellow("±");
+			console.log();
+			console.log(chalk.dim(`   Code Change (${changeLabel}):`));
+			// Indent and colorize diff snippet
+			const snippetLines = commit.diffSnippet.split("\n").slice(0, 8);
+			for (const line of snippetLines) {
+				if (line.startsWith("+") && !line.startsWith("+++")) {
+					console.log(chalk.green(`   ${line}`));
+				} else if (line.startsWith("-") && !line.startsWith("---")) {
+					console.log(chalk.red(`   ${line}`));
+				} else {
+					console.log(chalk.dim(`   ${line}`));
+				}
+			}
+			if (commit.diffSnippet.split("\n").length > 8) {
+				console.log(chalk.dim("   ..."));
+			}
 		}
+		console.log();
 	}
 
 	if (hasBugFixes) {
-		console.log(chalk.yellow("⚠️  Bug fixes detected! Review commits before modifying this code."));
+		console.log(chalk.yellow.bold("WARNING: Bug fixes detected! Review commits before modifying this code."));
 		console.log();
 	}
 }
