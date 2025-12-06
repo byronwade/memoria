@@ -1,0 +1,88 @@
+import { Github, Twitter } from "lucide-react";
+import Link from "next/link";
+import { Container } from "@/components/ui/container";
+import { siteConfig } from "@/lib/seo/constants";
+
+export function Footer() {
+	return (
+		<footer className="border-t border-border bg-background py-12">
+			<Container>
+				<div className="flex flex-col gap-8 text-sm text-muted-foreground">
+					<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+						<div className="flex items-center gap-3 text-foreground">
+							<Link
+								href="/"
+								className="flex items-center gap-2 font-semibold tracking-tight hover:text-primary transition-colors"
+							>
+								<img
+									src="/memoria.svg"
+									alt=""
+									className="w-5 h-5 dark:invert"
+									aria-hidden="true"
+								/>
+								Memoria
+							</Link>
+							<span className="hidden sm:inline text-muted-foreground">·</span>
+							<span className="text-muted-foreground">
+								The memory your AI lacks.
+							</span>
+						</div>
+						<div className="flex items-center gap-6">
+							<Link
+								href="/pricing"
+								className="hover:text-foreground transition-colors"
+							>
+								Pricing
+							</Link>
+							<Link
+								href="/faq"
+								className="hover:text-foreground transition-colors"
+							>
+								FAQ
+							</Link>
+							<Link
+								href="/docs"
+								className="hover:text-foreground transition-colors"
+							>
+								Docs
+							</Link>
+						</div>
+					</div>
+					<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+						<div className="flex items-center gap-4">
+							<a
+								href="https://x.com/byron_c_wade"
+								target="_blank"
+								rel="noopener noreferrer"
+								className="hover:text-foreground transition-colors p-1"
+								aria-label="Follow on X (Twitter)"
+							>
+								<Twitter className="w-4 h-4" />
+							</a>
+							<a
+								href={siteConfig.github}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="hover:text-foreground transition-colors p-1"
+								aria-label="View on GitHub"
+							>
+								<Github className="w-4 h-4" />
+							</a>
+						</div>
+						<div className="flex items-center gap-2 text-muted-foreground">
+							Built by{" "}
+							<a
+								href="https://github.com/byronwade"
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-foreground hover:text-primary transition-colors"
+							>
+								Byron Wade
+							</a>
+						</div>
+					</div>
+				</div>
+			</Container>
+		</footer>
+	);
+}

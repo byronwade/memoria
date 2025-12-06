@@ -504,12 +504,25 @@ npx tsx benchmarks/run-benchmarks.ts
 
 ---
 
+## Monorepo Layout (Turbo)
+
+- `apps/mcp-server` — MCP server & npm package (publishes `@byronwade/memoria`)
+- `apps/api` — API backend stub (Node HTTP placeholder)
+- `apps/web` — Web frontend stub
+- `packages` — Shared libraries (future)
+
+---
+
 ## Development
 
 ```bash
 npm install
-npm run build
-npm test        # 294 tests
+npm run build                     # turbo build across workspaces
+npm test                          # turbo test (runs vitest in mcp-server)
+
+# Focus on a single app/package
+npx turbo run build --filter=@byronwade/memoria
+npx turbo run dev --filter=@byronwade/memoria
 ```
 
 ---

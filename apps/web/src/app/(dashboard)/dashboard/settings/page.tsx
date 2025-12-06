@@ -1,0 +1,577 @@
+"use client";
+
+import {
+	Bell,
+	Check,
+	ChevronRight,
+	Copy,
+	CreditCard,
+	ExternalLink,
+	Eye,
+	EyeOff,
+	Github,
+	Key,
+	Lock,
+	Mail,
+	Plus,
+	RefreshCw,
+	Shield,
+	Smartphone,
+	Trash2,
+	User,
+	Zap,
+} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useDashboard } from "../../dashboard-context";
+
+interface Installation {
+	_id: string;
+	accountLogin: string;
+	status: string;
+	providerType: string;
+}
+
+export default function SettingsPage() {
+	const { user, currentOrg, billingStatus, activeRepos, repoLimit } = useDashboard();
+	const [showApiKey, setShowApiKey] = useState(false);
+	const [copied, setCopied] = useState(false);
+	const [installations, setInstallations] = useState<Installation[]>([]);
+	const [loadingInstallations, setLoadingInstallations] = useState(true);
+
+	// Fetch installations on mount
+	useEffect(() => {
+		async function fetchInstallations() {
+			if (!currentOrg) return;
+			try {
+				const res = await fetch("/api/github/installation-status");
+				if (res.ok) {
+					const data = await res.json();
+					setInstallations(data.installations || []);
+				}
+			} catch (error) {
+				console.error("Failed to fetch installations:", error);
+			} finally {
+				setLoadingInstallations(false);
+			}
+		}
+		fetchInstallations();
+	}, [currentOrg]);
+
+	const handleCopyApiKey = () => {
+		// TODO: Implement real API key copy when API keys are implemented
+		navigator.clipboard.writeText("mem_sk_live_1234567890abcdef");
+		setCopied(true);
+		setTimeout(() => setCopied(false), 2000);
+	};
+
+	// Calculate usage percentages
+	const repoUsagePercent = repoLimit === -1 ? 0 : Math.min(100, (activeRepos.length / repoLimit) * 100);
+	const isRepoLimitReached = repoLimit !== -1 && activeRepos.length >= repoLimit;
+
+	// Format plan price
+	const planPrice = billingStatus?.plan?.pricePerMonthUsd ?? 0;
+	const planName = billingStatus?.plan?.name ?? "Free";
+
+	// Get GitHub installation info
+	const githubInstallation = installations.find(i => i.providerType === "github" && i.status === "active");
+
+	return (
+		<div className="pb-16">
+			{/* Header */}
+			<div className="max-w-4xl mx-auto px-4 md:px-6 pt-8">
+				<h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+				<p className="text-muted-foreground mt-1">
+					Manage your account, billing, and preferences
+				</p>
+			</div>
+
+			{/* Content */}
+			<div className="max-w-4xl mx-auto px-4 md:px-6 mt-10 space-y-12">
+
+				{/* ============================================ */}
+				{/* PROFILE SECTION */}
+				{/* ============================================ */}
+				<section>
+					<div className="flex items-center gap-3 mb-6">
+						<div className="w-9 h-9 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
+							<User className="h-4.5 w-4.5 text-muted-foreground" />
+						</div>
+						<div>
+							<h2 className="font-medium">Profile</h2>
+							<p className="text-sm text-muted-foreground">Your personal information</p>
+						</div>
+					</div>
+
+					<div className="p-5 rounded-sm bg-secondary/30 border border-border/50 space-y-6">
+						{/* Avatar Row */}
+						<div className="flex items-center gap-4">
+							{user.avatarUrl ? (
+								<img
+									src={user.avatarUrl}
+									alt="Profile"
+									className="w-16 h-16 rounded-sm border border-border/50"
+								/>
+							) : (
+								<div className="w-16 h-16 rounded-sm border border-border/50 bg-secondary/50 flex items-center justify-center">
+									<User className="h-8 w-8 text-muted-foreground" />
+								</div>
+							)}
+							<div className="flex-1">
+								<div className="font-medium">{user.name || "Anonymous User"}</div>
+								<div className="text-sm text-muted-foreground">{user.email}</div>
+							</div>
+							<Button variant="outline" size="sm" disabled>Change Photo</Button>
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* Form Fields */}
+						<div className="grid gap-5 sm:grid-cols-2">
+							<div className="space-y-2">
+								<Label htmlFor="name" className="text-sm text-muted-foreground">Full Name</Label>
+								<Input id="name" defaultValue={user.name || ""} placeholder="Enter your name" />
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="email" className="text-sm text-muted-foreground">Email Address</Label>
+								<Input id="email" type="email" defaultValue={user.email} disabled />
+							</div>
+						</div>
+
+						<div className="flex justify-end">
+							<Button size="sm" disabled>Save Changes</Button>
+						</div>
+					</div>
+				</section>
+
+				{/* ============================================ */}
+				{/* CONNECTED ACCOUNTS SECTION */}
+				{/* ============================================ */}
+				<section>
+					<div className="flex items-center gap-3 mb-6">
+						<div className="w-9 h-9 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
+							<Github className="h-4.5 w-4.5 text-muted-foreground" />
+						</div>
+						<div>
+							<h2 className="font-medium">Connected Accounts</h2>
+							<p className="text-sm text-muted-foreground">Manage your linked accounts</p>
+						</div>
+					</div>
+
+					<div className="space-y-3">
+						{/* GitHub */}
+						{loadingInstallations ? (
+							<div className="p-4 rounded-sm bg-secondary/30 border border-border/50 flex items-center gap-4">
+								<div className="w-10 h-10 rounded-sm bg-[#24292e] flex items-center justify-center">
+									<Github className="h-5 w-5 text-white" />
+								</div>
+								<div className="flex-1 min-w-0">
+									<div className="font-medium text-sm">GitHub</div>
+									<div className="text-xs text-muted-foreground">Loading...</div>
+								</div>
+							</div>
+						) : githubInstallation ? (
+							<div className="p-4 rounded-sm bg-secondary/30 border border-border/50 flex items-center gap-4">
+								<div className="w-10 h-10 rounded-sm bg-[#24292e] flex items-center justify-center">
+									<Github className="h-5 w-5 text-white" />
+								</div>
+								<div className="flex-1 min-w-0">
+									<div className="font-medium text-sm">GitHub</div>
+									<div className="text-xs text-muted-foreground">{githubInstallation.accountLogin} - Connected</div>
+								</div>
+								<div className="flex items-center gap-2">
+									<span className="flex items-center gap-1 text-xs text-primary">
+										<Check className="h-3.5 w-3.5" />
+										Connected
+									</span>
+									<Button variant="ghost" size="sm" className="text-muted-foreground" disabled>
+										Disconnect
+									</Button>
+								</div>
+							</div>
+						) : (
+							<div className="p-4 rounded-sm bg-secondary/30 border border-border/50 border-dashed flex items-center gap-4">
+								<div className="w-10 h-10 rounded-sm bg-[#24292e]/50 flex items-center justify-center">
+									<Github className="h-5 w-5 text-white/50" />
+								</div>
+								<div className="flex-1 min-w-0">
+									<div className="font-medium text-sm">GitHub</div>
+									<div className="text-xs text-muted-foreground">Not connected</div>
+								</div>
+								<Button variant="outline" size="sm" asChild>
+									<a href="/api/github/install">Connect</a>
+								</Button>
+							</div>
+						)}
+
+						{/* GitLab - Not connected (placeholder) */}
+						<div className="p-4 rounded-sm bg-secondary/30 border border-border/50 border-dashed flex items-center gap-4">
+							<div className="w-10 h-10 rounded-sm bg-[#FC6D26]/10 flex items-center justify-center">
+								<svg className="h-5 w-5 text-[#FC6D26]" viewBox="0 0 24 24" fill="currentColor">
+									<path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 0 1-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 0 1 4.82 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0 1 18.6 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.51L23 13.45a.84.84 0 0 1-.35.94z"/>
+								</svg>
+							</div>
+							<div className="flex-1 min-w-0">
+								<div className="font-medium text-sm">GitLab</div>
+								<div className="text-xs text-muted-foreground">Coming soon</div>
+							</div>
+							<Button variant="outline" size="sm" disabled>
+								Connect
+							</Button>
+						</div>
+					</div>
+				</section>
+
+				{/* ============================================ */}
+				{/* BILLING SECTION */}
+				{/* ============================================ */}
+				<section>
+					<div className="flex items-center gap-3 mb-6">
+						<div className="w-9 h-9 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
+							<CreditCard className="h-4.5 w-4.5 text-muted-foreground" />
+						</div>
+						<div>
+							<h2 className="font-medium">Billing & Plan</h2>
+							<p className="text-sm text-muted-foreground">Manage your subscription and payment</p>
+						</div>
+					</div>
+
+					{/* Current Plan Card */}
+					<div className="p-5 rounded-sm bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 mb-4">
+						<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+							<div>
+								<div className="flex items-center gap-2">
+									<span className="text-xs font-semibold text-primary uppercase tracking-wider">{planName} Plan</span>
+									<span className="px-1.5 py-0.5 text-[10px] font-medium bg-primary/20 text-primary rounded-sm">CURRENT</span>
+									{billingStatus?.isTrialing && (
+										<span className="px-1.5 py-0.5 text-[10px] font-medium bg-yellow-500/20 text-yellow-600 rounded-sm">
+											TRIAL - {billingStatus.trialDaysRemaining} days left
+										</span>
+									)}
+								</div>
+								<div className="text-3xl font-bold mt-2">
+									${planPrice}
+									<span className="text-base font-normal text-muted-foreground">/month</span>
+								</div>
+								{billingStatus?.subscription?.currentPeriodEnd && (
+									<div className="text-sm text-muted-foreground mt-1">
+										Renews on {new Date(billingStatus.subscription.currentPeriodEnd).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+									</div>
+								)}
+							</div>
+							<div className="flex flex-col gap-2">
+								<Button size="sm" asChild>
+									<a href="/pricing">
+										<Zap className="h-4 w-4 mr-1.5" />
+										Upgrade Plan
+									</a>
+								</Button>
+								<Button variant="ghost" size="sm" className="text-muted-foreground" asChild>
+									<a href="/pricing">View All Plans</a>
+								</Button>
+							</div>
+						</div>
+					</div>
+
+					{/* Usage Stats */}
+					<div className="p-5 rounded-sm bg-secondary/30 border border-border/50 space-y-5">
+						<div className="text-sm font-medium">Usage This Month</div>
+
+						<div className="grid gap-4 sm:grid-cols-2">
+							{/* Repositories */}
+							<div className="space-y-2">
+								<div className="flex items-center justify-between text-sm">
+									<span className="text-muted-foreground">Repositories</span>
+									<span className="font-medium">
+										{activeRepos.length} / {repoLimit === -1 ? "Unlimited" : repoLimit}
+									</span>
+								</div>
+								<div className="h-2 rounded-sm bg-secondary/50 border border-border/50 overflow-hidden">
+									<div
+										className={`h-full rounded-sm transition-all ${isRepoLimitReached ? "bg-orange-500" : "bg-primary"}`}
+										style={{ width: `${repoUsagePercent}%` }}
+									/>
+								</div>
+								{isRepoLimitReached ? (
+									<div className="text-xs text-orange-500">Limit reached</div>
+								) : repoLimit === -1 ? (
+									<div className="text-xs text-muted-foreground">Unlimited</div>
+								) : (
+									<div className="text-xs text-muted-foreground">{repoLimit - activeRepos.length} remaining</div>
+								)}
+							</div>
+
+							{/* Analyses */}
+							<div className="space-y-2">
+								<div className="flex items-center justify-between text-sm">
+									<span className="text-muted-foreground">PR Analyses</span>
+									<span className="font-medium">
+										{billingStatus?.activeReposCount ?? 0} / {billingStatus?.plan?.maxAnalysesPerMonth === -1 ? "Unlimited" : (billingStatus?.plan?.maxAnalysesPerMonth ?? 50)}
+									</span>
+								</div>
+								<div className="h-2 rounded-sm bg-secondary/50 border border-border/50 overflow-hidden">
+									<div
+										className="h-full bg-primary rounded-sm transition-all"
+										style={{
+											width: billingStatus?.plan?.maxAnalysesPerMonth === -1
+												? "0%"
+												: `${Math.min(100, ((billingStatus?.activeReposCount ?? 0) / (billingStatus?.plan?.maxAnalysesPerMonth ?? 50)) * 100)}%`
+										}}
+									/>
+								</div>
+								<div className="text-xs text-muted-foreground">
+									{billingStatus?.plan?.maxAnalysesPerMonth === -1
+										? "Unlimited"
+										: `${(billingStatus?.plan?.maxAnalysesPerMonth ?? 50) - (billingStatus?.activeReposCount ?? 0)} remaining`}
+								</div>
+							</div>
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* Payment Method */}
+						<div>
+							<div className="text-sm font-medium mb-3">Payment Method</div>
+							{billingStatus?.stripeCustomerId ? (
+								<div className="flex items-center justify-between p-3 bg-background/50 border border-border/50 rounded-sm">
+									<div className="flex items-center gap-3">
+										<div className="w-10 h-7 rounded bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center">
+											<CreditCard className="h-4 w-4 text-white" />
+										</div>
+										<div>
+											<div className="text-sm font-medium">Card on file</div>
+											<div className="text-xs text-muted-foreground">Managed via Stripe</div>
+										</div>
+									</div>
+									<Button variant="ghost" size="sm" disabled>Update</Button>
+								</div>
+							) : (
+								<div className="flex items-center justify-between p-3 bg-background/50 border border-border/50 border-dashed rounded-sm">
+									<div className="text-sm text-muted-foreground">No payment method on file</div>
+									<Button variant="outline" size="sm" disabled>Add Payment</Button>
+								</div>
+							)}
+						</div>
+					</div>
+				</section>
+
+				{/* ============================================ */}
+				{/* NOTIFICATIONS SECTION */}
+				{/* ============================================ */}
+				<section>
+					<div className="flex items-center gap-3 mb-6">
+						<div className="w-9 h-9 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
+							<Bell className="h-4.5 w-4.5 text-muted-foreground" />
+						</div>
+						<div>
+							<h2 className="font-medium">Notifications</h2>
+							<p className="text-sm text-muted-foreground">Choose how you want to be notified</p>
+						</div>
+					</div>
+
+					<div className="p-5 rounded-sm bg-secondary/30 border border-border/50 space-y-1">
+						{/* Email Notifications */}
+						<div className="flex items-center justify-between py-3">
+							<div className="flex items-center gap-3">
+								<Mail className="h-4 w-4 text-muted-foreground" />
+								<div>
+									<div className="text-sm font-medium">Email Notifications</div>
+									<div className="text-xs text-muted-foreground">
+										Critical alerts and issue warnings
+									</div>
+								</div>
+							</div>
+							<Switch defaultChecked disabled />
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* PR Comments */}
+						<div className="flex items-center justify-between py-3">
+							<div className="flex items-center gap-3">
+								<Github className="h-4 w-4 text-muted-foreground" />
+								<div>
+									<div className="text-sm font-medium">PR Comments</div>
+									<div className="text-xs text-muted-foreground">
+										Post analysis results directly on pull requests
+									</div>
+								</div>
+							</div>
+							<Switch defaultChecked disabled />
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* Weekly Digest */}
+						<div className="flex items-center justify-between py-3">
+							<div className="flex items-center gap-3">
+								<Zap className="h-4 w-4 text-muted-foreground" />
+								<div>
+									<div className="text-sm font-medium">Weekly Digest</div>
+									<div className="text-xs text-muted-foreground">
+										Summary of all analyses and insights
+									</div>
+								</div>
+							</div>
+							<Switch disabled />
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* Marketing */}
+						<div className="flex items-center justify-between py-3">
+							<div className="flex items-center gap-3">
+								<Bell className="h-4 w-4 text-muted-foreground" />
+								<div>
+									<div className="text-sm font-medium">Product Updates</div>
+									<div className="text-xs text-muted-foreground">
+										New features and announcements
+									</div>
+								</div>
+							</div>
+							<Switch disabled />
+						</div>
+					</div>
+				</section>
+
+				{/* ============================================ */}
+				{/* SECURITY SECTION */}
+				{/* ============================================ */}
+				<section>
+					<div className="flex items-center gap-3 mb-6">
+						<div className="w-9 h-9 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
+							<Shield className="h-4.5 w-4.5 text-muted-foreground" />
+						</div>
+						<div>
+							<h2 className="font-medium">Security</h2>
+							<p className="text-sm text-muted-foreground">Keep your account secure</p>
+						</div>
+					</div>
+
+					<div className="p-5 rounded-sm bg-secondary/30 border border-border/50 space-y-1">
+						{/* OAuth Info */}
+						<div className="flex items-center justify-between py-3">
+							<div className="flex items-center gap-3">
+								<Lock className="h-4 w-4 text-muted-foreground" />
+								<div>
+									<div className="text-sm font-medium">Authentication</div>
+									<div className="text-xs text-muted-foreground">
+										Signed in via GitHub OAuth
+									</div>
+								</div>
+							</div>
+							<span className="text-xs text-muted-foreground">OAuth</span>
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* 2FA */}
+						<div className="flex items-center justify-between py-3">
+							<div className="flex items-center gap-3">
+								<Smartphone className="h-4 w-4 text-muted-foreground" />
+								<div>
+									<div className="text-sm font-medium">Two-Factor Authentication</div>
+									<div className="text-xs text-muted-foreground">
+										Managed by your GitHub account
+									</div>
+								</div>
+							</div>
+							<Button variant="outline" size="sm" disabled>
+								Via GitHub
+							</Button>
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* Sessions */}
+						<div className="flex items-center justify-between py-3">
+							<div className="flex items-center gap-3">
+								<RefreshCw className="h-4 w-4 text-muted-foreground" />
+								<div>
+									<div className="text-sm font-medium">Active Sessions</div>
+									<div className="text-xs text-muted-foreground">
+										1 device currently signed in
+									</div>
+								</div>
+							</div>
+							<Button variant="ghost" size="sm" className="text-muted-foreground" disabled>
+								Manage
+								<ChevronRight className="h-4 w-4 ml-1" />
+							</Button>
+						</div>
+					</div>
+				</section>
+
+				{/* ============================================ */}
+				{/* API KEYS SECTION */}
+				{/* ============================================ */}
+				<section>
+					<div className="flex items-center gap-3 mb-6">
+						<div className="w-9 h-9 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
+							<Key className="h-4.5 w-4.5 text-muted-foreground" />
+						</div>
+						<div>
+							<h2 className="font-medium">API Keys</h2>
+							<p className="text-sm text-muted-foreground">Manage your API access tokens</p>
+						</div>
+					</div>
+
+					<div className="p-5 rounded-sm bg-secondary/30 border border-border/50 space-y-4">
+						{/* Coming Soon Notice */}
+						<div className="p-4 bg-background/50 border border-border/50 border-dashed rounded-sm text-center">
+							<Key className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+							<div className="text-sm font-medium">API Keys Coming Soon</div>
+							<div className="text-xs text-muted-foreground mt-1">
+								Programmatic access to Memoria will be available soon
+							</div>
+						</div>
+
+						{/* Documentation Link */}
+						<div className="text-center">
+							<a
+								href="/docs/api"
+								className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+							>
+								View API Documentation
+								<ExternalLink className="h-3 w-3" />
+							</a>
+						</div>
+					</div>
+				</section>
+
+				{/* ============================================ */}
+				{/* DANGER ZONE */}
+				{/* ============================================ */}
+				<section>
+					<div className="flex items-center gap-3 mb-6">
+						<div className="w-9 h-9 rounded-sm bg-destructive/10 border border-destructive/20 flex items-center justify-center">
+							<Trash2 className="h-4.5 w-4.5 text-destructive" />
+						</div>
+						<div>
+							<h2 className="font-medium text-destructive">Danger Zone</h2>
+							<p className="text-sm text-muted-foreground">Irreversible actions</p>
+						</div>
+					</div>
+
+					<div className="p-5 rounded-sm bg-destructive/5 border border-destructive/20 space-y-4">
+						<div className="flex items-center justify-between">
+							<div>
+								<div className="text-sm font-medium">Delete Account</div>
+								<div className="text-xs text-muted-foreground">
+									Permanently delete your account and all data
+								</div>
+							</div>
+							<Button variant="destructive" size="sm" disabled>
+								Delete Account
+							</Button>
+						</div>
+					</div>
+				</section>
+
+			</div>
+		</div>
+	);
+}

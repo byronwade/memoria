@@ -1,0 +1,29 @@
+{
+	"name": "@memoria/api",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "dist/index.js",
+	"dependencies": {
+		"@octokit/rest": "^22.0.1",
+		"convex": "^1.16.1",
+		"fastify": "^4.28.1",
+		"fastify-raw-body": "^4.3.0",
+		"jsonwebtoken": "^9.0.3",
+		"simple-git": "^3.30.0",
+		"stripe": "^16.10.0",
+		"zod": "^3.23.8"
+	},
+	"scripts": {
+		"dev": "tsc -w -p tsconfig.json",
+		"build": "tsc -p tsconfig.json",
+		"start": "node dist/index.js",
+		"test": "echo \"No tests yet\" && exit 0",
+		"lint": "echo \"No lint configured\" && exit 0"
+	},
+	"devDependencies": {
+		"@types/jsonwebtoken": "^9.0.10",
+		"@types/node": "^22.8.4",
+		"typescript": "^5.5.0"
+	}
+}
