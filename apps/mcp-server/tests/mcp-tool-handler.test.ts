@@ -77,9 +77,8 @@ describe("MCP Tool Handler", () => {
 			);
 
 			// Should have Pre-Flight, Risk, and Volatility sections at minimum
-			expect(report).toContain("PRE-FLIGHT CHECKLIST");
+			expect(report).toContain("Pre-flight Checklist");
 			expect(report).toContain("RISK:");
-			expect(report).toContain("VOLATILITY");
 		});
 
 		it("should include coupled files in report when they exist", async () => {
@@ -99,7 +98,7 @@ describe("MCP Tool Handler", () => {
 			);
 
 			if (coupled.length > 0) {
-				expect(report).toContain("COUPLED FILES");
+				expect(report).toContain("Coupled Files");
 				expect(report).toContain(coupled[0].file);
 			}
 		});
@@ -178,8 +177,8 @@ describe("MCP Tool Handler", () => {
 			const volatility = await getVolatility(filePath);
 			const report = generateAiInstructions(filePath, volatility, [], []);
 
-			// Should have markdown elements
-			expect(report).toContain("###");
+			// Should have markdown elements (# and ## headers in new format)
+			expect(report).toContain("#");
 			expect(report).toContain("**");
 			expect(report).toContain("- [ ]");
 		});

@@ -177,7 +177,7 @@ describe("Import Detection Engine (getImporters)", () => {
 			generateAiInstructions = module.generateAiInstructions;
 		});
 
-		it("should include STATIC DEPENDENTS section when importers exist", () => {
+		it("should include Static Dependents section when importers exist", () => {
 			const volatility = {
 				panicScore: 0,
 				commitCount: 10,
@@ -196,12 +196,12 @@ describe("Import Detection Engine (getImporters)", () => {
 				importers,
 			);
 
-			expect(result).toContain("STATIC DEPENDENTS");
+			expect(result).toContain("Static Dependents");
 			expect(result).toContain("component.tsx");
 			expect(result).toContain("service.ts");
 		});
 
-		it("should not include STATIC DEPENDENTS section when no importers", () => {
+		it("should not include Static Dependents section when no importers", () => {
 			const volatility = {
 				panicScore: 0,
 				commitCount: 10,
@@ -220,10 +220,10 @@ describe("Import Detection Engine (getImporters)", () => {
 				importers,
 			);
 
-			expect(result).not.toContain("STATIC DEPENDENTS");
+			expect(result).not.toContain("Static Dependents");
 		});
 
-		it("should show truncation message when more than 5 importers", () => {
+		it("should show truncation message when more than 8 importers", () => {
 			const volatility = {
 				panicScore: 0,
 				commitCount: 10,
@@ -232,7 +232,7 @@ describe("Import Detection Engine (getImporters)", () => {
 			};
 			const coupled: any[] = [];
 			const drift: any[] = [];
-			const importers = Array(8)
+			const importers = Array(12)
 				.fill(0)
 				.map((_, i) => `file${i}.ts`);
 
@@ -244,7 +244,7 @@ describe("Import Detection Engine (getImporters)", () => {
 				importers,
 			);
 
-			expect(result).toContain("...and 3 more files");
+			expect(result).toContain("and 4 more");
 		});
 
 		it("should add importers to pre-flight checklist", () => {
@@ -266,7 +266,7 @@ describe("Import Detection Engine (getImporters)", () => {
 				importers,
 			);
 
-			expect(result).toContain("imports this file");
+			expect(result).toContain("(importer)");
 		});
 	});
 });
