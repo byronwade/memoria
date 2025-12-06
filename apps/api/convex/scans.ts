@@ -430,18 +430,15 @@ export const updateScanProgress = mutation({
 });
 
 /**
- * Get pending/running scans across all repositories for an org
+ * Get pending/running scans across all repositories for a user
  */
-export const getActiveScansForOrg = query({
-	args: { orgId: v.string() },
+export const getActiveScansForUser = query({
+	args: { userId: v.id("users") },
 	handler: async (ctx, args) => {
-		const normalizedOrgId = ctx.db.normalizeId("organizations", args.orgId);
-		if (!normalizedOrgId) return [];
-
-		// Get all repositories for this org
+		// Get all repositories for this user
 		const repos = await ctx.db
 			.query("repositories")
-			.withIndex("by_org", (q) => q.eq("orgId", normalizedOrgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		const repoIds = new Set(repos.map((r) => r._id));

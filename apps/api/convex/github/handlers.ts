@@ -39,29 +39,11 @@ export const handleInstallation = internalAction({
 			});
 
 			if (user) {
-				// Get or create org for this user
-				const orgs = await ctx.runQuery(api.orgs.getUserOrganizations, {
-					userId: user._id,
-				});
-
-				let orgId: string;
-				if (orgs && orgs.length > 0) {
-					orgId = orgs[0]._id;
-				} else {
-					// Create a new org
-					const result = await ctx.runMutation(api.orgs.createOrganization, {
-						name: accountLogin,
-						slug: accountLogin.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
-						ownerUserId: user._id,
-					});
-					orgId = result.orgId;
-				}
-
-				// Create the installation
+				// Create the installation linked to user
 				await ctx.runMutation(api.scm.upsertInstallation, {
 					providerType: "github",
 					providerInstallationId: String(installation.id),
-					orgId,
+					userId: user._id,
 					accountType,
 					accountLogin,
 					accountName,
@@ -69,7 +51,7 @@ export const handleInstallation = internalAction({
 					status: "active",
 				});
 
-				console.log(`Installation created for org: ${orgId}`);
+				console.log(`Installation created for user: ${user._id}`);
 
 				// Sync repositories if provided
 				if (repositories && Array.isArray(repositories)) {
@@ -81,7 +63,7 @@ export const handleInstallation = internalAction({
 					if (inst) {
 						for (const repo of repositories) {
 							await ctx.runMutation(api.scm.upsertRepository, {
-								orgId,
+								userId: user._id,
 								scmInstallationId: inst._id,
 								providerType: "github",
 								providerRepoId: String(repo.id),
@@ -137,7 +119,7 @@ export const handleRepoSync = internalAction({
 		if (repositories_added && Array.isArray(repositories_added)) {
 			for (const repo of repositories_added) {
 				await ctx.runMutation(api.scm.upsertRepository, {
-					orgId: inst.orgId,
+					userId: inst.userId,
 					scmInstallationId: inst._id,
 					providerType: "github",
 					providerRepoId: String(repo.id),
@@ -199,7 +181,7 @@ export const handlePullRequest = internalAction({
 
 		if (!repo) {
 			const { repoId } = await ctx.runMutation(api.scm.upsertRepository, {
-				orgId: inst.orgId,
+				userId: inst.userId,
 				scmInstallationId: inst._id,
 				providerType: "github",
 				providerRepoId: String(repository.id),

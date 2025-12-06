@@ -337,9 +337,8 @@ export const runPRAnalysis = internalAction({
 				return { success: false, error: "Repository not found" };
 			}
 
-			// 2. Get org settings for comment mode
-			const orgSettings = await ctx.runQuery(api.orgs.getOrgSettings, { orgId: repo.orgId });
-			const commentMode = orgSettings?.riskCommentMode || "short";
+			// 2. Default comment mode (org settings removed - now user-centric)
+			const commentMode = "short";
 
 			// 3. Get installation token
 			const token = await getInstallationToken(args.installationId);
@@ -450,7 +449,7 @@ export const runPRAnalysis = internalAction({
 			// 10. Record analysis in database
 			const durationMs = Date.now() - startTime;
 			const { analysisId } = await ctx.runMutation(api.analyses.recordAnalysis, {
-				orgId: repo.orgId,
+				userId: repo.userId,
 				repoId: repo._id,
 				pullRequestId: pr._id,
 				commitSha: (pr.metadata as { headSha?: string })?.headSha || null,
@@ -480,7 +479,7 @@ export const runPRAnalysis = internalAction({
 
 			// 12. Bump daily stats
 			await ctx.runMutation(api.analyses.bumpDailyStats, {
-				orgId: repo.orgId,
+				userId: repo.userId,
 				repoId: repo._id,
 				date: today,
 				riskLevel: overallLevel,

@@ -9,6 +9,8 @@ export default defineConfig({
 		// The module works correctly (tested via Node.js direct import)
 		// Skip until Vitest/esbuild transformation issue is resolved
 		exclude: ["tests/auto-librarian.test.ts"],
+		// Increase timeout for git-based tests that can be slow
+		testTimeout: 10000,
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "json", "html"],

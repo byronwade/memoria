@@ -16,28 +16,29 @@ function registerRoutes(app: FastifyInstance, convex: ConvexClient, config: AppC
 	app.get("/health", async () => ({ status: "ok", service: "memoria-api" }));
 
 	app.get<{
-		Params: { orgId: string };
-	}>("/orgs/:orgId", async (request, reply) => {
+		Params: { userId: string };
+	}>("/users/:userId", async (request, reply) => {
 		if (!requireConvex(convex, reply)) return;
-		const org = await convex.query("orgs:getOrg", { orgId: request.params.orgId });
-		if (!org) {
-			reply.code(404).send({ error: "org_not_found" });
+		const user = await convex.query("auth:getUserById", { userId: request.params.userId });
+		if (!user) {
+			reply.code(404).send({ error: "user_not_found" });
 			return;
 		}
-		return org;
+		return user;
 	});
 
 	app.get<{
-		Params: { orgId: string };
+		Params: { userId: string };
 		Querystring: { active?: string };
-	}>("/orgs/:orgId/repos", async (request, reply) => {
+	}>("/users/:userId/repos", async (request, reply) => {
 		if (!requireConvex(convex, reply)) return;
+		const repos = (await convex.query("scm:getRepositories", {
+			userId: request.params.userId,
+		})) as { isActive: boolean }[];
+		// Filter to active if requested
 		const onlyActive = request.query.active === "true";
-		const repos = await convex.query("orgs:listReposForOrg", {
-			orgId: request.params.orgId,
-			onlyActive,
-		});
-		return { repos };
+		const filteredRepos = onlyActive ? repos.filter((r) => r.isActive) : repos;
+		return { repos: filteredRepos };
 	});
 
 	app.post("/webhooks/github", async (request, reply) => {
