@@ -37,115 +37,107 @@ const staggerContainer = {
 	},
 };
 
-// Side-by-side comparison: AI blind vs Memoria insight
+// Show the real disaster: a broken PR scenario
 function DependencyGraph() {
+	const [step, setStep] = useState(0);
+
+	useEffect(() => {
+		const timers = [
+			setTimeout(() => setStep(1), 500),
+			setTimeout(() => setStep(2), 1500),
+			setTimeout(() => setStep(3), 2500),
+			setTimeout(() => setStep(4), 3500),
+		];
+		return () => timers.forEach(clearTimeout);
+	}, []);
+
 	return (
-		<div className="w-full h-full flex items-center justify-center p-2">
-			<div className="w-full max-w-2xl">
-				<div className="grid grid-cols-2 gap-3">
-					{/* LEFT: Without Memoria */}
-					<div className="relative">
-						{/* Label */}
-						<div className="absolute -top-3 left-3 px-2 py-0.5 bg-background text-[10px] font-medium text-red-500 uppercase tracking-wider">
-							Without Memoria
+		<div className="w-full h-full flex items-center justify-center p-4">
+			<div className="w-full max-w-md space-y-3">
+				{/* Git commit message */}
+				{step >= 1 && (
+					<m.div
+						initial={{ opacity: 0, y: 10 }}
+						animate={{ opacity: 1, y: 0 }}
+						className="font-mono text-sm"
+					>
+						<div className="flex items-center gap-2 text-muted-foreground mb-1">
+							<GitBranch className="w-4 h-4" />
+							<span>main</span>
+							<span className="text-muted-foreground/50">•</span>
+							<span>2 minutes ago</span>
 						</div>
+						<div className="pl-6 border-l-2 border-green-500 py-1">
+							<span className="text-green-500">feat:</span> refactor getUserById to async
+						</div>
+					</m.div>
+				)}
 
-						<div className="h-full rounded-lg border border-red-500/20 bg-red-500/[0.02] p-4">
-							<div className="space-y-4">
-								{/* File */}
-								<div className="flex items-center gap-2">
-									<div className="w-8 h-8 rounded bg-muted/50 flex items-center justify-center">
-										<svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-											<path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-										</svg>
-									</div>
-									<div>
-										<div className="font-mono text-sm font-medium">UserService.ts</div>
-										<div className="text-[10px] text-muted-foreground">editing...</div>
-									</div>
+				{/* CI Status */}
+				{step >= 2 && (
+					<m.div
+						initial={{ opacity: 0, y: 10 }}
+						animate={{ opacity: 1, y: 0 }}
+						className="flex items-center gap-3 py-2"
+					>
+						<div className="flex items-center gap-2">
+							<div className="w-2 h-2 rounded-full bg-green-500" />
+							<span className="text-sm text-green-500">CI passed</span>
+						</div>
+						<div className="flex items-center gap-2">
+							<div className="w-2 h-2 rounded-full bg-green-500" />
+							<span className="text-sm text-green-500">Tests passed</span>
+						</div>
+						<div className="flex items-center gap-2">
+							<Check className="w-4 h-4 text-green-500" />
+							<span className="text-sm text-green-500">Merged</span>
+						</div>
+					</m.div>
+				)}
+
+				{/* The disaster */}
+				{step >= 3 && (
+					<m.div
+						initial={{ opacity: 0, scale: 0.95 }}
+						animate={{ opacity: 1, scale: 1 }}
+						className="mt-4 p-4 rounded-lg bg-red-500/10 border border-red-500/30"
+					>
+						<div className="flex items-start gap-3">
+							<div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+								<AlertTriangle className="w-5 h-5 text-red-500" />
+							</div>
+							<div className="space-y-2">
+								<div className="font-semibold text-red-500">Production incident #847</div>
+								<div className="text-sm text-muted-foreground">
+									<span className="text-foreground">api/users/route.ts</span> still calls the old sync version.
+									<br />
+									<span className="text-foreground">UserService.test.ts</span> wasn't updated — tests lied.
+									<br />
+									<span className="text-foreground">ProfileCard.tsx</span> crashes on undefined.
 								</div>
-
-								{/* AI assessment */}
-								<div className="space-y-2 py-3 border-y border-border/30">
-									<div className="text-[10px] text-muted-foreground uppercase tracking-wider">AI sees</div>
-									<div className="flex items-center gap-2">
-										<div className="w-2 h-2 rounded-full bg-green-500" />
-										<span className="text-sm text-green-600 font-medium">No dependencies</span>
-									</div>
-									<div className="text-xs text-muted-foreground italic">
-										"Safe to refactor"
-									</div>
-								</div>
-
-								{/* Reality */}
-								<div className="flex items-center gap-2 text-red-500">
-									<AlertTriangle className="w-4 h-4 shrink-0" />
-									<span className="text-xs font-medium">5 files break silently</span>
+								<div className="text-xs text-red-400 pt-1">
+									3 files silently broke. No imports linked them.
 								</div>
 							</div>
 						</div>
-					</div>
+					</m.div>
+				)}
 
-					{/* RIGHT: With Memoria */}
-					<div className="relative">
-						{/* Label */}
-						<div className="absolute -top-3 left-3 px-2 py-0.5 bg-background text-[10px] font-medium text-primary uppercase tracking-wider">
-							With Memoria
+				{/* The solution */}
+				{step >= 4 && (
+					<m.div
+						initial={{ opacity: 0, y: 10 }}
+						animate={{ opacity: 1, y: 0 }}
+						className="mt-4 p-4 rounded-lg bg-primary/5 border border-primary/20"
+					>
+						<div className="text-sm">
+							<span className="text-primary font-semibold">With Memoria:</span>
+							<span className="text-muted-foreground"> Your AI would have seen these 3 files are </span>
+							<span className="text-foreground font-medium">85% coupled</span>
+							<span className="text-muted-foreground"> and updated them together.</span>
 						</div>
-
-						<div className="h-full rounded-lg border border-primary/20 bg-primary/[0.02] p-4">
-							<div className="space-y-3 font-mono">
-								{/* Header + Risk */}
-								<div className="flex items-center justify-between">
-									<span className="text-xs text-muted-foreground">UserService.ts</span>
-									<span className="px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-500 text-[10px] font-bold">
-										RISK 72
-									</span>
-								</div>
-
-								{/* Coupled Files */}
-								<div className="space-y-1.5">
-									<div className="text-[10px] text-muted-foreground uppercase tracking-wider">Coupled</div>
-									{[
-										{ file: "UserService.test.ts", pct: "92%" },
-										{ file: "api/users/route.ts", pct: "85%" },
-										{ file: "types/user.ts", pct: "67%" },
-									].map((item) => (
-										<div key={item.file} className="flex items-center justify-between text-[11px]">
-											<span className="text-foreground truncate">{item.file}</span>
-											<span className="text-red-400 shrink-0 ml-2">{item.pct}</span>
-										</div>
-									))}
-								</div>
-
-								{/* Dependents */}
-								<div className="space-y-1">
-									<div className="text-[10px] text-muted-foreground uppercase tracking-wider">Dependents</div>
-									{["ProfileCard.tsx", "useUserData.ts"].map((file) => (
-										<div key={file} className="text-[11px] text-muted-foreground">
-											<span className="opacity-40 mr-1">☐</span> {file}
-										</div>
-									))}
-								</div>
-
-								{/* Checklist hint */}
-								<div className="pt-2 border-t border-border/30">
-									<div className="flex items-center gap-1.5 text-primary">
-										<Check className="w-3 h-3" />
-										<span className="text-[10px] font-medium font-sans">Pre-flight checklist ready</span>
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
-
-				{/* Bottom caption */}
-				<div className="text-center mt-4">
-					<span className="text-xs text-muted-foreground">
-						Your AI gets this context <span className="text-primary">automatically</span> via MCP
-					</span>
-				</div>
+					</m.div>
+				)}
 			</div>
 		</div>
 	);

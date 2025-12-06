@@ -157,12 +157,12 @@ describe("Sibling Guidance (Smart New File Guidance)", () => {
 
 			const formatted = formatSiblingGuidance(guidance);
 
-			expect(formatted).toContain("SIBLING PATTERNS");
+			expect(formatted).toContain("Sibling Patterns");
 			expect(formatted).toContain("components/");
 			expect(formatted).toContain("5 similar files");
 		});
 
-		it("should include patterns with checkboxes", () => {
+		it("should include patterns as list items", () => {
 			const guidance = {
 				directory: "hooks",
 				siblingCount: 3,
@@ -181,13 +181,13 @@ describe("Sibling Guidance (Smart New File Guidance)", () => {
 
 			const formatted = formatSiblingGuidance(guidance);
 
-			expect(formatted).toContain("- [ ]");
+			expect(formatted).toContain("-");
 			expect(formatted).toContain('prefix "use"');
 			expect(formatted).toContain("`useAuth.ts`");
 			expect(formatted).toContain("`useForm.ts`");
 		});
 
-		it("should show stable folder for low volatility", () => {
+		it("should show stable label for low volatility", () => {
 			const guidance = {
 				directory: "utils",
 				siblingCount: 4,
@@ -199,10 +199,10 @@ describe("Sibling Guidance (Smart New File Guidance)", () => {
 
 			const formatted = formatSiblingGuidance(guidance);
 
-			expect(formatted).toContain("stable folder");
+			expect(formatted).toContain("stable");
 		});
 
-		it("should show moderate activity for medium volatility", () => {
+		it("should show moderate label for medium volatility", () => {
 			const guidance = {
 				directory: "services",
 				siblingCount: 3,
@@ -214,10 +214,10 @@ describe("Sibling Guidance (Smart New File Guidance)", () => {
 
 			const formatted = formatSiblingGuidance(guidance);
 
-			expect(formatted).toContain("moderate activity");
+			expect(formatted).toContain("moderate");
 		});
 
-		it("should show volatile folder for high volatility", () => {
+		it("should show volatile label for high volatility", () => {
 			const guidance = {
 				directory: "api",
 				siblingCount: 6,
@@ -229,7 +229,7 @@ describe("Sibling Guidance (Smart New File Guidance)", () => {
 
 			const formatted = formatSiblingGuidance(guidance);
 
-			expect(formatted).toContain("active/volatile folder");
+			expect(formatted).toContain("volatile");
 		});
 
 		it("should format multiple patterns", () => {

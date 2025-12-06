@@ -1267,24 +1267,24 @@ export async function getSiblingGuidance(
 
 // Format sibling guidance for AI consumption
 export function formatSiblingGuidance(guidance: SiblingGuidance): string {
-	let output = `**📁 SIBLING PATTERNS**\n`;
-	output += `> Analyzed ${guidance.siblingCount} similar files in \`${guidance.directory}/\`\n\n`;
+	let output = `### Sibling Patterns\n\n`;
+	output += `Analyzed ${guidance.siblingCount} similar files in \`${guidance.directory}/\`\n\n`;
 
 	for (const pattern of guidance.patterns) {
-		output += `- [ ] **${pattern.description}**\n`;
+		output += `- ${pattern.description}\n`;
 		if (pattern.examples.length > 0) {
-			output += `  > Examples: ${pattern.examples.map((e) => `\`${e}\``).join(", ")}\n`;
+			output += `  Examples: ${pattern.examples.map((e) => `\`${e}\``).join(", ")}\n`;
 		}
 	}
 
-	output += `\n**Average Sibling Volatility:** ${guidance.averageVolatility}%`;
-	if (guidance.averageVolatility < 25) {
-		output += ` (stable folder)\n`;
-	} else if (guidance.averageVolatility < 50) {
-		output += ` (moderate activity)\n`;
-	} else {
-		output += ` (active/volatile folder)\n`;
+	// Volatility context
+	let volatilityLabel = "stable";
+	if (guidance.averageVolatility >= 50) {
+		volatilityLabel = "volatile";
+	} else if (guidance.averageVolatility >= 25) {
+		volatilityLabel = "moderate";
 	}
+	output += `\nFolder volatility: ${guidance.averageVolatility}% (${volatilityLabel})\n`;
 
 	return output;
 }
@@ -1603,7 +1603,7 @@ export async function searchHistory(
 export function formatHistoryResults(output: HistorySearchOutput): string {
 	const { query, path: searchPath, results, totalFound } = output;
 
-	let report = `### 🔍 History Search: "${query}"`;
+	let report = `# History Search: "${query}"`;
 	if (searchPath) {
 		report += ` in \`${path.basename(searchPath)}\``;
 	}
@@ -1611,46 +1611,52 @@ export function formatHistoryResults(output: HistorySearchOutput): string {
 
 	if (totalFound === 0) {
 		report += `**No commits found** matching "${query}".\n\n`;
-		report += `Try:\n`;
+		report += `**Try:**\n`;
 		report += `- Different keywords or variations\n`;
 		report += `- Removing the file path to search entire repo\n`;
 		report += `- Using \`searchType: "diff"\` to search code changes\n`;
 		return report;
 	}
 
-	report += `**Found ${totalFound} relevant commits:**\n\n`;
+	report += `**Found ${totalFound} commits**\n\n`;
+
+	// Check for bug fixes
+	const hasBugFixes = results.some(
+		(r) =>
+			r.message.toLowerCase().includes("fix") ||
+			r.message.toLowerCase().includes("bug"),
+	);
+
+	if (hasBugFixes) {
+		report += `> Bug fixes detected — review commits before modifying this code.\n\n`;
+	}
+
+	report += `---\n\n`;
 
 	results.forEach((r, i) => {
-		const matchIcon = r.matchType === "message" ? "💬" : "📝";
-		report += `**${i + 1}. [${r.hash}] ${r.date}** by @${r.author} ${matchIcon}\n`;
-		report += `> "${r.message}"\n`;
+		const matchType = r.matchType === "message" ? "msg" : "diff";
+		report += `**${i + 1}. \`${r.hash}\`** ${r.date} · @${r.author} · ${matchType}\n`;
+		report += `> ${r.message}\n`;
 		if (r.filesChanged.length > 0) {
-			report += `> Files: ${r.filesChanged.map((f) => `\`${f}\``).join(", ")}\n`;
+			report += `Files: ${r.filesChanged.map((f) => `\`${f}\``).join(", ")}\n`;
 		}
 		report += "\n";
 	});
-
-	report += `---\n\n`;
-	report += `**🛑 AI INSTRUCTION:**\n`;
-	report += `Before removing or modifying code related to "${query}":\n`;
 
 	// Extract unique files from results for checklist
 	const relatedFiles = new Set<string>();
 	results.forEach((r) => r.filesChanged.forEach((f) => relatedFiles.add(f)));
 	const topFiles = [...relatedFiles].slice(0, 5);
 
-	topFiles.forEach((f) => {
-		report += `- [ ] Review context in \`${f}\`\n`;
-	});
-
-	if (
-		results.some(
-			(r) =>
-				r.message.toLowerCase().includes("fix") ||
-				r.message.toLowerCase().includes("bug"),
-		)
-	) {
-		report += `- [ ] ⚠️ Bug fixes detected in history - verify the issue is no longer relevant\n`;
+	if (topFiles.length > 0) {
+		report += `---\n\n`;
+		report += `## Before Modifying\n\n`;
+		topFiles.forEach((f) => {
+			report += `- [ ] Review \`${f}\`\n`;
+		});
+		if (hasBugFixes) {
+			report += `- [ ] Verify bug fixes are no longer relevant\n`;
+		}
 	}
 
 	return report;
@@ -1868,7 +1874,7 @@ export function calculateCompoundRisk(
 	return { score, level, factors, action };
 }
 
-// --- OUTPUT FORMATTER (Enhanced with Structured Evidence + Compound Risk + Static Imports + Sibling Guidance) ---
+// --- OUTPUT FORMATTER (Clean, hierarchical design for AI consumption) ---
 export function generateAiInstructions(
 	filePath: string,
 	volatility: any,
@@ -1879,7 +1885,6 @@ export function generateAiInstructions(
 	siblingGuidance?: SiblingGuidance | null,
 ) {
 	const fileName = path.basename(filePath);
-	let instructions = `### 🧠 Forensics for \`${fileName}\`\n\n`;
 
 	// Calculate compound risk score (now includes importer count and config weights)
 	const risk = calculateCompoundRisk(
@@ -1890,181 +1895,181 @@ export function generateAiInstructions(
 		config,
 	);
 
-	// SECTION 1: COMPOUND RISK SCORE (The Summary)
-	const riskEmoji = { low: "✅", medium: "⚠️", high: "🔥", critical: "🚨" }[
-		risk.level
-	];
-	instructions += `**${riskEmoji} RISK: ${risk.score}/100 (${risk.level.toUpperCase()})**\n`;
-	instructions += `> ${risk.action}\n\n`;
+	// Build compact risk factors string
+	const riskFactorParts: string[] = [];
+	if (volatility.panicScore > 0) riskFactorParts.push(`${volatility.panicScore}% volatility`);
+	if (coupled.length > 0) riskFactorParts.push(`${coupled.length} coupled`);
+	if (importers.length > 0) riskFactorParts.push(`${importers.length} dependents`);
+	if (drift.length > 0) riskFactorParts.push(`${drift.length} stale`);
+	const riskFactorsCompact = riskFactorParts.join(" · ");
 
-	if (risk.factors.length > 0) {
-		instructions += `**Risk Factors:** ${risk.factors.join(" • ")}\n\n`;
+	// Build output
+	let output = "";
+
+	// ══════════════════════════════════════════════════════════════════════════════
+	// HEADER: File name + Risk Score
+	// ══════════════════════════════════════════════════════════════════════════════
+	output += `# Forensics: \`${fileName}\`\n\n`;
+
+	// Risk score badge
+	const riskLabel = risk.level.toUpperCase();
+	output += `**RISK: ${risk.score}/100** — ${riskLabel}\n`;
+	if (riskFactorsCompact) {
+		output += `${riskFactorsCompact}\n`;
+	}
+	output += `\n`;
+
+	// Action recommendation (only for medium+ risk)
+	if (risk.level !== "low") {
+		output += `> ${risk.action}\n\n`;
 	}
 
-	instructions += `---\n\n`;
-
-	// SECTION 2: COUPLED FILES WITH STRUCTURED EVIDENCE
+	// ══════════════════════════════════════════════════════════════════════════════
+	// SECTION: Coupled Files
+	// ══════════════════════════════════════════════════════════════════════════════
 	if (coupled.length > 0) {
-		instructions += `**🔗 COUPLED FILES**\n\n`;
+		output += `---\n\n`;
+		output += `## Coupled Files\n\n`;
 
 		coupled.forEach((c) => {
 			const evidence: DiffSummary = c.evidence;
 			const relationship = evidence?.changeType || "unknown";
-			const relationshipEmoji = {
-				schema: "📐",
-				api: "🔌",
-				config: "⚙️",
-				import: "📦",
-				test: "🧪",
-				style: "🎨",
-				unknown: "❓",
-			}[relationship];
 
-			instructions += `**${relationshipEmoji} \`${c.file}\`** (${c.score}% coupled, ${relationship})\n`;
-			instructions += `> ${RELATIONSHIP_INSTRUCTIONS[relationship]}\n`;
+			// File name with coupling percentage
+			output += `**\`${c.file}\`** — ${c.score}%`;
+			if (relationship !== "unknown") {
+				output += ` (${relationship})`;
+			}
+			output += `\n`;
 
-			// Show breaking change warning
+			// Instruction for this coupling type
+			output += `> ${RELATIONSHIP_INSTRUCTIONS[relationship]}\n`;
+
+			// Breaking change warning
 			if (evidence?.hasBreakingChange) {
-				instructions += `> ⚠️ **BREAKING CHANGE DETECTED** in last co-commit\n`;
+				output += `> ⚠ Breaking change detected in last co-commit\n`;
 			}
 
-			// Compact diff summary (much more token-efficient than raw diff)
-			if (
-				evidence &&
-				(evidence.additions.length > 0 || evidence.removals.length > 0)
-			) {
+			// Compact diff evidence
+			if (evidence && (evidence.additions.length > 0 || evidence.removals.length > 0)) {
+				const diffLines: string[] = [];
 				if (evidence.additions.length > 0) {
-					instructions += `> + ${evidence.additions.slice(0, 3).join(", ")}\n`;
+					diffLines.push(`+ ${evidence.additions.slice(0, 2).join(", ")}`);
 				}
 				if (evidence.removals.length > 0) {
-					instructions += `> - ${evidence.removals.slice(0, 3).join(", ")}\n`;
+					diffLines.push(`- ${evidence.removals.slice(0, 2).join(", ")}`);
 				}
+				output += `\`\`\`diff\n${diffLines.join("\n")}\n\`\`\`\n`;
 			}
 
-			instructions += `\n`;
+			output += `\n`;
 		});
-
-		instructions += `---\n\n`;
 	}
 
-	// SECTION 3: STATIC DEPENDENTS (The Fallback Layer for New Files)
+	// ══════════════════════════════════════════════════════════════════════════════
+	// SECTION: Static Dependents (files that import this file)
+	// ══════════════════════════════════════════════════════════════════════════════
 	if (importers.length > 0) {
-		instructions += `**🧱 STATIC DEPENDENTS**\n\n`;
-		instructions += `> These files explicitly import \`${fileName}\`. If you change the API, you MUST update them.\n\n`;
+		output += `---\n\n`;
+		output += `## Static Dependents\n\n`;
+		output += `These files import \`${fileName}\`. API changes require updating them.\n\n`;
 
-		// Show top 5 importers
-		importers.slice(0, 5).forEach((file) => {
-			instructions += `- [ ] Check \`${file}\`\n`;
+		importers.slice(0, 8).forEach((file) => {
+			output += `- [ ] \`${file}\`\n`;
 		});
 
-		if (importers.length > 5) {
-			instructions += `- ...and ${importers.length - 5} more files.\n`;
+		if (importers.length > 8) {
+			output += `- ... and ${importers.length - 8} more\n`;
 		}
-
-		instructions += `\n---\n\n`;
+		output += `\n`;
 	}
 
-	// SECTION 4: PRE-FLIGHT CHECKLIST (The Action Plan)
-	instructions += `**🛑 PRE-FLIGHT CHECKLIST**\n\n`;
-	instructions += `- [ ] Modify \`${fileName}\` (primary target)\n`;
+	// ══════════════════════════════════════════════════════════════════════════════
+	// SECTION: Pre-flight Checklist
+	// ══════════════════════════════════════════════════════════════════════════════
+	output += `---\n\n`;
+	output += `## Pre-flight Checklist\n\n`;
 
+	// Primary target
+	output += `- [ ] Modify \`${fileName}\`\n`;
+
+	// Coupled files
 	coupled.forEach((c) => {
 		const evidence: DiffSummary = c.evidence;
 		const relationship = evidence?.changeType || "unknown";
-		instructions += `- [ ] Verify \`${c.file}\` (${relationship} coupling)\n`;
-	});
-
-	drift.forEach((d) => {
-		instructions += `- [ ] Update \`${d.file}\` (stale by ${d.daysOld} days)\n`;
-	});
-
-	// Add importers to checklist if they exist and aren't already in coupled
-	const coupledFiles = new Set(coupled.map((c) => c.file));
-	const newImporters = importers.filter((f) => !coupledFiles.has(f));
-	if (newImporters.length > 0) {
-		newImporters.slice(0, 3).forEach((file) => {
-			instructions += `- [ ] Verify \`${file}\` (imports this file)\n`;
-		});
-		if (newImporters.length > 3) {
-			instructions += `- ...and ${newImporters.length - 3} more importers to check.\n`;
+		const staleInfo = drift.find((d) => d.file === c.file);
+		let suffix = relationship !== "unknown" ? ` (${relationship})` : "";
+		if (staleInfo) {
+			suffix += ` — stale ${staleInfo.daysOld}d`;
 		}
+		output += `- [ ] Update \`${c.file}\`${suffix}\n`;
+	});
+
+	// Stale files not in coupled
+	const coupledFileSet = new Set(coupled.map((c) => c.file));
+	drift.filter((d) => !coupledFileSet.has(d.file)).forEach((d) => {
+		output += `- [ ] Update \`${d.file}\` — stale ${d.daysOld}d\n`;
+	});
+
+	// Top importers not already in coupled
+	const newImporters = importers.filter((f) => !coupledFileSet.has(f));
+	newImporters.slice(0, 3).forEach((file) => {
+		output += `- [ ] Verify \`${file}\` (importer)\n`;
+	});
+	if (newImporters.length > 3) {
+		output += `- ... and ${newImporters.length - 3} more importers\n`;
 	}
 
-	instructions += `\n---\n\n`;
+	output += `\n`;
 
-	// SECTION 5: VOLATILITY DETAILS (with Bus Factor)
-	instructions += `**📊 VOLATILITY**\n\n`;
-
+	// ══════════════════════════════════════════════════════════════════════════════
+	// SECTION: File History (volatility details)
+	// ══════════════════════════════════════════════════════════════════════════════
 	if (volatility.commitCount === 0) {
-		instructions += `⚠️ **NEW FILE** - No git history available.\n\n`;
+		output += `---\n\n`;
+		output += `## File History\n\n`;
+		output += `**New file** — no git history available.\n\n`;
 
-		// SECTION 6: SIBLING GUIDANCE (only for new files)
+		// Sibling guidance for new files
 		if (siblingGuidance && siblingGuidance.patterns.length > 0) {
-			instructions += `---\n\n`;
-			instructions += formatSiblingGuidance(siblingGuidance);
+			output += formatSiblingGuidance(siblingGuidance);
 		}
-	} else {
-		// Show status with recency context
-		const statusLabel =
-			volatility.panicScore > 50
-				? "VOLATILE"
-				: volatility.panicScore > 25
-					? "Moderate"
-					: "Stable";
-		instructions += `**🔥 Status:** ${statusLabel} (Score: ${volatility.panicScore}%)\n`;
+	} else if (volatility.panicScore > 25 || volatility.topAuthor?.percentage >= 70) {
+		// Only show history section if there's something notable
+		output += `---\n\n`;
+		output += `## File History\n\n`;
 
-		// Add recency context if available
+		// Volatility status
+		if (volatility.panicScore > 50) {
+			output += `**Volatile** — ${volatility.panicScore}% panic score\n`;
+		} else if (volatility.panicScore > 25) {
+			output += `**Moderate churn** — ${volatility.panicScore}% panic score\n`;
+		}
+
+		// Recency context
 		if (volatility.recencyDecay) {
-			if (
-				volatility.recencyDecay.newestCommitDays <= 14 &&
-				volatility.panicScore > 25
-			) {
-				instructions += `**Why:** High churn of bug fixes in the last ${volatility.recencyDecay.newestCommitDays} days.\n`;
-			} else if (
-				volatility.recencyDecay.oldestCommitDays > 90 &&
-				volatility.panicScore < 25
-			) {
-				const decayPercent = Math.round(
-					(1 - volatility.recencyDecay.decayFactor) * 100,
-				);
-				instructions += `**Why:** Issues are from ${volatility.recencyDecay.oldestCommitDays}+ days ago (risk decayed by ${decayPercent}%).\n`;
+			if (volatility.recencyDecay.newestCommitDays <= 14 && volatility.panicScore > 25) {
+				output += `Recent bug fixes in the last ${volatility.recencyDecay.newestCommitDays} days.\n`;
 			}
 		}
 
-		// Bus Factor Warning
+		// Bus Factor warning
 		if (volatility.topAuthor && volatility.topAuthor.percentage >= 70) {
-			instructions += `**Expert:** ${volatility.topAuthor.name} wrote ${volatility.topAuthor.percentage}% of this file. If the logic is unclear, assume it is complex.\n`;
+			output += `**Expert:** ${volatility.topAuthor.name} (${volatility.topAuthor.percentage}% of commits)\n`;
 		}
 
-		instructions += `\n`;
-
-		// Show concerning commits if any
+		// Concerning commits
 		if (volatility.panicCommits && volatility.panicCommits.length > 0) {
-			instructions += `**Concerning commits:**\n`;
-			volatility.panicCommits.forEach((msg: string) => {
-				instructions += `  - "${msg}"\n`;
+			output += `\n**Recent issues:**\n`;
+			volatility.panicCommits.slice(0, 3).forEach((msg: string) => {
+				output += `- "${msg}"\n`;
 			});
-			instructions += `\n`;
 		}
 
-		// Contributors table (Bus Factor visibility)
-		if (volatility.authorDetails && volatility.authorDetails.length > 0) {
-			instructions += `**Contributors:**\n`;
-			volatility.authorDetails
-				.slice(0, 5)
-				.forEach((author: AuthorContribution) => {
-					instructions += `  - ${author.name} (${author.commits} commits, ${author.percentage}%)\n`;
-				});
-			if (volatility.authorDetails.length > 5) {
-				instructions += `  - ...and ${volatility.authorDetails.length - 5} more.\n`;
-			}
-			instructions += `\n`;
-		}
-
-		instructions += `**Last modified:** ${volatility.lastCommitDate}\n`;
+		output += `\n`;
 	}
 
-	return instructions;
+	return output;
 }
 
 // --- SERVER FACTORY (for Smithery) ---

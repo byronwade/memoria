@@ -58,7 +58,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 			);
 
 			expect(result).toContain("file.ts");
-			expect(result).toContain("Forensics for");
+			expect(result).toContain("Forensics:");
 		});
 
 		it("should include Pre-Flight Checklist section", () => {
@@ -74,7 +74,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			expect(result).toContain("PRE-FLIGHT CHECKLIST");
+			expect(result).toContain("Pre-flight Checklist");
 		});
 
 		it("should include compound risk score section", () => {
@@ -119,7 +119,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			expect(result).toContain("COUPLED FILES");
+			expect(result).toContain("Coupled Files");
 		});
 
 		it("should not include coupled files section when no coupled files", () => {
@@ -135,7 +135,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			expect(result).not.toContain("COUPLED FILES");
+			expect(result).not.toContain("Coupled Files");
 		});
 
 		it("should include coupled file details with relationship type", () => {
@@ -162,7 +162,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 			);
 
 			expect(result).toContain("utils.ts");
-			expect(result).toContain("50% coupled");
+			expect(result).toContain("50%");
 			expect(result).toContain("schema");
 		});
 
@@ -223,7 +223,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			expect(result).toContain("BREAKING CHANGE DETECTED");
+			expect(result).toContain("Breaking change detected");
 		});
 	});
 
@@ -258,7 +258,6 @@ describe("Output Formatter (generateAiInstructions)", () => {
 			);
 
 			expect(result).toContain("Modify `file.ts`");
-			expect(result).toContain("primary target");
 		});
 
 		it("should list coupled files with relationship type", () => {
@@ -284,8 +283,8 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			expect(result).toContain("Verify `utils.ts`");
-			expect(result).toContain("schema coupling");
+			expect(result).toContain("Update `utils.ts`");
+			expect(result).toContain("(schema)");
 		});
 
 		it("should list stale drift files with days", () => {
@@ -304,7 +303,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 			);
 
 			expect(result).toContain("Update `old-file.ts`");
-			expect(result).toContain("stale by 15 days");
+			expect(result).toContain("stale 15d");
 		});
 	});
 
@@ -322,7 +321,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			expect(result).toContain("NEW FILE");
+			expect(result).toContain("New file");
 		});
 
 		it("should show high volatility indicator when panicScore > 25", () => {
@@ -338,12 +337,12 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			// New format shows "Moderate" status with score
-			expect(result).toContain("Moderate");
+			// New format shows "Moderate churn" or "Volatile" status with panic score
+			expect(result).toMatch(/Moderate churn|Volatile/);
 			expect(result).toContain("50%");
 		});
 
-		it("should show stable indicator when panicScore <= 25", () => {
+		it("should not show File History section when panicScore <= 25", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				{
@@ -356,15 +355,15 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			// New format shows "Stable" status
-			expect(result).toContain("Stable");
+			// New format hides File History section for stable files (panicScore <= 25)
+			expect(result).not.toContain("File History");
 		});
 
-		it("should include metadata for files with commits", () => {
-			// Create a full VolatilityResult with authorDetails
+		it("should show File History section with expert when ownership > 70%", () => {
+			// Create a full VolatilityResult with authorDetails and high ownership
 			const volatility = {
 				commitCount: 10,
-				panicScore: 0,
+				panicScore: 10, // Low panic score
 				authors: 3,
 				lastCommitDate: "2024-01-01",
 				panicCommits: [],
@@ -372,24 +371,8 @@ describe("Output Formatter (generateAiInstructions)", () => {
 					{
 						name: "Alice",
 						email: "alice@test.com",
-						commits: 5,
-						percentage: 50,
-						firstCommit: "2024-01-01",
-						lastCommit: "2024-01-01",
-					},
-					{
-						name: "Bob",
-						email: "bob@test.com",
-						commits: 3,
-						percentage: 30,
-						firstCommit: "2024-01-01",
-						lastCommit: "2024-01-01",
-					},
-					{
-						name: "Charlie",
-						email: "charlie@test.com",
-						commits: 2,
-						percentage: 20,
+						commits: 8,
+						percentage: 80,
 						firstCommit: "2024-01-01",
 						lastCommit: "2024-01-01",
 					},
@@ -397,8 +380,8 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				topAuthor: {
 					name: "Alice",
 					email: "alice@test.com",
-					commits: 5,
-					percentage: 50,
+					commits: 8,
+					percentage: 80,
 					firstCommit: "2024-01-01",
 					lastCommit: "2024-01-01",
 				},
@@ -415,10 +398,10 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			// New format shows Contributors section with author details
-			expect(result).toContain("Contributors");
+			// New format shows File History section with Expert info when ownership >= 70%
+			expect(result).toContain("File History");
+			expect(result).toContain("Expert");
 			expect(result).toContain("Alice");
-			expect(result).toContain("2024-01-01");
 		});
 
 		it("should not include metadata for new files", () => {
@@ -437,7 +420,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 			expect(result).not.toContain("Metadata:");
 		});
 
-		it("should include risk factors when present", () => {
+		it("should include risk factors in compact format", () => {
 			const result = generateAiInstructions(
 				"/path/to/file.ts",
 				{
@@ -450,7 +433,7 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			expect(result).toContain("Risk Factors");
+			// New format shows risk factors compactly
 			expect(result).toContain("volatility");
 		});
 	});
@@ -469,7 +452,8 @@ describe("Output Formatter (generateAiInstructions)", () => {
 				[],
 			);
 
-			expect(result).toContain("###");
+			// New format uses # and ## headers
+			expect(result).toContain("#");
 		});
 
 		it("should use code formatting for file names", () => {
