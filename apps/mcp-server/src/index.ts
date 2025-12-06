@@ -2390,6 +2390,25 @@ export function formatSiblingGuidance(guidance: SiblingGuidance): string {
 // --- ENGINE 5: HISTORY SEARCH (The Archaeologist) ---
 // Solves "Chesterton's Fence" - why was this code written this way?
 
+// Commit type classification
+export type CommitType = "bugfix" | "feature" | "refactor" | "docs" | "test" | "chore" | "unknown";
+
+const COMMIT_TYPE_PATTERNS: Record<Exclude<CommitType, "unknown">, RegExp> = {
+	bugfix: /\b(fix|bug|patch|hotfix|resolve|issue|crash|error|regression)\b/i,
+	feature: /\b(feat|add|new|implement|support|enable|introduce)\b/i,
+	refactor: /\b(refactor|restructure|reorganize|simplify|clean|improve)\b/i,
+	docs: /\b(doc|readme|comment|jsdoc|typedef|changelog)\b/i,
+	test: /\b(test|spec|coverage|mock|stub|e2e|unit)\b/i,
+	chore: /\b(chore|deps|upgrade|bump|ci|build|release|version)\b/i,
+};
+
+export function classifyCommit(message: string): CommitType {
+	for (const [type, pattern] of Object.entries(COMMIT_TYPE_PATTERNS)) {
+		if (pattern.test(message)) return type as CommitType;
+	}
+	return "unknown";
+}
+
 export interface HistorySearchResult {
 	hash: string;
 	date: string;
@@ -2397,6 +2416,9 @@ export interface HistorySearchResult {
 	message: string;
 	filesChanged: string[];
 	matchType: "message" | "diff";
+	commitType: CommitType;
+	diffSnippet?: string;
+	changeType?: "added" | "removed" | "modified";
 }
 
 export interface HistorySearchOutput {
@@ -2406,14 +2428,125 @@ export interface HistorySearchOutput {
 	totalFound: number;
 }
 
-export async function searchHistory(
+export interface HistorySearchOptions {
+	query: string;
+	filePath?: string;
+	searchType?: "message" | "diff" | "both";
+	limit?: number;
+	startLine?: number;
+	endLine?: number;
+	since?: string;
+	until?: string;
+	author?: string;
+	includeDiff?: boolean;
+	commitTypes?: CommitType[];
+}
+
+// Helper to extract diff snippet for a specific commit
+async function getDiffSnippet(
+	git: ReturnType<typeof simpleGit>,
+	hash: string,
 	query: string,
+	filePath?: string,
+): Promise<{ snippet: string; changeType: "added" | "removed" | "modified" } | null> {
+	try {
+		const args = ["show", hash, "-p", "--unified=3"];
+		if (filePath) {
+			// Get relative path from repo root
+			const root = (await git.revparse(["--show-toplevel"])).trim();
+			args.push("--", path.relative(root, filePath));
+		}
+
+		const diff = await git.raw(args);
+		return extractRelevantHunk(diff, query);
+	} catch {
+		return null;
+	}
+}
+
+// Extract the relevant hunk containing the query
+function extractRelevantHunk(
+	diff: string,
+	query: string,
+): { snippet: string; changeType: "added" | "removed" | "modified" } | null {
+	if (!query.trim()) return null;
+
+	const lines = diff.split("\n");
+	const queryLower = query.toLowerCase();
+
+	// Find lines containing the query
+	let matchLineIndex = -1;
+	let hasAddition = false;
+	let hasRemoval = false;
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		const lineLower = line.toLowerCase();
+
+		if (lineLower.includes(queryLower)) {
+			if (matchLineIndex === -1) matchLineIndex = i;
+			if (line.startsWith("+") && !line.startsWith("+++")) hasAddition = true;
+			if (line.startsWith("-") && !line.startsWith("---")) hasRemoval = true;
+		}
+	}
+
+	if (matchLineIndex === -1) return null;
+
+	// Determine change type
+	let changeType: "added" | "removed" | "modified";
+	if (hasAddition && hasRemoval) {
+		changeType = "modified";
+	} else if (hasAddition) {
+		changeType = "added";
+	} else if (hasRemoval) {
+		changeType = "removed";
+	} else {
+		changeType = "modified"; // Context line match
+	}
+
+	// Extract ±5 lines around the match
+	const start = Math.max(0, matchLineIndex - 5);
+	const end = Math.min(lines.length, matchLineIndex + 6);
+	const snippet = lines.slice(start, end).join("\n");
+
+	// Limit snippet size
+	if (snippet.length > 500) {
+		return { snippet: snippet.slice(0, 500) + "...", changeType };
+	}
+
+	return { snippet, changeType };
+}
+
+export async function searchHistory(
+	queryOrOptions: string | HistorySearchOptions,
 	filePath?: string,
 	searchType: "message" | "diff" | "both" = "both",
 	limit: number = 20,
 	startLine?: number,
 	endLine?: number,
+	since?: string,
+	until?: string,
+	author?: string,
+	includeDiff?: boolean,
+	commitTypes?: CommitType[],
 ): Promise<HistorySearchOutput> {
+	// Support both old positional API and new options object API
+	let query: string;
+	if (typeof queryOrOptions === "object") {
+		query = queryOrOptions.query;
+		filePath = queryOrOptions.filePath;
+		searchType = queryOrOptions.searchType ?? "both";
+		limit = queryOrOptions.limit ?? 20;
+		startLine = queryOrOptions.startLine;
+		endLine = queryOrOptions.endLine;
+		since = queryOrOptions.since;
+		until = queryOrOptions.until;
+		author = queryOrOptions.author;
+		includeDiff = queryOrOptions.includeDiff;
+		commitTypes = queryOrOptions.commitTypes;
+	} else {
+		query = queryOrOptions;
+	}
 	// Determine git context - get repo root first
 	const targetPath = filePath || process.cwd();
 	const tempGit = getGitForFile(targetPath);
@@ -2429,7 +2562,7 @@ export async function searchHistory(
 	// Use repo root for git operations so relative paths work correctly
 	const git = simpleGit(repoRoot);
 
-	// Cache key includes query, path, search type, AND line range
+	// Cache key includes query, path, search type, line range, AND new filters
 	// Normalize startLine in cache key (0 becomes 1 since git is 1-based)
 	const normalizedCacheStartLine =
 		startLine !== undefined ? Math.max(1, startLine) : undefined;
@@ -2437,7 +2570,13 @@ export async function searchHistory(
 		normalizedCacheStartLine !== undefined && endLine !== undefined
 			? `:L${normalizedCacheStartLine}-${endLine}`
 			: "";
-	const cacheKey = `history:${query}:${filePath || "all"}:${searchType}${lineRangeKey}`;
+	const filterKey = [
+		since ? `since:${since}` : "",
+		until ? `until:${until}` : "",
+		author ? `author:${author}` : "",
+		commitTypes?.length ? `types:${commitTypes.join(",")}` : "",
+	].filter(Boolean).join(":");
+	const cacheKey = `history:${query}:${filePath || "all"}:${searchType}${lineRangeKey}${filterKey ? `:${filterKey}` : ""}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	const results: HistorySearchResult[] = [];
@@ -2473,6 +2612,10 @@ export async function searchHistory(
 				`-n`,
 				String(limit),
 			];
+			// Add time-based filters
+			if (since) lineRangeArgs.push(`--since=${since}`);
+			if (until) lineRangeArgs.push(`--until=${until}`);
+			if (author) lineRangeArgs.push(`--author=${author}`);
 
 			const lineRangeOutput = await git.raw(lineRangeArgs).catch(() => "");
 
@@ -2490,7 +2633,7 @@ export async function searchHistory(
 			for (const line of lineRangeOutput.split("\n")) {
 				const match = line.match(formatLineRegex);
 				if (match && !seenHashes.has(match[1])) {
-					const [, hash, date, author, message] = match;
+					const [, hash, date, commitAuthor, message] = match;
 					seenHashes.add(hash);
 
 					// Filter by query if provided (otherwise show all line-range commits)
@@ -2498,8 +2641,12 @@ export async function searchHistory(
 						!query.trim() ||
 						message.toLowerCase().includes(query.toLowerCase());
 
-					if (matchesQuery) {
-						commitsToParse.push({ hash, date, author, message });
+					// Filter by commit type if specified
+					const commitType = classifyCommit(message);
+					const matchesType = !commitTypes?.length || commitTypes.includes(commitType);
+
+					if (matchesQuery && matchesType) {
+						commitsToParse.push({ hash, date, author: commitAuthor, message });
 					}
 				}
 			}
@@ -2526,6 +2673,7 @@ export async function searchHistory(
 					message: commit.message.trim(),
 					filesChanged: files.slice(0, 5),
 					matchType: "diff", // Line-range is effectively a diff search
+					commitType: classifyCommit(commit.message),
 				});
 			}
 
@@ -2533,6 +2681,23 @@ export async function searchHistory(
 			const sortedResults = results
 				.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 				.slice(0, limit);
+
+			// Smart diff snippet default: include if ≤5 results or explicitly requested
+			const shouldIncludeDiff = includeDiff ?? (sortedResults.length <= 5);
+			if (shouldIncludeDiff && query.trim()) {
+				const snippetResults = await mapConcurrent(
+					sortedResults,
+					5,
+					(result) => getDiffSnippet(git, result.hash, query, filePath),
+				);
+				for (let i = 0; i < sortedResults.length; i++) {
+					const snippet = snippetResults[i];
+					if (snippet) {
+						sortedResults[i].diffSnippet = snippet.snippet;
+						sortedResults[i].changeType = snippet.changeType;
+					}
+				}
+			}
 
 			const output: HistorySearchOutput = {
 				query,
@@ -2548,59 +2713,99 @@ export async function searchHistory(
 		}
 	}
 
-	try {
-		// Search commit messages (git log --grep)
-		if (searchType === "message" || searchType === "both") {
-			const messageArgs = [
-				"log",
-				"--grep",
-				query,
-				"-i",
-				"--format=%H|%ai|%an|%s",
-				`-n`,
-				String(limit),
-			];
-			if (filePath) {
-				messageArgs.push("--", path.relative(repoRoot, filePath));
-			}
-			const messageResults = await git.raw(messageArgs).catch(() => "");
+	// Helper to build git log args with common filters
+	const buildLogArgs = (baseArgs: string[]): string[] => {
+		const args = [...baseArgs];
+		if (since) args.push(`--since=${since}`);
+		if (until) args.push(`--until=${until}`);
+		if (author) args.push(`--author=${author}`);
+		if (filePath) args.push("--", path.relative(repoRoot, filePath));
+		return args;
+	};
 
-			// Collect commits first
-			const messageCommits: Array<{
-				hash: string;
-				date: string;
-				author: string;
-				message: string;
-			}> = [];
-
-			for (const line of messageResults.split("\n").filter((l) => l.trim())) {
-				const [hash, date, author, ...msgParts] = line.split("|");
-				if (hash && !seenHashes.has(hash)) {
+	// Helper to parse git log output into commits
+	const parseLogOutput = (
+		output: string,
+		matchType: "message" | "diff",
+	): Array<{ hash: string; date: string; author: string; message: string; matchType: "message" | "diff" }> => {
+		const commits: Array<{ hash: string; date: string; author: string; message: string; matchType: "message" | "diff" }> = [];
+		for (const line of output.split("\n").filter((l) => l.trim())) {
+			const [hash, date, commitAuthor, ...msgParts] = line.split("|");
+			if (hash && !seenHashes.has(hash)) {
+				const message = msgParts.join("|").trim();
+				// Filter by commit type if specified
+				const commitType = classifyCommit(message);
+				const matchesType = !commitTypes?.length || commitTypes.includes(commitType);
+				if (matchesType) {
 					seenHashes.add(hash);
-					messageCommits.push({
-						hash,
-						date,
-						author,
-						message: msgParts.join("|").trim(),
-					});
+					commits.push({ hash, date, author: commitAuthor, message, matchType });
 				}
 			}
+		}
+		return commits;
+	};
+
+	try {
+		// PARALLEL SEARCH: Run message and diff searches concurrently when searchType is "both"
+		if (searchType === "both") {
+			const messageArgs = buildLogArgs([
+				"log", "--grep", query, "-i",
+				"--format=%H|%ai|%an|%s", "-n", String(limit),
+			]);
+			const pickaxeArgs = buildLogArgs([
+				"log", "-S", query,
+				"--format=%H|%ai|%an|%s", "-n", String(limit),
+			]);
+
+			// Run both searches in parallel
+			const [messageOutput, pickaxeOutput] = await Promise.all([
+				git.raw(messageArgs).catch(() => ""),
+				git.raw(pickaxeArgs).catch(() => ""),
+			]);
+
+			// Parse results (seenHashes prevents duplicates)
+			const messageCommits = parseLogOutput(messageOutput, "message");
+			const pickaxeCommits = parseLogOutput(pickaxeOutput, "diff");
+			const allCommits = [...messageCommits, ...pickaxeCommits];
 
 			// Fetch files changed for all commits in parallel
-			const messageFilesResults = await mapConcurrent(
+			const filesResults = await mapConcurrent(
+				allCommits,
+				5,
+				(commit) => git.raw(["show", commit.hash, "--name-only", "--format="]).catch(() => ""),
+			);
+
+			for (let i = 0; i < allCommits.length; i++) {
+				const commit = allCommits[i];
+				const files = filesResults[i].split("\n").filter((f) => f.trim());
+				results.push({
+					hash: commit.hash.slice(0, 7),
+					date: commit.date?.split(" ")[0] || "",
+					author: commit.author || "unknown",
+					message: commit.message,
+					filesChanged: files.slice(0, 5),
+					matchType: commit.matchType,
+					commitType: classifyCommit(commit.message),
+				});
+			}
+		} else if (searchType === "message") {
+			// Message-only search
+			const messageArgs = buildLogArgs([
+				"log", "--grep", query, "-i",
+				"--format=%H|%ai|%an|%s", "-n", String(limit),
+			]);
+			const messageOutput = await git.raw(messageArgs).catch(() => "");
+			const messageCommits = parseLogOutput(messageOutput, "message");
+
+			const filesResults = await mapConcurrent(
 				messageCommits,
 				5,
-				(commit) =>
-					git
-						.raw(["show", commit.hash, "--name-only", "--format="])
-						.catch(() => ""),
+				(commit) => git.raw(["show", commit.hash, "--name-only", "--format="]).catch(() => ""),
 			);
 
 			for (let i = 0; i < messageCommits.length; i++) {
 				const commit = messageCommits[i];
-				const files = messageFilesResults[i]
-					.split("\n")
-					.filter((f) => f.trim());
+				const files = filesResults[i].split("\n").filter((f) => f.trim());
 				results.push({
 					hash: commit.hash.slice(0, 7),
 					date: commit.date?.split(" ")[0] || "",
@@ -2608,65 +2813,27 @@ export async function searchHistory(
 					message: commit.message,
 					filesChanged: files.slice(0, 5),
 					matchType: "message",
+					commitType: classifyCommit(commit.message),
 				});
 			}
-		}
+		} else {
+			// Diff-only search
+			const pickaxeArgs = buildLogArgs([
+				"log", "-S", query,
+				"--format=%H|%ai|%an|%s", "-n", String(limit),
+			]);
+			const pickaxeOutput = await git.raw(pickaxeArgs).catch(() => "");
+			const pickaxeCommits = parseLogOutput(pickaxeOutput, "diff");
 
-		// Search code changes (git log -S "pickaxe")
-		if (
-			(searchType === "diff" || searchType === "both") &&
-			results.length < limit
-		) {
-			const remaining = limit - results.length;
-			const pickaxeArgs = [
-				"log",
-				"-S",
-				query,
-				"--format=%H|%ai|%an|%s",
-				`-n`,
-				String(remaining),
-			];
-			if (filePath) {
-				pickaxeArgs.push("--", path.relative(repoRoot, filePath));
-			}
-			const pickaxeResults = await git.raw(pickaxeArgs).catch(() => "");
-
-			// Collect commits first
-			const pickaxeCommits: Array<{
-				hash: string;
-				date: string;
-				author: string;
-				message: string;
-			}> = [];
-
-			for (const line of pickaxeResults.split("\n").filter((l) => l.trim())) {
-				const [hash, date, author, ...msgParts] = line.split("|");
-				if (hash && !seenHashes.has(hash)) {
-					seenHashes.add(hash);
-					pickaxeCommits.push({
-						hash,
-						date,
-						author,
-						message: msgParts.join("|").trim(),
-					});
-				}
-			}
-
-			// Fetch files changed for all commits in parallel
-			const pickaxeFilesResults = await mapConcurrent(
+			const filesResults = await mapConcurrent(
 				pickaxeCommits,
 				5,
-				(commit) =>
-					git
-						.raw(["show", commit.hash, "--name-only", "--format="])
-						.catch(() => ""),
+				(commit) => git.raw(["show", commit.hash, "--name-only", "--format="]).catch(() => ""),
 			);
 
 			for (let i = 0; i < pickaxeCommits.length; i++) {
 				const commit = pickaxeCommits[i];
-				const files = pickaxeFilesResults[i]
-					.split("\n")
-					.filter((f) => f.trim());
+				const files = filesResults[i].split("\n").filter((f) => f.trim());
 				results.push({
 					hash: commit.hash.slice(0, 7),
 					date: commit.date?.split(" ")[0] || "",
@@ -2674,6 +2841,7 @@ export async function searchHistory(
 					message: commit.message,
 					filesChanged: files.slice(0, 5),
 					matchType: "diff",
+					commitType: classifyCommit(commit.message),
 				});
 			}
 		}
@@ -2686,6 +2854,23 @@ export async function searchHistory(
 		.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 		.slice(0, limit);
 
+	// Smart diff snippet default: include if ≤5 results or explicitly requested
+	const shouldIncludeDiff = includeDiff ?? (sortedResults.length <= 5);
+	if (shouldIncludeDiff && query.trim()) {
+		const snippetResults = await mapConcurrent(
+			sortedResults,
+			5,
+			(result) => getDiffSnippet(git, result.hash, query, filePath),
+		);
+		for (let i = 0; i < sortedResults.length; i++) {
+			const snippet = snippetResults[i];
+			if (snippet) {
+				sortedResults[i].diffSnippet = snippet.snippet;
+				sortedResults[i].changeType = snippet.changeType;
+			}
+		}
+	}
+
 	const output: HistorySearchOutput = {
 		query,
 		path: filePath || null,
@@ -2696,6 +2881,17 @@ export async function searchHistory(
 	cache.set(cacheKey, output);
 	return output;
 }
+
+// Emoji map for commit types
+const COMMIT_TYPE_EMOJI: Record<CommitType, string> = {
+	bugfix: "🐛",
+	feature: "✨",
+	refactor: "♻️",
+	docs: "📝",
+	test: "🧪",
+	chore: "🔧",
+	unknown: "📦",
+};
 
 // Format history search results for AI consumption
 export function formatHistoryResults(output: HistorySearchOutput): string {
@@ -2718,25 +2914,27 @@ export function formatHistoryResults(output: HistorySearchOutput): string {
 
 	report += `**Found ${totalFound} commits**\n\n`;
 
-	// Check for bug fixes
-	const hasBugFixes = results.some(
-		(r) =>
-			r.message.toLowerCase().includes("fix") ||
-			r.message.toLowerCase().includes("bug"),
-	);
+	// Check for bug fixes using commitType
+	const hasBugFixes = results.some((r) => r.commitType === "bugfix");
 
 	if (hasBugFixes) {
-		report += `> Bug fixes detected — review commits before modifying this code.\n\n`;
+		report += `> 🐛 Bug fixes detected — review commits before modifying this code.\n\n`;
 	}
 
 	report += `---\n\n`;
 
 	results.forEach((r, i) => {
 		const matchType = r.matchType === "message" ? "msg" : "diff";
-		report += `**${i + 1}. \`${r.hash}\`** ${r.date} · @${r.author} · ${matchType}\n`;
+		const typeEmoji = COMMIT_TYPE_EMOJI[r.commitType] || "📦";
+		report += `**${i + 1}. ${typeEmoji} \`${r.hash}\`** ${r.date} · @${r.author} · ${matchType} · ${r.commitType}\n`;
 		report += `> ${r.message}\n`;
 		if (r.filesChanged.length > 0) {
 			report += `Files: ${r.filesChanged.map((f) => `\`${f}\``).join(", ")}\n`;
+		}
+		// Show diff snippet if available
+		if (r.diffSnippet) {
+			const changeLabel = r.changeType === "added" ? "+" : r.changeType === "removed" ? "-" : "±";
+			report += `\n**Code Change (${changeLabel}):**\n\`\`\`diff\n${r.diffSnippet}\n\`\`\`\n`;
 		}
 		report += "\n";
 	});
@@ -3297,6 +3495,35 @@ function setupServer(server: Server): Server {
 							description:
 								"End line for line-range search (requires path). Used with startLine to trace history of a code block.",
 						},
+						since: {
+							type: "string",
+							description:
+								"Filter commits after this date. Examples: '30days', '2024-01-01', '3months', '1year'",
+						},
+						until: {
+							type: "string",
+							description:
+								"Filter commits before this date. Examples: '7days', '2024-06-01'",
+						},
+						author: {
+							type: "string",
+							description:
+								"Filter commits by author name or email pattern. Example: 'dave', 'john@example.com'",
+						},
+						includeDiff: {
+							type: "boolean",
+							description:
+								"Include code snippets showing the actual change. Default: auto (included when ≤5 results)",
+						},
+						commitTypes: {
+							type: "array",
+							items: {
+								type: "string",
+								enum: ["bugfix", "feature", "refactor", "docs", "test", "chore", "unknown"],
+							},
+							description:
+								"Filter by commit type. Examples: ['bugfix'], ['bugfix', 'feature']",
+						},
 					},
 					required: ["query"],
 				},
@@ -3443,6 +3670,12 @@ function setupServer(server: Server): Server {
 			const limit = Number(request.params.arguments?.limit) || 20;
 			const startLine = request.params.arguments?.startLine as number | undefined;
 			const endLine = request.params.arguments?.endLine as number | undefined;
+			// New parameters
+			const since = request.params.arguments?.since as string | undefined;
+			const until = request.params.arguments?.until as string | undefined;
+			const author = request.params.arguments?.author as string | undefined;
+			const includeDiff = request.params.arguments?.includeDiff as boolean | undefined;
+			const commitTypes = request.params.arguments?.commitTypes as CommitType[] | undefined;
 
 			// Empty query is allowed for line-range search (Sherlock Mode)
 			// but required for regular message/diff search
@@ -3517,14 +3750,19 @@ function setupServer(server: Server): Server {
 					}
 				}
 
-				const results = await searchHistory(
+				const results = await searchHistory({
 					query,
-					targetPath,
+					filePath: targetPath,
 					searchType,
 					limit,
 					startLine,
 					endLine,
-				);
+					since,
+					until,
+					author,
+					includeDiff,
+					commitTypes,
+				});
 				const report = formatHistoryResults(results);
 
 				return { content: [{ type: "text", text: report }] };

@@ -70,7 +70,8 @@
       "Bash(npx vitest:*)",
       "Bash(git --version:*)",
       "Bash(git help:*)",
-      "mcp__memoria__analyze_file"
+      "mcp__memoria__analyze_file",
+      "Bash(vercel --prod:*)"
     ],
     "deny": [],
     "ask": []
