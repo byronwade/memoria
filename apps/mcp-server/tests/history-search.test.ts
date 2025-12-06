@@ -225,7 +225,7 @@ describe("History Search Engine (The Archaeologist)", () => {
 			expect(formatted).toContain("2024-01-15");
 			expect(formatted).toContain("@developer");
 			expect(formatted).toContain("Add test coverage");
-			expect(formatted).toContain("Found 1 relevant commits");
+			expect(formatted).toContain("Found 1 commits");
 		});
 
 		it("should include AI instructions in formatted output", () => {

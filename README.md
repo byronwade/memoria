@@ -362,41 +362,47 @@ Search git history to understand *why* code was written. Solves the "Chesterton'
 ## Example Output
 
 ```markdown
-### 🧠 Forensics for `route.ts`
+# Forensics: `route.ts`
 
-**🔥 RISK: 65/100 (HIGH)**
+**RISK: 65/100** — HIGH
+45% volatility · 3 coupled · 8 dependents · 1 stale
+
 > Proceed carefully. Check all coupled files and update stale dependencies.
 
-**Risk Factors:** High volatility (45% panic score) • Tightly coupled (3 files) • Heavily imported (8 files depend on this)
-
 ---
 
-**🔗 COUPLED FILES**
+## Coupled Files
 
-**📐 `billing/page.tsx`** (85% coupled, schema)
+**`billing/page.tsx`** — 85% (schema)
 > These files share type definitions. If you modify types in one, update the other to match.
-> + interface SubscriptionUpdated
-> - oldStatus: string
+```diff
++ interface SubscriptionUpdated
+- oldStatus: string
+```
 
 ---
 
-**🧱 STATIC DEPENDENTS**
-> These files explicitly import `route.ts`. If you change the API, you MUST update them.
-- [ ] Check `src/components/SubscriptionCard.tsx`
-- [ ] Check `src/hooks/useSubscription.ts`
+## Static Dependents
+
+These files import `route.ts`. API changes require updating them.
+
+- [ ] `src/components/SubscriptionCard.tsx`
+- [ ] `src/hooks/useSubscription.ts`
 
 ---
 
-**🛑 PRE-FLIGHT CHECKLIST**
-- [ ] Modify `route.ts` (primary target)
-- [ ] Verify `billing/page.tsx` (schema coupling)
-- [ ] Update `tests/stripe.test.ts` (stale by 12 days)
+## Pre-flight Checklist
+
+- [ ] Modify `route.ts`
+- [ ] Update `billing/page.tsx` (schema)
+- [ ] Update `tests/stripe.test.ts` — stale 12d
 
 ---
 
-**📊 VOLATILITY**
-**🔥 Status:** VOLATILE (Score: 45%)
-**Expert:** Dave wrote 90% of this file. If the logic is unclear, assume it is complex.
+## File History
+
+**Volatile** — 45% panic score
+**Expert:** Dave (90% of commits)
 ```
 
 ---
