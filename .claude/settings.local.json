@@ -73,7 +73,8 @@
       "mcp__memoria__analyze_file",
       "Bash(vercel --prod:*)",
       "Bash(vercel secrets:*)",
-      "Bash(vercel env:*)"
+      "Bash(vercel env:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []

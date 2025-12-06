@@ -1,5 +1,6 @@
 {
 	"$schema": "https://openapi.vercel.sh/vercel.json",
-	"buildCommand": "turbo run build --filter=@memoria/web",
-	"outputDirectory": "apps/web/.next"
+	"buildCommand": "cd ../.. && turbo run build --filter=@memoria/web",
+	"installCommand": "npm install --prefix=../..",
+	"outputDirectory": ".next"
 }

@@ -97,9 +97,9 @@ export const handleInstallation = internalAction({
 					}
 				}
 			} else {
-				console.log(`No user found for GitHub ID ${sender?.id}. Installation will be linked when user logs in.`);
-				// Store the installation anyway - it will be linked when the user visits the callback URL
-				// or when they log in via OAuth
+				// User not found by GitHub ID - this happens when webhook arrives before user logs in
+				// The installation will be properly linked when user completes OAuth via /api/github/callback
+				console.log(`No user found for GitHub ID ${sender?.id}. Installation will be handled via OAuth callback when user logs in.`);
 			}
 		} else if (action === "unsuspend") {
 			// Reactivate installation

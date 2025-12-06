@@ -411,7 +411,7 @@ export const runPRAnalysis = internalAction({
 			const overallScore = Math.round(avgRisk * 0.6 + maxRisk * 0.4);
 
 			let overallLevel: "low" | "medium" | "high" | "informational";
-			if (overallScore >= 75) overallLevel = "high";
+			if (overallScore >= 75) overallLevel = "high"; // Schema uses "high" as max, "informational" is for info-only
 			else if (overallScore >= 50) overallLevel = "high";
 			else if (overallScore >= 25) overallLevel = "medium";
 			else overallLevel = "low";

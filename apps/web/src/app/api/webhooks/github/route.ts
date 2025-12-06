@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { getConvexClient, callMutation } from "@/lib/convex";
+import { getConvexClient, callMutation, callAction } from "@/lib/convex";
 
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 
@@ -77,12 +77,12 @@ export async function POST(request: NextRequest) {
 		console.log(`GitHub webhook received: ${eventType} (${deliveryId})`);
 
 		// Trigger async processing via Convex action
-		// Note: This will be implemented in the next step
 		try {
-			await callMutation(convex, "github:processWebhook", { webhookId });
+			await callAction(convex, "github:processWebhook", { webhookId });
+			console.log(`Webhook processing triggered for ${eventType} (${deliveryId})`);
 		} catch (actionError) {
-			// Action might not exist yet, log but don't fail the webhook
-			console.log("Webhook stored, processing action not available yet:", actionError);
+			// Log the error but don't fail the webhook - it's stored for retry
+			console.error("Webhook processing failed:", actionError);
 		}
 
 		// Return 202 Accepted to indicate async processing

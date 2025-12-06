@@ -35,3 +35,15 @@ export async function callQuery<T>(
 	// @ts-expect-error - Convex client accepts string paths
 	return client.query(query, args);
 }
+
+/**
+ * Type-safe wrapper for calling Convex actions from API routes
+ */
+export async function callAction<T>(
+	client: ConvexHttpClient,
+	action: string,
+	args: Record<string, unknown>
+): Promise<T> {
+	// @ts-expect-error - Convex client accepts string paths
+	return client.action(action, args);
+}
