@@ -37,144 +37,115 @@ const staggerContainer = {
 	},
 };
 
-// Terminal-style analysis output that developers love
+// Side-by-side comparison: AI blind vs Memoria insight
 function DependencyGraph() {
-	const [step, setStep] = useState(0);
-
-	useEffect(() => {
-		const timers = [
-			setTimeout(() => setStep(1), 400),   // Show command
-			setTimeout(() => setStep(2), 900),   // Show analyzing
-			setTimeout(() => setStep(3), 1400),  // Show result header
-			setTimeout(() => setStep(4), 1700),  // Show risk
-			setTimeout(() => setStep(5), 2000),  // Show files
-			setTimeout(() => setStep(6), 2800),  // Show bottom stats
-		];
-		return () => timers.forEach(clearTimeout);
-	}, []);
-
 	return (
-		<div className="w-full h-full flex items-center justify-center p-4">
-			<div className="w-full max-w-md">
-				{/* Terminal window */}
-				<div className="rounded-lg border border-border/60 bg-[#0d1117] shadow-2xl overflow-hidden">
-					{/* Terminal header */}
-					<div className="flex items-center gap-2 px-4 py-3 bg-[#161b22] border-b border-border/40">
-						<div className="flex gap-1.5">
-							<div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
-							<div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-							<div className="w-3 h-3 rounded-full bg-[#27ca40]" />
+		<div className="w-full h-full flex items-center justify-center p-2">
+			<div className="w-full max-w-2xl">
+				<div className="grid grid-cols-2 gap-3">
+					{/* LEFT: Without Memoria */}
+					<div className="relative">
+						{/* Label */}
+						<div className="absolute -top-3 left-3 px-2 py-0.5 bg-background text-[10px] font-medium text-red-500 uppercase tracking-wider">
+							Without Memoria
 						</div>
-						<span className="text-xs text-gray-400 ml-2 font-mono">~/project</span>
-					</div>
 
-					{/* Terminal content */}
-					<div className="p-4 font-mono text-sm space-y-3 min-h-[320px]">
-						{/* Command */}
-						{step >= 1 && (
-							<m.div
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								className="flex items-center gap-2"
-							>
-								<span className="text-[#7ee787]">❯</span>
-								<span className="text-gray-300">memoria analyze UserService.ts</span>
-							</m.div>
-						)}
-
-						{/* Analyzing spinner */}
-						{step >= 2 && step < 3 && (
-							<m.div
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								className="text-gray-500 flex items-center gap-2"
-							>
-								<span className="animate-spin">⠋</span>
-								<span>Analyzing git history...</span>
-							</m.div>
-						)}
-
-						{/* Results */}
-						{step >= 3 && (
-							<m.div
-								initial={{ opacity: 0, y: 5 }}
-								animate={{ opacity: 1, y: 0 }}
-								className="space-y-3"
-							>
-								{/* Header with risk */}
-								<div className="flex items-center justify-between">
-									<span className="text-gray-400">UserService.ts</span>
-									{step >= 4 && (
-										<m.span
-											initial={{ opacity: 0, scale: 0.8 }}
-											animate={{ opacity: 1, scale: 1 }}
-											className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 text-xs font-bold"
-										>
-											RISK: 72
-										</m.span>
-									)}
+						<div className="h-full rounded-lg border border-red-500/20 bg-red-500/[0.02] p-4">
+							<div className="space-y-4">
+								{/* File */}
+								<div className="flex items-center gap-2">
+									<div className="w-8 h-8 rounded bg-muted/50 flex items-center justify-center">
+										<svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+											<path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+										</svg>
+									</div>
+									<div>
+										<div className="font-mono text-sm font-medium">UserService.ts</div>
+										<div className="text-[10px] text-muted-foreground">editing...</div>
+									</div>
 								</div>
 
-								{/* Coupled files */}
-								{step >= 5 && (
-									<m.div
-										initial={{ opacity: 0 }}
-										animate={{ opacity: 1 }}
-										className="space-y-1"
-									>
-										<div className="text-gray-500 text-xs uppercase tracking-wider mb-2">
-											⚠ Hidden dependencies (no imports)
-										</div>
-										{[
-											{ file: "UserService.test.ts", pct: "78%", color: "text-yellow-400" },
-											{ file: "UserService.stories.tsx", pct: "92%", color: "text-red-400" },
-											{ file: "api/users/route.ts", pct: "85%", color: "text-red-400" },
-											{ file: "types/user.ts", pct: "67%", color: "text-yellow-400" },
-											{ file: "docs/user-api.md", pct: "45%", color: "text-gray-400" },
-										].map((item, i) => (
-											<m.div
-												key={item.file}
-												initial={{ opacity: 0, x: -10 }}
-												animate={{ opacity: 1, x: 0 }}
-												transition={{ delay: i * 0.08 }}
-												className="flex items-center justify-between text-xs"
-											>
-												<span className="text-gray-300">  {item.file}</span>
-												<span className={item.color}>{item.pct}</span>
-											</m.div>
-										))}
-									</m.div>
-								)}
+								{/* AI assessment */}
+								<div className="space-y-2 py-3 border-y border-border/30">
+									<div className="text-[10px] text-muted-foreground uppercase tracking-wider">AI sees</div>
+									<div className="flex items-center gap-2">
+										<div className="w-2 h-2 rounded-full bg-green-500" />
+										<span className="text-sm text-green-600 font-medium">No dependencies</span>
+									</div>
+									<div className="text-xs text-muted-foreground italic">
+										"Safe to refactor"
+									</div>
+								</div>
 
-								{/* Bottom stats */}
-								{step >= 6 && (
-									<m.div
-										initial={{ opacity: 0 }}
-										animate={{ opacity: 1 }}
-										className="pt-3 mt-3 border-t border-gray-700/50 flex items-center justify-between text-xs"
-									>
-										<span className="text-gray-500">Completed in <span className="text-[#7ee787]">67ms</span></span>
-										<span className="text-gray-500">5 files your AI missed</span>
-									</m.div>
-								)}
-							</m.div>
-						)}
+								{/* Reality */}
+								<div className="flex items-center gap-2 text-red-500">
+									<AlertTriangle className="w-4 h-4 shrink-0" />
+									<span className="text-xs font-medium">5 files break silently</span>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					{/* RIGHT: With Memoria */}
+					<div className="relative">
+						{/* Label */}
+						<div className="absolute -top-3 left-3 px-2 py-0.5 bg-background text-[10px] font-medium text-primary uppercase tracking-wider">
+							With Memoria
+						</div>
+
+						<div className="h-full rounded-lg border border-primary/20 bg-primary/[0.02] p-4">
+							<div className="space-y-3 font-mono">
+								{/* Header + Risk */}
+								<div className="flex items-center justify-between">
+									<span className="text-xs text-muted-foreground">UserService.ts</span>
+									<span className="px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-500 text-[10px] font-bold">
+										RISK 72
+									</span>
+								</div>
+
+								{/* Coupled Files */}
+								<div className="space-y-1.5">
+									<div className="text-[10px] text-muted-foreground uppercase tracking-wider">Coupled</div>
+									{[
+										{ file: "UserService.test.ts", pct: "92%" },
+										{ file: "api/users/route.ts", pct: "85%" },
+										{ file: "types/user.ts", pct: "67%" },
+									].map((item) => (
+										<div key={item.file} className="flex items-center justify-between text-[11px]">
+											<span className="text-foreground truncate">{item.file}</span>
+											<span className="text-red-400 shrink-0 ml-2">{item.pct}</span>
+										</div>
+									))}
+								</div>
+
+								{/* Dependents */}
+								<div className="space-y-1">
+									<div className="text-[10px] text-muted-foreground uppercase tracking-wider">Dependents</div>
+									{["ProfileCard.tsx", "useUserData.ts"].map((file) => (
+										<div key={file} className="text-[11px] text-muted-foreground">
+											<span className="opacity-40 mr-1">☐</span> {file}
+										</div>
+									))}
+								</div>
+
+								{/* Checklist hint */}
+								<div className="pt-2 border-t border-border/30">
+									<div className="flex items-center gap-1.5 text-primary">
+										<Check className="w-3 h-3" />
+										<span className="text-[10px] font-medium font-sans">Pre-flight checklist ready</span>
+									</div>
+								</div>
+							</div>
+						</div>
 					</div>
 				</div>
 
-				{/* Caption below terminal */}
-				{step >= 6 && (
-					<m.div
-						initial={{ opacity: 0, y: 10 }}
-						animate={{ opacity: 1, y: 0 }}
-						transition={{ delay: 0.3 }}
-						className="mt-4 text-center"
-					>
-						<span className="text-sm text-muted-foreground">
-							These files change together <span className="text-primary font-medium">85% of the time</span> — but have zero imports.
-						</span>
-					</m.div>
-				)}
+				{/* Bottom caption */}
+				<div className="text-center mt-4">
+					<span className="text-xs text-muted-foreground">
+						Your AI gets this context <span className="text-primary">automatically</span> via MCP
+					</span>
+				</div>
 			</div>
 		</div>
 	);

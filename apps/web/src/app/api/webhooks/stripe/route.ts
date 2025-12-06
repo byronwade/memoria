@@ -177,17 +177,22 @@ async function handleSubscriptionUpdated(
 
 	const status = statusMap[subscription.status] || "incomplete";
 
+	// Get billing period from subscription item (Stripe API 2025+ moved periods to items)
+	const subscriptionItem = subscription.items.data[0];
+	const currentPeriodStart = subscriptionItem?.current_period_start ?? Math.floor(Date.now() / 1000);
+	const currentPeriodEnd = subscriptionItem?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+
 	// Update subscription record
 	await callMutation(convex, "billing:upsertSubscription", {
 		orgId,
 		stripeSubscriptionId: subscription.id,
 		planId: plan._id,
 		status,
-		currentPeriodStart: subscription.current_period_start * 1000,
-		currentPeriodEnd: subscription.current_period_end * 1000,
+		currentPeriodStart: currentPeriodStart * 1000,
+		currentPeriodEnd: currentPeriodEnd * 1000,
 		cancelAtPeriodEnd: subscription.cancel_at_period_end,
 		canceledAt: subscription.canceled_at ? subscription.canceled_at * 1000 : null,
-		metadata: subscription.metadata,
+		metadata: subscription.metadata as Record<string, string>,
 	});
 
 	// Update org billing status
