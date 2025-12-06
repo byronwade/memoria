@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import {
 	AlertTriangle,
+	Brain,
 	CheckCircle2,
 	ChevronLeft,
 	ChevronRight,
@@ -13,10 +14,12 @@ import {
 	GitBranch,
 	GitCommit,
 	Link2,
+	Plus,
 	RefreshCw,
 	Shield,
 	ShieldAlert,
 	ShieldCheck,
+	Tag,
 	TrendingDown,
 	TrendingUp,
 	Users,
@@ -1253,10 +1256,10 @@ export default function RepositoryDetailPage() {
 	const repoName = decodeURIComponent(params.name as string);
 
 	// Get real repository data from dashboard context
-	const { repositories } = useDashboard();
+	const { repositories, guardrails, memories } = useDashboard();
 
 	// Tab and hover states
-	const [selectedTab, setSelectedTab] = useState<"files" | "activity" | "coupling">("files");
+	const [selectedTab, setSelectedTab] = useState<"guardrails" | "memories" | "files" | "activity" | "coupling">("guardrails");
 	const [hoveredRiskSegment, setHoveredRiskSegment] = useState<string | null>(null);
 	const [hoveredStat, setHoveredStat] = useState<string | null>(null);
 
@@ -1278,6 +1281,21 @@ export default function RepositoryDetailPage() {
 			return repoOnly === repoName;
 		});
 	}, [repositories, repoName]);
+
+	// Filter guardrails and memories for this repo (org-wide + repo-specific)
+	const repoGuardrails = useMemo(() => {
+		if (!contextRepo) return [];
+		return guardrails.filter(g =>
+			g.isEnabled && (g.repoId === undefined || g.repoId === contextRepo._id)
+		);
+	}, [guardrails, contextRepo]);
+
+	const repoMemories = useMemo(() => {
+		if (!contextRepo) return [];
+		return memories.filter(m =>
+			m.repoId === undefined || m.repoId === contextRepo._id
+		);
+	}, [memories, contextRepo]);
 
 	// Fetch real data from API
 	const { data: apiData, loading: apiLoading, error: apiError } = useRepositoryStats(contextRepo?._id);
@@ -1814,8 +1832,10 @@ export default function RepositoryDetailPage() {
 
 			{/* Tab Navigation */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-10">
-				<div className="flex gap-1 border-b border-border/50">
+				<div className="flex gap-1 border-b border-border/50 overflow-x-auto">
 					{[
+						{ id: "guardrails", label: "Danger Zones", count: repoGuardrails.length, icon: Shield },
+						{ id: "memories", label: "Memories", count: repoMemories.length, icon: Brain },
 						{ id: "files", label: "High Risk Files", count: totalFilesCount },
 						{ id: "activity", label: "Recent Activity", count: totalActivityCount },
 						{ id: "coupling", label: "File Coupling", count: totalCouplingCount },
@@ -1849,6 +1869,201 @@ export default function RepositoryDetailPage() {
 
 			{/* Tab Content */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-6">
+				{/* Guardrails / Danger Zones Tab */}
+				{selectedTab === "guardrails" && (
+					<div className="space-y-4">
+						{repoGuardrails.length === 0 ? (
+							<Empty className="py-12 border border-border/50 rounded-sm bg-secondary/10">
+								<EmptyHeader>
+									<EmptyMedia variant="icon">
+										<Shield className="h-6 w-6" />
+									</EmptyMedia>
+									<EmptyTitle>No guardrails configured</EmptyTitle>
+									<EmptyDescription>
+										Guardrails protect sensitive files from AI modifications.
+										Add rules to block or warn when AI tries to edit critical paths.
+									</EmptyDescription>
+								</EmptyHeader>
+								<Button variant="default" className="mt-4" asChild>
+									<a href="/dashboard/guardrails/new">
+										<Plus className="h-4 w-4 mr-2" />
+										Add Guardrail
+									</a>
+								</Button>
+							</Empty>
+						) : (
+							<>
+								<p className="text-sm text-muted-foreground mb-4">
+									Rules that protect files from AI modifications. Includes org-wide and repo-specific guardrails.
+								</p>
+								<div className="space-y-3">
+									{repoGuardrails.map((guardrail) => (
+										<div
+											key={guardrail._id}
+											className={cn(
+												"p-4 rounded-sm border transition-colors",
+												guardrail.level === "block"
+													? "border-red-500/30 bg-red-500/5"
+													: "border-yellow-500/30 bg-yellow-500/5"
+											)}
+										>
+											<div className="flex items-start gap-3">
+												<div
+													className={cn(
+														"w-10 h-10 rounded-sm flex items-center justify-center shrink-0",
+														guardrail.level === "block"
+															? "bg-red-500/10 border border-red-500/20"
+															: "bg-yellow-500/10 border border-yellow-500/20"
+													)}
+												>
+													{guardrail.level === "block" ? (
+														<ShieldAlert className="h-5 w-5 text-red-500" />
+													) : (
+														<AlertTriangle className="h-5 w-5 text-yellow-500" />
+													)}
+												</div>
+												<div className="flex-1 min-w-0">
+													<div className="flex items-center gap-2 flex-wrap">
+														<code className="text-sm font-mono font-medium">{guardrail.pattern}</code>
+														<span
+															className={cn(
+																"px-2 py-0.5 text-xs font-medium rounded-sm",
+																guardrail.level === "block"
+																	? "bg-red-500/10 text-red-500 border border-red-500/20"
+																	: "bg-yellow-500/10 text-yellow-600 border border-yellow-500/20"
+															)}
+														>
+															{guardrail.level}
+														</span>
+														<span className="px-2 py-0.5 text-xs bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
+															{guardrail.repoId ? "repo" : "org-wide"}
+														</span>
+													</div>
+													<p className="text-sm text-muted-foreground mt-1">{guardrail.message}</p>
+													<div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+														<span>Created by {guardrail.creatorName}</span>
+														<span>·</span>
+														<span>{new Date(guardrail.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+													</div>
+												</div>
+											</div>
+										</div>
+									))}
+								</div>
+								<div className="pt-4 border-t border-border/50 mt-6">
+									<Button variant="outline" size="sm" asChild>
+										<a href="/dashboard/guardrails/new">
+											<Plus className="h-4 w-4 mr-1.5" />
+											Add Guardrail
+										</a>
+									</Button>
+								</div>
+							</>
+						)}
+					</div>
+				)}
+
+				{/* Memories Tab */}
+				{selectedTab === "memories" && (
+					<div className="space-y-4">
+						{repoMemories.length === 0 ? (
+							<Empty className="py-12 border border-border/50 rounded-sm bg-secondary/10">
+								<EmptyHeader>
+									<EmptyMedia variant="icon">
+										<Brain className="h-6 w-6" />
+									</EmptyMedia>
+									<EmptyTitle>No memories configured</EmptyTitle>
+									<EmptyDescription>
+										Memories provide context and knowledge that AI should consider when working on your code.
+										Add information about architecture decisions, gotchas, or important context.
+									</EmptyDescription>
+								</EmptyHeader>
+								<Button variant="default" className="mt-4" asChild>
+									<a href="/dashboard/memories/new">
+										<Plus className="h-4 w-4 mr-2" />
+										Add Memory
+									</a>
+								</Button>
+							</Empty>
+						) : (
+							<>
+								<p className="text-sm text-muted-foreground mb-4">
+									Context and knowledge for AI to consider. Includes org-wide and repo-specific memories.
+								</p>
+								<div className="space-y-3">
+									{repoMemories.map((memory) => (
+										<div
+											key={memory._id}
+											className="p-4 rounded-sm border border-border/50 bg-secondary/30"
+										>
+											<div className="flex items-start gap-3">
+												<div className="w-10 h-10 rounded-sm bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+													<Brain className="h-5 w-5 text-blue-500" />
+												</div>
+												<div className="flex-1 min-w-0">
+													<div className="flex items-center gap-2 flex-wrap mb-2">
+														<span className="px-2 py-0.5 text-xs bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
+															{memory.repoId ? "repo" : "org-wide"}
+														</span>
+														{memory.tags.slice(0, 3).map((tag) => (
+															<span
+																key={tag}
+																className="flex items-center gap-1 px-2 py-0.5 text-xs bg-blue-500/10 border border-blue-500/20 rounded-sm text-blue-600"
+															>
+																<Tag className="h-3 w-3" />
+																{tag}
+															</span>
+														))}
+														{memory.tags.length > 3 && (
+															<span className="px-2 py-0.5 text-xs bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
+																+{memory.tags.length - 3} more
+															</span>
+														)}
+													</div>
+													<p className="text-sm">{memory.context}</p>
+													{memory.linkedFiles.length > 0 && (
+														<div className="mt-3 pt-3 border-t border-border/50">
+															<div className="text-xs text-muted-foreground mb-1">Linked files:</div>
+															<div className="flex flex-wrap gap-1.5">
+																{memory.linkedFiles.slice(0, 5).map((file) => (
+																	<span
+																		key={file}
+																		className="px-2 py-1 text-xs bg-secondary/50 border border-border/50 rounded-sm font-mono"
+																	>
+																		{file}
+																	</span>
+																))}
+																{memory.linkedFiles.length > 5 && (
+																	<span className="px-2 py-1 text-xs bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
+																		+{memory.linkedFiles.length - 5} more
+																	</span>
+																)}
+															</div>
+														</div>
+													)}
+													<div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+														<span>Created by {memory.creatorName}</span>
+														<span>·</span>
+														<span>{new Date(memory.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+													</div>
+												</div>
+											</div>
+										</div>
+									))}
+								</div>
+								<div className="pt-4 border-t border-border/50 mt-6">
+									<Button variant="outline" size="sm" asChild>
+										<a href="/dashboard/memories/new">
+											<Plus className="h-4 w-4 mr-1.5" />
+											Add Memory
+										</a>
+									</Button>
+								</div>
+							</>
+						)}
+					</div>
+				)}
+
 				{/* High Risk Files - Interactive with Pagination */}
 				{selectedTab === "files" && (
 					<div className="space-y-4">

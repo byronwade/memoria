@@ -4,6 +4,7 @@ import {
 	Bell,
 	Check,
 	ChevronRight,
+	Copy,
 	CreditCard,
 	ExternalLink,
 	FolderGit2,
@@ -20,7 +21,7 @@ import {
 	User,
 	Zap,
 } from "lucide-react";
-import { useState, useEffect, useCallback, useTransition } from "react";
+import { useState, useEffect, useCallback, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -37,12 +38,29 @@ interface Installation {
 	providerInstallationId: string;
 }
 
+interface TeamToken {
+	_id: string;
+	name: string;
+	createdAt: number;
+	lastUsedAt: number | null;
+	revokedAt: number | null;
+	creatorName: string;
+	maskedToken: string;
+}
+
 export default function SettingsPage() {
 	const router = useRouter();
 	const { user, currentOrg, billingStatus, activeRepos, repoLimit, repositories, canAddRepo } = useDashboard();
-	// API key state - to be used when API keys feature is available
-	// const [showApiKey, setShowApiKey] = useState(false);
-	// const [copied, setCopied] = useState(false);
+	// Team tokens state
+	const [teamTokens, setTeamTokens] = useState<TeamToken[]>([]);
+	const [loadingTokens, setLoadingTokens] = useState(true);
+	const [creatingToken, setCreatingToken] = useState(false);
+	const [newTokenName, setNewTokenName] = useState("");
+	const [showNewToken, setShowNewToken] = useState<string | null>(null);
+	const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
+	const [revokingTokenId, setRevokingTokenId] = useState<string | null>(null);
+	const newTokenRef = useRef<HTMLInputElement>(null);
+
 	const [installations, setInstallations] = useState<Installation[]>([]);
 	const [loadingInstallations, setLoadingInstallations] = useState(true);
 	const [updatingRepo, setUpdatingRepo] = useState<string | null>(null);
@@ -77,12 +95,113 @@ export default function SettingsPage() {
 		fetchInstallations();
 	}, [currentOrg]);
 
-	// API key copy functionality - to be implemented when API keys feature is available
-	// const handleCopyApiKey = (apiKey: string) => {
-	// 	navigator.clipboard.writeText(apiKey);
-	// 	setCopied(true);
-	// 	setTimeout(() => setCopied(false), 2000);
-	// };
+	// Fetch team tokens on mount
+	useEffect(() => {
+		async function fetchTokens() {
+			if (!currentOrg) return;
+			try {
+				const res = await fetch("/api/team-tokens");
+				if (res.ok) {
+					const data = await res.json();
+					setTeamTokens(data.tokens || []);
+				}
+			} catch (error) {
+				console.error("Failed to fetch team tokens:", error);
+			} finally {
+				setLoadingTokens(false);
+			}
+		}
+		fetchTokens();
+	}, [currentOrg]);
+
+	// Create a new team token
+	const handleCreateToken = useCallback(async () => {
+		if (!newTokenName.trim()) {
+			toast.error("Token name required", {
+				description: "Please enter a name for your token.",
+			});
+			return;
+		}
+
+		setCreatingToken(true);
+		try {
+			const res = await fetch("/api/team-tokens", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ name: newTokenName.trim() }),
+			});
+
+			if (res.ok) {
+				const data = await res.json();
+				setShowNewToken(data.token);
+				setNewTokenName("");
+				// Refresh token list
+				const refreshRes = await fetch("/api/team-tokens");
+				if (refreshRes.ok) {
+					const refreshData = await refreshRes.json();
+					setTeamTokens(refreshData.tokens || []);
+				}
+				toast.success("Token created", {
+					description: "Make sure to copy your token now. You won't be able to see it again.",
+				});
+			} else {
+				const error = await res.json();
+				toast.error("Failed to create token", {
+					description: error.error || "Please try again.",
+				});
+			}
+		} catch (error) {
+			console.error("Failed to create token:", error);
+			toast.error("Network error", {
+				description: "Could not connect to server.",
+			});
+		} finally {
+			setCreatingToken(false);
+		}
+	}, [newTokenName]);
+
+	// Copy token to clipboard
+	const handleCopyToken = useCallback(async (token: string, tokenId?: string) => {
+		try {
+			await navigator.clipboard.writeText(token);
+			if (tokenId) {
+				setCopiedTokenId(tokenId);
+				setTimeout(() => setCopiedTokenId(null), 2000);
+			}
+			toast.success("Copied to clipboard");
+		} catch (error) {
+			console.error("Failed to copy:", error);
+			toast.error("Failed to copy");
+		}
+	}, []);
+
+	// Revoke a token
+	const handleRevokeToken = useCallback(async (tokenId: string, tokenName: string) => {
+		setRevokingTokenId(tokenId);
+		try {
+			const res = await fetch(`/api/team-tokens/${tokenId}`, {
+				method: "DELETE",
+			});
+
+			if (res.ok) {
+				setTeamTokens((prev) => prev.filter((t) => t._id !== tokenId));
+				toast.success("Token revoked", {
+					description: `"${tokenName}" has been revoked and can no longer be used.`,
+				});
+			} else {
+				toast.error("Failed to revoke token", {
+					description: "Please try again.",
+				});
+			}
+		} catch (error) {
+			console.error("Failed to revoke token:", error);
+			toast.error("Network error", {
+				description: "Could not connect to server.",
+			});
+		} finally {
+			setRevokingTokenId(null);
+		}
+	}, []);
 
 	const handleToggleRepo = useCallback(async (repoId: string, currentStatus: boolean, repoName: string) => {
 		const newStatus = !currentStatus;
@@ -701,7 +820,7 @@ export default function SettingsPage() {
 				</section>
 
 				{/* ============================================ */}
-				{/* API KEYS SECTION */}
+				{/* MCP CONFIGURATION SECTION */}
 				{/* ============================================ */}
 				<section>
 					<div className="flex items-center gap-3 mb-6">
@@ -709,28 +828,198 @@ export default function SettingsPage() {
 							<Key className="h-4.5 w-4.5 text-muted-foreground" />
 						</div>
 						<div>
-							<h2 className="font-medium">API Keys</h2>
-							<p className="text-sm text-muted-foreground">Manage your API access tokens</p>
+							<h2 className="font-medium">MCP Configuration</h2>
+							<p className="text-sm text-muted-foreground">Connect your local AI tools to team guardrails and memories</p>
 						</div>
 					</div>
 
-					<div className="p-5 rounded-sm bg-secondary/30 border border-border/50 space-y-4">
-						{/* Coming Soon Notice */}
-						<div className="p-4 bg-background/50 border border-border/50 border-dashed rounded-sm text-center">
-							<Key className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-							<div className="text-sm font-medium">API Keys Coming Soon</div>
-							<div className="text-xs text-muted-foreground mt-1">
-								Programmatic access to Memoria will be available soon
+					<div className="p-5 rounded-sm bg-secondary/30 border border-border/50 space-y-6">
+						{/* Explanation */}
+						<div className="p-3 bg-primary/5 border border-primary/10 rounded-sm">
+							<p className="text-sm text-muted-foreground">
+								Team tokens allow your local MCP server to sync guardrails and memories from your organization.
+								Add the token to your <code className="px-1 py-0.5 bg-secondary/50 rounded text-xs font-mono">.memoria.json</code> config file.
+							</p>
+						</div>
+
+						{/* New Token Created Alert */}
+						{showNewToken && (
+							<div className="p-4 bg-primary/10 border border-primary/30 rounded-sm">
+								<div className="flex items-center justify-between gap-2 mb-2">
+									<div className="text-sm font-medium text-primary">New Token Created</div>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="h-6 text-xs"
+										onClick={() => setShowNewToken(null)}
+									>
+										Dismiss
+									</Button>
+								</div>
+								<p className="text-xs text-muted-foreground mb-3">
+									Copy this token now. You won't be able to see it again.
+								</p>
+								<div className="flex items-center gap-2">
+									<Input
+										ref={newTokenRef}
+										value={showNewToken}
+										readOnly
+										className="font-mono text-sm bg-background"
+										onClick={() => newTokenRef.current?.select()}
+									/>
+									<Button
+										variant="outline"
+										size="sm"
+										onClick={() => handleCopyToken(showNewToken)}
+									>
+										<Copy className="h-4 w-4" />
+									</Button>
+								</div>
+								<div className="mt-3 p-2 bg-background/50 border border-border/50 rounded-sm">
+									<p className="text-xs text-muted-foreground mb-1">Add to your <code className="font-mono">.memoria.json</code>:</p>
+									<pre className="text-xs font-mono text-foreground overflow-x-auto">
+{`{
+  "teamToken": "${showNewToken}"
+}`}
+									</pre>
+								</div>
+							</div>
+						)}
+
+						{/* Create New Token */}
+						<div>
+							<Label htmlFor="tokenName" className="text-sm text-muted-foreground mb-2 block">Create New Token</Label>
+							<div className="flex items-center gap-2">
+								<Input
+									id="tokenName"
+									value={newTokenName}
+									onChange={(e) => setNewTokenName(e.target.value)}
+									placeholder="Token name (e.g., 'MacBook Pro', 'Team CI')"
+									className="flex-1"
+									onKeyDown={(e) => e.key === "Enter" && handleCreateToken()}
+								/>
+								<Button
+									onClick={handleCreateToken}
+									disabled={creatingToken || !newTokenName.trim()}
+									size="sm"
+								>
+									{creatingToken ? (
+										<Loader2 className="h-4 w-4 animate-spin" />
+									) : (
+										<>
+											<Plus className="h-4 w-4 mr-1" />
+											Create
+										</>
+									)}
+								</Button>
+							</div>
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* Existing Tokens */}
+						<div>
+							<div className="text-sm font-medium mb-3">Active Tokens</div>
+							{loadingTokens ? (
+								<div className="flex items-center justify-center py-4">
+									<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+								</div>
+							) : teamTokens.length === 0 ? (
+								<div className="p-4 bg-background/50 border border-border/50 border-dashed rounded-sm text-center">
+									<Key className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+									<div className="text-sm text-muted-foreground">No tokens created yet</div>
+									<div className="text-xs text-muted-foreground mt-1">
+										Create a token to connect your local MCP server
+									</div>
+								</div>
+							) : (
+								<div className="space-y-2">
+									{teamTokens.map((token) => (
+										<div
+											key={token._id}
+											className="flex items-center gap-4 p-3 bg-background/50 border border-border/50 rounded-sm"
+										>
+											<div className="w-8 h-8 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center shrink-0">
+												<Key className="h-4 w-4 text-muted-foreground" />
+											</div>
+											<div className="flex-1 min-w-0">
+												<div className="flex items-center gap-2">
+													<span className="font-medium text-sm">{token.name}</span>
+												</div>
+												<div className="text-xs text-muted-foreground">
+													Created {new Date(token.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+													{token.lastUsedAt && (
+														<> · Last used {new Date(token.lastUsedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</>
+													)}
+													{!token.lastUsedAt && <> · Never used</>}
+												</div>
+											</div>
+											<div className="flex items-center gap-2">
+												<code className="px-2 py-1 text-xs font-mono bg-secondary/50 border border-border/50 rounded-sm">
+													{token.maskedToken}
+												</code>
+												<Button
+													variant="ghost"
+													size="sm"
+													className="text-destructive hover:text-destructive hover:bg-destructive/10"
+													onClick={() => handleRevokeToken(token._id, token.name)}
+													disabled={revokingTokenId === token._id}
+												>
+													{revokingTokenId === token._id ? (
+														<Loader2 className="h-4 w-4 animate-spin" />
+													) : (
+														<Trash2 className="h-4 w-4" />
+													)}
+												</Button>
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+
+						<div className="h-px bg-border/50" />
+
+						{/* Configuration Instructions */}
+						<div>
+							<div className="text-sm font-medium mb-3">Setup Instructions</div>
+							<div className="space-y-3 text-xs text-muted-foreground">
+								<div className="flex gap-2">
+									<span className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-[10px] font-medium">1</span>
+									<span>Create a token above and copy it securely</span>
+								</div>
+								<div className="flex gap-2">
+									<span className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-[10px] font-medium">2</span>
+									<span>Add the token to your project's <code className="px-1 py-0.5 bg-secondary/50 rounded font-mono">.memoria.json</code> file</span>
+								</div>
+								<div className="flex gap-2">
+									<span className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-[10px] font-medium">3</span>
+									<span>Restart your AI tool (Cursor, Claude Code, etc.) to sync guardrails</span>
+								</div>
+							</div>
+							<div className="mt-3 p-3 bg-background/50 border border-border/50 rounded-sm">
+								<p className="text-xs text-muted-foreground mb-2">Example <code className="font-mono">.memoria.json</code>:</p>
+								<pre className="text-xs font-mono text-foreground overflow-x-auto whitespace-pre">
+{`{
+  "teamToken": "mem_xxxxxxxxxxxxxxxxxxxxxxxx",
+  "thresholds": {
+    "couplingPercent": 15,
+    "driftDays": 7
+  }
+}`}
+								</pre>
 							</div>
 						</div>
 
 						{/* Documentation Link */}
-						<div className="text-center">
+						<div className="text-center pt-2">
 							<a
-								href="/docs/api"
+								href="https://github.com/byronwade/memoria#configuration"
+								target="_blank"
+								rel="noopener noreferrer"
 								className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
 							>
-								View API Documentation
+								View Full Documentation
 								<ExternalLink className="h-3 w-3" />
 							</a>
 						</div>

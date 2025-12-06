@@ -8,6 +8,10 @@ import type {
 	DashboardRepository,
 	DashboardUser,
 	DashboardBillingStatus,
+	DashboardGuardrail,
+	DashboardMemory,
+	DashboardInterventionStats,
+	DashboardGuardrailStats,
 } from "./dashboard-data";
 
 interface DashboardContextType {
@@ -23,6 +27,11 @@ interface DashboardContextType {
 	isLoading: boolean;
 	isSwitchingOrg: boolean;
 	logout: () => Promise<void>;
+	// AI Control Plane
+	guardrails: DashboardGuardrail[];
+	memories: DashboardMemory[];
+	interventionStats: DashboardInterventionStats | null;
+	guardrailStats: DashboardGuardrailStats | null;
 }
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
@@ -88,6 +97,11 @@ export function DashboardProvider({ children, initialData }: DashboardProviderPr
 				isLoading,
 				isSwitchingOrg,
 				logout,
+				// AI Control Plane
+				guardrails: initialData.guardrails,
+				memories: initialData.memories,
+				interventionStats: initialData.interventionStats,
+				guardrailStats: initialData.guardrailStats,
 			}}
 		>
 			{children}

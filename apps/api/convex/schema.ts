@@ -488,5 +488,69 @@ export default defineSchema({
 		createdAt: v.number(),
 		updatedAt: nullableNumber,
 	}).index("by_baseUrl", ["baseUrl"]),
+
+	// ===========================================
+	// AI CONTROL PLANE TABLES
+	// ===========================================
+
+	// Guardrails - Rules that protect files/paths from AI modifications
+	guardrails: defineTable({
+		orgId: v.id("organizations"),
+		repoId: v.optional(v.id("repositories")), // null = org-wide default
+		pattern: v.string(), // glob pattern (e.g., "src/auth/**", "*.env")
+		level: literals("warn", "block"),
+		message: v.string(), // reasoning shown to AI/developer
+		isEnabled: v.boolean(),
+		createdBy: v.id("users"),
+		createdAt: v.number(),
+		updatedAt: nullableNumber,
+	})
+		.index("by_org", ["orgId"])
+		.index("by_repo", ["repoId"])
+		.index("by_org_enabled", ["orgId", "isEnabled"]),
+
+	// Memories - Human context/knowledge for AI to consider
+	memories: defineTable({
+		orgId: v.id("organizations"),
+		repoId: v.optional(v.id("repositories")), // null = org-wide
+		context: v.string(), // the actual knowledge/context
+		tags: v.array(v.string()), // for filtering (e.g., ["auth", "critical"])
+		linkedFiles: v.array(v.string()), // file paths this applies to
+		createdBy: v.id("users"),
+		createdAt: v.number(),
+		updatedAt: nullableNumber,
+	})
+		.index("by_org", ["orgId"])
+		.index("by_repo", ["repoId"]),
+
+	// Interventions - Log when MCP enforces a guardrail
+	interventions: defineTable({
+		orgId: v.id("organizations"),
+		repoId: v.id("repositories"),
+		guardrailId: v.optional(v.id("guardrails")), // which rule triggered
+		filePath: v.string(),
+		action: literals("blocked", "warned"),
+		aiTool: v.string(), // "cursor", "claude-code", "windsurf", "cline"
+		aiModel: nullableString, // "claude-3.5-sonnet", "gpt-4"
+		context: nullableString, // what AI was trying to do
+		timestamp: v.number(),
+	})
+		.index("by_org", ["orgId"])
+		.index("by_repo", ["repoId"])
+		.index("by_org_timestamp", ["orgId", "timestamp"])
+		.index("by_guardrail", ["guardrailId"]),
+
+	// Team Tokens - Auth tokens for MCP servers to fetch config
+	team_tokens: defineTable({
+		orgId: v.id("organizations"),
+		name: v.string(), // e.g., "Production MCP", "CI/CD"
+		tokenHash: v.string(), // SHA-256 hash of actual token
+		lastUsedAt: nullableNumber,
+		createdBy: v.id("users"),
+		createdAt: v.number(),
+		revokedAt: nullableNumber,
+	})
+		.index("by_org", ["orgId"])
+		.index("by_tokenHash", ["tokenHash"]),
 });
 

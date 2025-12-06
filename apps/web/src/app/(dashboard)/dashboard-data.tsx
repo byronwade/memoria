@@ -46,6 +46,49 @@ export interface DashboardBillingStatus {
 	stripeCustomerId: string | null;
 }
 
+// AI Control Plane Types
+export interface DashboardGuardrail {
+	_id: string;
+	pattern: string;
+	level: "warn" | "block";
+	message: string;
+	isEnabled: boolean;
+	repoId?: string;
+	createdBy: string;
+	creatorName: string;
+	createdAt: number;
+}
+
+export interface DashboardMemory {
+	_id: string;
+	context: string;
+	tags: string[];
+	linkedFiles: string[];
+	repoId?: string;
+	createdBy: string;
+	creatorName: string;
+	createdAt: number;
+}
+
+export interface DashboardInterventionStats {
+	total: number;
+	blocked: number;
+	warned: number;
+	today: number;
+	last7Days: number;
+	last30Days: number;
+	byTool: Record<string, number>;
+}
+
+export interface DashboardGuardrailStats {
+	total: number;
+	enabled: number;
+	blocking: number;
+	warning: number;
+	orgWide: number;
+	repoSpecific: number;
+}
+
 export interface DashboardData {
 	user: DashboardUser;
 	organizations: DashboardOrganization[];
@@ -53,6 +96,11 @@ export interface DashboardData {
 	repositories: DashboardRepository[];
 	billingStatus: DashboardBillingStatus | null;
 	needsOnboarding: boolean;
+	// AI Control Plane data
+	guardrails: DashboardGuardrail[];
+	memories: DashboardMemory[];
+	interventionStats: DashboardInterventionStats | null;
+	guardrailStats: DashboardGuardrailStats | null;
 }
 
 /**
@@ -164,6 +212,10 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 			repositories: [],
 			billingStatus: null,
 			needsOnboarding: true,
+			guardrails: [],
+			memories: [],
+			interventionStats: null,
+			guardrailStats: null,
 		};
 	}
 
@@ -206,6 +258,31 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 		{ orgId: currentOrg._id }
 	);
 
+	// Fetch AI Control Plane data
+	const guardrails = await callQuery<DashboardGuardrail[]>(
+		convex,
+		"guardrails:listGuardrails",
+		{ orgId: currentOrg._id, includeDisabled: true }
+	);
+
+	const memories = await callQuery<DashboardMemory[]>(
+		convex,
+		"memories:listMemories",
+		{ orgId: currentOrg._id }
+	);
+
+	const interventionStats = await callQuery<DashboardInterventionStats | null>(
+		convex,
+		"interventions:getInterventionStats",
+		{ orgId: currentOrg._id }
+	);
+
+	const guardrailStats = await callQuery<DashboardGuardrailStats | null>(
+		convex,
+		"guardrails:getGuardrailStats",
+		{ orgId: currentOrg._id }
+	);
+
 	// Check if needs onboarding:
 	// - No active installations (app was uninstalled/suspended)
 	// - No active repos
@@ -219,5 +296,10 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 		repositories: repositories || [],
 		billingStatus,
 		needsOnboarding,
+		// AI Control Plane data
+		guardrails: guardrails || [],
+		memories: memories || [],
+		interventionStats,
+		guardrailStats,
 	};
 }
