@@ -50,7 +50,7 @@ interface TeamToken {
 
 export default function SettingsPage() {
 	const router = useRouter();
-	const { user, currentOrg, billingStatus, activeRepos, repoLimit, repositories, canAddRepo } = useDashboard();
+	const { user, billingStatus, activeRepos, repoLimit, repositories, canAddRepo } = useDashboard();
 	// Team tokens state
 	const [teamTokens, setTeamTokens] = useState<TeamToken[]>([]);
 	const [loadingTokens, setLoadingTokens] = useState(true);
@@ -79,7 +79,6 @@ export default function SettingsPage() {
 	// Fetch installations on mount
 	useEffect(() => {
 		async function fetchInstallations() {
-			if (!currentOrg) return;
 			try {
 				const res = await fetch("/api/github/installation-status");
 				if (res.ok) {
@@ -93,12 +92,11 @@ export default function SettingsPage() {
 			}
 		}
 		fetchInstallations();
-	}, [currentOrg]);
+	}, []);
 
 	// Fetch team tokens on mount
 	useEffect(() => {
 		async function fetchTokens() {
-			if (!currentOrg) return;
 			try {
 				const res = await fetch("/api/team-tokens");
 				if (res.ok) {
@@ -112,7 +110,7 @@ export default function SettingsPage() {
 			}
 		}
 		fetchTokens();
-	}, [currentOrg]);
+	}, []);
 
 	// Create a new team token
 	const handleCreateToken = useCallback(async () => {
@@ -837,7 +835,7 @@ export default function SettingsPage() {
 						{/* Explanation */}
 						<div className="p-3 bg-primary/5 border border-primary/10 rounded-sm">
 							<p className="text-sm text-muted-foreground">
-								Team tokens allow your local MCP server to sync guardrails and memories from your organization.
+								Team tokens allow your local MCP server to sync guardrails and memories from your account.
 								Add the token to your <code className="px-1 py-0.5 bg-secondary/50 rounded text-xs font-mono">.memoria.json</code> config file.
 							</p>
 						</div>

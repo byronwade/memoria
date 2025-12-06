@@ -15,16 +15,24 @@ export default defineSchema({
 		emailVerified: v.boolean(),
 		name: nullableString,
 		avatarUrl: nullableString,
-		primaryOrgId: v.optional(v.id("organizations")),
 		githubUserId: nullableString,
 		gitlabUserId: nullableString,
 		role: literals("user", "admin", "support"),
+		// Billing fields (moved from organizations)
+		stripeCustomerId: v.optional(v.string()),
+		stripeSubscriptionId: v.optional(v.string()),
+		planTier: v.optional(literals("free", "pro", "team")),
+		maxRepos: v.optional(v.number()),
+		maxAnalysesPerMonth: v.optional(v.number()),
+		subscriptionStatus: v.optional(literals("active", "trial", "past_due", "canceled", "suspended")),
+		trialEndsAt: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: nullableNumber,
 	})
 		.index("by_email", ["email"])
 		.index("by_githubUserId", ["githubUserId"])
-		.index("by_gitlabUserId", ["gitlabUserId"]),
+		.index("by_gitlabUserId", ["gitlabUserId"])
+		.index("by_stripeCustomerId", ["stripeCustomerId"]),
 
 	identities: defineTable({
 		userId: v.id("users"),
@@ -54,83 +62,20 @@ export default defineSchema({
 
 	api_tokens: defineTable({
 		name: v.string(),
-		ownerType: literals("user", "organization"),
-		userId: v.optional(v.id("users")),
-		orgId: v.optional(v.id("organizations")),
+		userId: v.id("users"),
 		tokenHash: v.string(),
 		scopes: v.array(v.string()),
 		lastUsedAt: nullableNumber,
 		createdAt: v.number(),
 		revokedAt: nullableNumber,
 	})
-		.index("by_owner_user", ["ownerType", "userId"])
-		.index("by_owner_org", ["ownerType", "orgId"])
+		.index("by_userId", ["userId"])
 		.index("by_tokenHash", ["tokenHash"]),
-
-	organizations: defineTable({
-		name: v.string(),
-		slug: v.string(),
-		ownerUserId: v.id("users"),
-		planId: v.optional(v.id("billing_plans")),
-		stripeCustomerId: nullableString,
-		stripeSubscriptionId: nullableString,
-		maxRepos: nullableNumber,
-		maxAnalysesPerMonth: nullableNumber,
-		status: literals("active", "trial", "past_due", "canceled", "suspended"),
-		trialEndsAt: nullableNumber,
-		createdAt: v.number(),
-		updatedAt: nullableNumber,
-	})
-		.index("by_slug", ["slug"])
-		.index("by_ownerUserId", ["ownerUserId"])
-		.index("by_stripeCustomerId", ["stripeCustomerId"]),
-
-	org_memberships: defineTable({
-		orgId: v.id("organizations"),
-		userId: v.id("users"),
-		role: literals("owner", "admin", "member", "viewer"),
-		createdAt: v.number(),
-	})
-		.index("by_org", ["orgId"])
-		.index("by_user", ["userId"])
-		.index("by_org_user", ["orgId", "userId"]),
-
-	org_invitations: defineTable({
-		orgId: v.id("organizations"),
-		email: v.string(),
-		invitedByUserId: v.id("users"),
-		role: literals("admin", "member", "viewer"),
-		token: v.string(),
-		status: literals("pending", "accepted", "expired", "revoked"),
-		expiresAt: v.number(),
-		createdAt: v.number(),
-		acceptedAt: nullableNumber,
-	})
-		.index("by_org", ["orgId"])
-		.index("by_email", ["email"])
-		.index("by_token", ["token"]),
-
-	org_settings: defineTable({
-		orgId: v.id("organizations"),
-		riskCommentMode: literals("short", "detailed"),
-		enableSlackNotifications: v.boolean(),
-		slackWebhookUrl: nullableString,
-		defaultProvider: v.union(
-			v.literal("github"),
-			v.literal("gitlab"),
-			v.literal("bitbucket"),
-			v.literal("other"),
-			v.null(),
-		),
-		analysisDepth: literals("fast", "standard", "deep"),
-		createdAt: v.number(),
-		updatedAt: nullableNumber,
-	}).index("by_org", ["orgId"]),
 
 	billing_plans: defineTable({
 		name: v.string(),
 		stripePriceId: nullableString,
-		tier: literals("free", "solo", "team", "enterprise"),
+		tier: literals("free", "pro", "team"),
 		maxRepos: nullableNumber,
 		maxAnalysesPerMonth: nullableNumber,
 		pricePerMonthUsd: v.number(),
@@ -140,35 +85,8 @@ export default defineSchema({
 		updatedAt: nullableNumber,
 	}).index("by_tier", ["tier"]),
 
-	billing_customers: defineTable({
-		orgId: v.id("organizations"),
-		stripeCustomerId: v.string(),
-		defaultPaymentMethodId: nullableString,
-		metadata: nullableJson,
-		createdAt: v.number(),
-		updatedAt: nullableNumber,
-	})
-		.index("by_org", ["orgId"])
-		.index("by_stripeCustomerId", ["stripeCustomerId"]),
-
-	billing_subscriptions: defineTable({
-		orgId: v.id("organizations"),
-		stripeSubscriptionId: v.string(),
-		planId: v.id("billing_plans"),
-		status: literals("active", "trialing", "past_due", "canceled", "incomplete", "paused"),
-		currentPeriodStart: v.number(),
-		currentPeriodEnd: v.number(),
-		cancelAtPeriodEnd: v.boolean(),
-		canceledAt: nullableNumber,
-		metadata: nullableJson,
-		createdAt: v.number(),
-		updatedAt: nullableNumber,
-	})
-		.index("by_org", ["orgId"])
-		.index("by_stripeSubscriptionId", ["stripeSubscriptionId"]),
-
 	billing_usage: defineTable({
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		periodStart: v.number(),
 		periodEnd: v.number(),
 		prAnalysesCount: v.number(),
@@ -176,8 +94,8 @@ export default defineSchema({
 		extraUsageMetadata: nullableJson,
 		createdAt: v.number(),
 	})
-		.index("by_org", ["orgId"])
-		.index("by_org_period", ["orgId", "periodStart", "periodEnd"]),
+		.index("by_userId", ["userId"])
+		.index("by_user_period", ["userId", "periodStart", "periodEnd"]),
 
 	billing_events: defineTable({
 		stripeEventId: v.string(),
@@ -201,7 +119,7 @@ export default defineSchema({
 	scm_installations: defineTable({
 		providerType: literals("github", "gitlab", "bitbucket", "other"),
 		providerInstallationId: v.string(),
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		accountType: literals("user", "org"),
 		accountLogin: v.string(),
 		accountName: nullableString,
@@ -211,11 +129,11 @@ export default defineSchema({
 		createdAt: v.number(),
 		updatedAt: nullableNumber,
 	})
-		.index("by_org", ["orgId"])
+		.index("by_userId", ["userId"])
 		.index("by_providerInstallation", ["providerType", "providerInstallationId"]),
 
 	repositories: defineTable({
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		scmInstallationId: v.id("scm_installations"),
 		providerType: literals("github", "gitlab", "bitbucket", "other"),
 		providerRepoId: v.string(),
@@ -229,7 +147,7 @@ export default defineSchema({
 		createdAt: v.number(),
 		updatedAt: nullableNumber,
 	})
-		.index("by_org", ["orgId"])
+		.index("by_userId", ["userId"])
 		.index("by_installation", ["scmInstallationId"])
 		.index("by_provider_repo", ["providerType", "providerRepoId"])
 		.index("by_fullName", ["providerType", "fullName"]),
@@ -296,7 +214,7 @@ export default defineSchema({
 		.index("by_providerEvent", ["providerType", "providerEventId"]),
 
 	analyses: defineTable({
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.id("repositories"),
 		pullRequestId: v.optional(v.id("pull_requests")),
 		commitSha: nullableString,
@@ -319,7 +237,7 @@ export default defineSchema({
 		createdAt: v.number(),
 		durationMs: nullableNumber,
 	})
-		.index("by_org", ["orgId"])
+		.index("by_userId", ["userId"])
 		.index("by_repo", ["repoId"])
 		.index("by_pullRequest", ["pullRequestId"])
 		.index("by_repo_createdAt", ["repoId", "createdAt"]),
@@ -343,7 +261,6 @@ export default defineSchema({
 		.index("by_filePath", ["filePath"]),
 
 	events: defineTable({
-		orgId: v.optional(v.id("organizations")),
 		userId: v.optional(v.id("users")),
 		repoId: v.optional(v.id("repositories")),
 		pullRequestId: v.optional(v.id("pull_requests")),
@@ -351,12 +268,12 @@ export default defineSchema({
 		context: nullableJson,
 		createdAt: v.number(),
 	})
-		.index("by_org_type", ["orgId", "type"])
+		.index("by_userId_type", ["userId", "type"])
 		.index("by_repo_type", ["repoId", "type"])
 		.index("by_type_createdAt", ["type", "createdAt"]),
 
-	daily_org_stats: defineTable({
-		orgId: v.id("organizations"),
+	daily_user_stats: defineTable({
+		userId: v.id("users"),
 		date: v.string(),
 		prAnalysesCount: v.number(),
 		highRiskAnalysesCount: v.number(),
@@ -365,7 +282,7 @@ export default defineSchema({
 		averageRiskScore: nullableNumber,
 		reposActiveCount: v.number(),
 		createdAt: v.number(),
-	}).index("by_org_date", ["orgId", "date"]),
+	}).index("by_user_date", ["userId", "date"]),
 
 	daily_repo_stats: defineTable({
 		repoId: v.id("repositories"),
@@ -451,7 +368,7 @@ export default defineSchema({
 		.index("by_status", ["processingStatus"]),
 
 	outbound_webhooks: defineTable({
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		targetType: literals("slack", "webhook", "other"),
 		targetUrl: v.string(),
 		eventType: v.string(),
@@ -462,7 +379,7 @@ export default defineSchema({
 		errorMessage: nullableString,
 		createdAt: v.number(),
 	})
-		.index("by_org_status", ["orgId", "status"]),
+		.index("by_user_status", ["userId", "status"]),
 
 	feature_flags: defineTable({
 		key: v.string(),
@@ -473,13 +390,13 @@ export default defineSchema({
 		updatedAt: nullableNumber,
 	}).index("by_key", ["key"]),
 
-	org_feature_overrides: defineTable({
-		orgId: v.id("organizations"),
+	user_feature_overrides: defineTable({
+		userId: v.id("users"),
 		featureKey: v.string(),
 		enabled: v.boolean(),
 		createdAt: v.number(),
 		updatedAt: nullableNumber,
-	}).index("by_org_feature", ["orgId", "featureKey"]),
+	}).index("by_user_feature", ["userId", "featureKey"]),
 
 	gitlab_instances: defineTable({
 		scmProviderId: v.id("scm_providers"),
@@ -495,8 +412,8 @@ export default defineSchema({
 
 	// Guardrails - Rules that protect files/paths from AI modifications
 	guardrails: defineTable({
-		orgId: v.id("organizations"),
-		repoId: v.optional(v.id("repositories")), // null = org-wide default
+		userId: v.id("users"),
+		repoId: v.optional(v.id("repositories")), // null = user-wide default
 		pattern: v.string(), // glob pattern (e.g., "src/auth/**", "*.env")
 		level: literals("warn", "block"),
 		message: v.string(), // reasoning shown to AI/developer
@@ -505,27 +422,43 @@ export default defineSchema({
 		createdAt: v.number(),
 		updatedAt: nullableNumber,
 	})
-		.index("by_org", ["orgId"])
+		.index("by_userId", ["userId"])
 		.index("by_repo", ["repoId"])
-		.index("by_org_enabled", ["orgId", "isEnabled"]),
+		.index("by_user_enabled", ["userId", "isEnabled"]),
 
-	// Memories - Human context/knowledge for AI to consider
+	// Memories - Human context/knowledge for AI to consider (Enhanced for Tri-Layer Brain)
 	memories: defineTable({
-		orgId: v.id("organizations"),
-		repoId: v.optional(v.id("repositories")), // null = org-wide
+		userId: v.id("users"),
+		repoId: v.optional(v.id("repositories")), // null = user-wide
 		context: v.string(), // the actual knowledge/context
+		summary: v.optional(v.string()), // Auto-generated 1-line summary
 		tags: v.array(v.string()), // for filtering (e.g., ["auth", "critical"])
+		keywords: v.optional(v.array(v.string())), // For BM25 matching
 		linkedFiles: v.array(v.string()), // file paths this applies to
+		memoryType: v.optional(
+			literals("lesson", "context", "decision", "pattern", "warning", "todo"),
+		),
+		source: v.optional(
+			v.object({
+				type: literals("manual", "pr_comment", "commit_message", "auto_extracted"),
+				reference: nullableString, // commit hash, PR URL, etc.
+			}),
+		),
+		importance: v.optional(literals("critical", "high", "normal", "low")),
+		accessCount: v.optional(v.number()),
+		lastAccessedAt: nullableNumber,
 		createdBy: v.id("users"),
 		createdAt: v.number(),
 		updatedAt: nullableNumber,
 	})
-		.index("by_org", ["orgId"])
-		.index("by_repo", ["repoId"]),
+		.index("by_userId", ["userId"])
+		.index("by_repo", ["repoId"])
+		.index("by_user_importance", ["userId", "importance"])
+		.index("by_user_type", ["userId", "memoryType"]),
 
 	// Interventions - Log when MCP enforces a guardrail
 	interventions: defineTable({
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.id("repositories"),
 		guardrailId: v.optional(v.id("guardrails")), // which rule triggered
 		filePath: v.string(),
@@ -535,14 +468,14 @@ export default defineSchema({
 		context: nullableString, // what AI was trying to do
 		timestamp: v.number(),
 	})
-		.index("by_org", ["orgId"])
+		.index("by_userId", ["userId"])
 		.index("by_repo", ["repoId"])
-		.index("by_org_timestamp", ["orgId", "timestamp"])
+		.index("by_user_timestamp", ["userId", "timestamp"])
 		.index("by_guardrail", ["guardrailId"]),
 
 	// Team Tokens - Auth tokens for MCP servers to fetch config
 	team_tokens: defineTable({
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		name: v.string(), // e.g., "Production MCP", "CI/CD"
 		tokenHash: v.string(), // SHA-256 hash of actual token
 		lastUsedAt: nullableNumber,
@@ -550,7 +483,92 @@ export default defineSchema({
 		createdAt: v.number(),
 		revokedAt: nullableNumber,
 	})
-		.index("by_org", ["orgId"])
+		.index("by_userId", ["userId"])
 		.index("by_tokenHash", ["tokenHash"]),
-});
 
+	// ===========================================
+	// TRI-LAYER BRAIN: CODE GRAPH
+	// ===========================================
+
+	// Code Files - Nodes in the code graph (files with their exports/imports)
+	code_files: defineTable({
+		repoId: v.id("repositories"),
+		filePath: v.string(),
+		language: v.string(), // ts, js, py, go, etc.
+		exports: v.array(
+			v.object({
+				name: v.string(),
+				kind: literals("function", "class", "const", "type", "interface", "variable"),
+				signature: v.optional(v.string()), // function signature if available
+				line: v.number(),
+			}),
+		),
+		imports: v.array(
+			v.object({
+				source: v.string(), // the import path
+				specifiers: v.array(v.string()), // what's imported
+				isRelative: v.boolean(), // ./foo vs lodash
+			}),
+		),
+		keywords: v.array(v.string()), // For BM25 matching
+		riskScore: v.number(), // 0-100 compound risk
+		lastIndexedAt: v.number(),
+		createdAt: v.number(),
+	})
+		.index("by_repo", ["repoId"])
+		.index("by_repo_path", ["repoId", "filePath"])
+		.index("by_repo_risk", ["repoId", "riskScore"]),
+
+	// Code Relationships - Edges in the code graph
+	code_relationships: defineTable({
+		repoId: v.id("repositories"),
+		sourceFileId: v.id("code_files"),
+		targetFileId: v.id("code_files"),
+		type: literals("imports", "co_changes", "tests", "types", "transitive"),
+		strength: v.number(), // 0-100 coupling strength
+		evidence: v.optional(v.string()), // brief description of why coupled
+		createdAt: v.number(),
+		updatedAt: nullableNumber,
+	})
+		.index("by_source", ["sourceFileId"])
+		.index("by_target", ["targetFileId"])
+		.index("by_repo", ["repoId"])
+		.index("by_repo_type", ["repoId", "type"]),
+
+	// ===========================================
+	// TRI-LAYER BRAIN: TEMPORAL GRAPH
+	// ===========================================
+
+	// Commit Index - Searchable commit history with panic scores
+	commit_index: defineTable({
+		repoId: v.id("repositories"),
+		commitHash: v.string(),
+		message: v.string(),
+		authorEmail: v.string(),
+		authorName: v.string(),
+		committedAt: v.number(),
+		commitType: literals("bugfix", "feature", "refactor", "docs", "chore", "unknown"),
+		panicScore: v.number(), // 0-100 based on keywords (security, hotfix, revert, etc.)
+		keywords: v.array(v.string()), // For BM25 matching
+		filesChanged: v.array(v.string()),
+		createdAt: v.number(),
+	})
+		.index("by_repo", ["repoId"])
+		.index("by_repo_date", ["repoId", "committedAt"])
+		.index("by_repo_panic", ["repoId", "panicScore"])
+		.index("by_repo_hash", ["repoId", "commitHash"]),
+
+	// ===========================================
+	// TRI-LAYER BRAIN: MEMORY-FILE LINKS
+	// ===========================================
+
+	// Memory File Links - Associates memories with code files
+	memory_file_links: defineTable({
+		memoryId: v.id("memories"),
+		codeFileId: v.id("code_files"),
+		linkType: literals("applies_to", "mentions", "warns_about"),
+		createdAt: v.number(),
+	})
+		.index("by_memory", ["memoryId"])
+		.index("by_file", ["codeFileId"]),
+});

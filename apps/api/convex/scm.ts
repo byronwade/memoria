@@ -18,7 +18,7 @@ export const upsertInstallation = mutation({
 	args: {
 		providerType: providerTypeValidator,
 		providerInstallationId: v.string(),
-		orgId: v.string(), // Accept string, will be normalized
+		userId: v.string(), // Accept string, will be normalized
 		accountType: accountTypeValidator,
 		accountLogin: v.string(),
 		accountName: v.union(v.string(), v.null()),
@@ -26,10 +26,10 @@ export const upsertInstallation = mutation({
 		status: installationStatusValidator,
 	},
 	handler: async (ctx, args) => {
-		// Normalize orgId
-		const orgId = ctx.db.normalizeId("organizations", args.orgId);
-		if (!orgId) {
-			throw new Error("Invalid organization ID");
+		// Normalize userId
+		const userId = ctx.db.normalizeId("users", args.userId);
+		if (!userId) {
+			throw new Error("Invalid user ID");
 		}
 
 		const existing = await ctx.db
@@ -42,7 +42,7 @@ export const upsertInstallation = mutation({
 		const data = {
 			providerType: args.providerType,
 			providerInstallationId: args.providerInstallationId,
-			orgId,
+			userId,
 			accountType: args.accountType,
 			accountLogin: args.accountLogin,
 			accountName: args.accountName,
@@ -67,7 +67,7 @@ export const upsertInstallation = mutation({
 
 export const upsertRepository = mutation({
 	args: {
-		orgId: v.string(), // Accept string, will be normalized
+		userId: v.string(), // Accept string, will be normalized
 		scmInstallationId: v.string(), // Accept string, will be normalized
 		providerType: providerTypeValidator,
 		providerRepoId: v.string(),
@@ -80,10 +80,10 @@ export const upsertRepository = mutation({
 	},
 	handler: async (ctx, args) => {
 		// Normalize IDs
-		const orgId = ctx.db.normalizeId("organizations", args.orgId);
+		const userId = ctx.db.normalizeId("users", args.userId);
 		const scmInstallationId = ctx.db.normalizeId("scm_installations", args.scmInstallationId);
-		if (!orgId || !scmInstallationId) {
-			throw new Error("Invalid organization or installation ID");
+		if (!userId || !scmInstallationId) {
+			throw new Error("Invalid user or installation ID");
 		}
 
 		const existing = await ctx.db
@@ -94,7 +94,7 @@ export const upsertRepository = mutation({
 			.first();
 
 		const data = {
-			orgId,
+			userId,
 			scmInstallationId,
 			providerType: args.providerType,
 			providerRepoId: args.providerRepoId,
@@ -303,13 +303,13 @@ export const updateSyncState = mutation({
 });
 
 export const getInstallations = query({
-	args: { orgId: v.string() },
+	args: { userId: v.string() },
 	handler: async (ctx, args) => {
-		const orgId = ctx.db.normalizeId("organizations", args.orgId);
-		if (!orgId) return [];
+		const userId = ctx.db.normalizeId("users", args.userId);
+		if (!userId) return [];
 		return ctx.db
 			.query("scm_installations")
-			.withIndex("by_org", (q) => q.eq("orgId", orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", userId))
 			.collect();
 	},
 });
@@ -324,13 +324,13 @@ export const getInstallationById = query({
 });
 
 export const getRepositories = query({
-	args: { orgId: v.string() },
+	args: { userId: v.string() },
 	handler: async (ctx, args) => {
-		const orgId = ctx.db.normalizeId("organizations", args.orgId);
-		if (!orgId) return [];
+		const userId = ctx.db.normalizeId("users", args.userId);
+		if (!userId) return [];
 		return ctx.db
 			.query("repositories")
-			.withIndex("by_org", (q) => q.eq("orgId", orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", userId))
 			.collect();
 	},
 });

@@ -14,8 +14,8 @@ const levelValidator = literals("warn", "block");
  */
 export const createGuardrail = mutation({
 	args: {
-		orgId: v.id("organizations"),
-		repoId: v.optional(v.id("repositories")), // null = org-wide
+		userId: v.id("users"),
+		repoId: v.optional(v.id("repositories")), // null = user-wide
 		pattern: v.string(),
 		level: levelValidator,
 		message: v.string(),
@@ -23,7 +23,7 @@ export const createGuardrail = mutation({
 	},
 	handler: async (ctx, args) => {
 		const guardrailId = await ctx.db.insert("guardrails", {
-			orgId: args.orgId,
+			userId: args.userId,
 			repoId: args.repoId,
 			pattern: args.pattern,
 			level: args.level,
@@ -81,18 +81,18 @@ export const deleteGuardrail = mutation({
 });
 
 /**
- * List all guardrails for an organization (optionally filtered by repo)
+ * List all guardrails for a user (optionally filtered by repo)
  */
 export const listGuardrails = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.optional(v.id("repositories")),
 		includeDisabled: v.optional(v.boolean()),
 	},
 	handler: async (ctx, args) => {
 		let guardrails = await ctx.db
 			.query("guardrails")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		// Filter by repo if specified
@@ -124,21 +124,21 @@ export const listGuardrails = query({
 
 /**
  * Get all guardrails that apply to a specific repository
- * This merges org-wide defaults with repo-specific rules
+ * This merges user-wide defaults with repo-specific rules
  */
 export const getGuardrailsForRepo = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.id("repositories"),
 	},
 	handler: async (ctx, args) => {
 		const guardrails = await ctx.db
 			.query("guardrails")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		// Filter to only enabled guardrails that apply to this repo
-		// (org-wide OR repo-specific)
+		// (user-wide OR repo-specific)
 		const applicable = guardrails.filter(
 			(g) => g.isEnabled && (g.repoId === undefined || g.repoId === args.repoId)
 		);
@@ -167,22 +167,22 @@ export const getGuardrail = query({
 });
 
 /**
- * Get guardrail stats for an organization
+ * Get guardrail stats for a user
  */
 export const getGuardrailStats = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 	},
 	handler: async (ctx, args) => {
 		const guardrails = await ctx.db
 			.query("guardrails")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		const enabled = guardrails.filter((g) => g.isEnabled);
 		const blocking = enabled.filter((g) => g.level === "block");
 		const warning = enabled.filter((g) => g.level === "warn");
-		const orgWide = enabled.filter((g) => g.repoId === undefined);
+		const userWide = enabled.filter((g) => g.repoId === undefined);
 		const repoSpecific = enabled.filter((g) => g.repoId !== undefined);
 
 		return {
@@ -191,7 +191,7 @@ export const getGuardrailStats = query({
 			disabled: guardrails.length - enabled.length,
 			blocking: blocking.length,
 			warning: warning.length,
-			orgWide: orgWide.length,
+			userWide: userWide.length,
 			repoSpecific: repoSpecific.length,
 		};
 	},

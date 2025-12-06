@@ -26,16 +26,9 @@ import {
 import { cn } from "@/lib/utils";
 
 interface OnboardingStatus {
-	hasOrganization: boolean;
 	hasInstallation: boolean;
 	hasRepositories: boolean;
 	hasBillingSetup: boolean;
-	organization: {
-		_id: string;
-		name: string;
-		status: string;
-		trialEndsAt: number | null;
-	} | null;
 	installations: Array<{
 		_id: string;
 		accountLogin: string;
@@ -83,7 +76,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 	const [selectedRepos, setSelectedRepos] = useState<Set<string>>(
 		new Set(status.repositories.filter(r => r.isActive).map(r => r._id))
 	);
-	const [selectedPlan, setSelectedPlan] = useState<"free" | "solo" | "team">("free");
+	const [selectedPlan, setSelectedPlan] = useState<"free" | "pro" | "team">("free");
 	const [limitDialog, setLimitDialog] = useState<{
 		open: boolean;
 		title: string;
@@ -181,10 +174,10 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 
 	const getPlanRepoLimit = () => {
 		switch (selectedPlan) {
-			case "free": return 1;
-			case "solo": return 5;
-			case "team": return 25;
-			default: return 1;
+			case "free": return 3;
+			case "pro": return 10;
+			case "team": return 50;
+			default: return 3;
 		}
 	};
 
@@ -205,19 +198,19 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 			newSelected.delete(repoId);
 		} else {
 			// Check plan limits
-			if (selectedPlan === "free" && newSelected.size >= 1) {
+			if (selectedPlan === "free" && newSelected.size >= 3) {
 				setLimitDialog({
 					open: true,
 					title: "Repository Limit Reached",
-					description: "The Free plan only allows 1 repository. Upgrade to Solo or Team to add more repositories.",
+					description: "The Free plan allows up to 3 repositories. Upgrade to Pro or Team to add more repositories.",
 				});
 				return;
 			}
-			if (selectedPlan === "solo" && newSelected.size >= 5) {
+			if (selectedPlan === "pro" && newSelected.size >= 10) {
 				setLimitDialog({
 					open: true,
 					title: "Repository Limit Reached",
-					description: "The Solo plan allows up to 5 repositories. Upgrade to Team for up to 25 repositories.",
+					description: "The Pro plan allows up to 10 repositories. Upgrade to Team for up to 50 repositories.",
 				});
 				return;
 			}
@@ -233,7 +226,6 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					orgId: status.organization?._id,
 					repoIds: Array.from(selectedRepos),
 				}),
 			});
@@ -249,7 +241,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 		}
 	};
 
-	const handleSelectPlan = async (plan: "free" | "solo" | "team") => {
+	const handleSelectPlan = async (plan: "free" | "pro" | "team") => {
 		setSelectedPlan(plan);
 
 		if (plan === "free") {
@@ -265,7 +257,6 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					orgId: status.organization?._id,
 					planTier: plan,
 					// After payment, return to onboarding to continue with GitHub connection
 					successUrl: `${window.location.origin}/onboarding?plan=${plan}`,
@@ -422,7 +413,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 						<CardHeader className="text-center">
 							<CardTitle>Select Repositories</CardTitle>
 							<CardDescription>
-								Choose up to {getPlanRepoLimit()} repositor{getPlanRepoLimit() === 1 ? "y" : "ies"} to analyze.
+								Choose up to {getPlanRepoLimit()} repositories to analyze.
 								{selectedPlan === "free" && " Upgrade your plan for more."}
 							</CardDescription>
 						</CardHeader>
@@ -504,7 +495,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 						<div className="text-center">
 							<h2 className="text-2xl font-semibold">Choose Your Plan</h2>
 							<p className="text-muted-foreground mt-2">
-								Start with a free repository or upgrade for more
+								All 13 git analysis engines are free. Paid plans add cloud memories and team features.
 							</p>
 						</div>
 
@@ -526,47 +517,51 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									</CardTitle>
 									<CardDescription>
 										<span className="text-2xl font-bold text-foreground">$0</span>
-										<span className="text-muted-foreground">/month</span>
+										<span className="text-muted-foreground"> forever</span>
 									</CardDescription>
 								</CardHeader>
 								<CardContent>
 									<ul className="space-y-2 text-sm">
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											1 repository
+											All 13 git analysis engines
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											50 PR analyses/month
+											3 repositories
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											Basic risk reports
+											MCP + CLI included
+										</li>
+										<li className="flex items-center gap-2">
+											<Check className="w-4 h-4 text-primary" />
+											Works offline
 										</li>
 									</ul>
 								</CardContent>
 							</Card>
 
-							{/* Solo Plan */}
+							{/* Pro Plan */}
 							<Card
 								className={cn(
 									"cursor-pointer transition-all relative",
-									selectedPlan === "solo" && "ring-2 ring-primary"
+									selectedPlan === "pro" && "ring-2 ring-primary"
 								)}
-								onClick={() => setSelectedPlan("solo")}
+								onClick={() => setSelectedPlan("pro")}
 							>
 								<div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs font-medium px-2 py-0.5 rounded-full">
 									Popular
 								</div>
 								<CardHeader>
 									<CardTitle className="flex items-center justify-between">
-										Solo
-										{selectedPlan === "solo" && (
+										Pro
+										{selectedPlan === "pro" && (
 											<Check className="w-5 h-5 text-primary" />
 										)}
 									</CardTitle>
 									<CardDescription>
-										<span className="text-2xl font-bold text-foreground">$19</span>
+										<span className="text-2xl font-bold text-foreground">$5</span>
 										<span className="text-muted-foreground">/month</span>
 									</CardDescription>
 								</CardHeader>
@@ -574,19 +569,19 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									<ul className="space-y-2 text-sm">
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											5 repositories
+											Everything in Free
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											500 PR analyses/month
+											10 repositories
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											Full risk reports
+											Unlimited cloud memories
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											Priority support
+											Personal guardrails (10 rules)
 										</li>
 									</ul>
 								</CardContent>
@@ -608,27 +603,27 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 										)}
 									</CardTitle>
 									<CardDescription>
-										<span className="text-2xl font-bold text-foreground">$49</span>
-										<span className="text-muted-foreground">/month</span>
+										<span className="text-2xl font-bold text-foreground">$8</span>
+										<span className="text-muted-foreground">/seat/month</span>
 									</CardDescription>
 								</CardHeader>
 								<CardContent>
 									<ul className="space-y-2 text-sm">
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											25 repositories
+											Everything in Pro
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											2500 PR analyses/month
+											50 repositories
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											Team dashboard
+											Team-wide shared memories
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
-											API access
+											Unlimited guardrails
 										</li>
 									</ul>
 								</CardContent>

@@ -74,7 +74,10 @@
       "Bash(vercel --prod:*)",
       "Bash(vercel secrets:*)",
       "Bash(vercel env:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx vitest run:*)",
+      "Bash(timeout 3 node:*)",
+      "Bash(gtimeout 3 node:*)"
     ],
     "deny": [],
     "ask": []

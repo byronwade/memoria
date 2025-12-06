@@ -3,16 +3,6 @@ import { getSession } from "@/lib/auth/session";
 import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
 import { getInstallation } from "@/lib/github/auth";
 
-export interface DashboardOrganization {
-	_id: string;
-	name: string;
-	slug: string;
-	status: string;
-	planId: string | null;
-	maxRepos: number | null;
-	trialEndsAt: number | null;
-}
-
 export interface DashboardRepository {
 	_id: string;
 	fullName: string;
@@ -85,14 +75,12 @@ export interface DashboardGuardrailStats {
 	enabled: number;
 	blocking: number;
 	warning: number;
-	orgWide: number;
+	userWide: number;
 	repoSpecific: number;
 }
 
 export interface DashboardData {
 	user: DashboardUser;
-	organizations: DashboardOrganization[];
-	currentOrg: DashboardOrganization | null;
 	repositories: DashboardRepository[];
 	billingStatus: DashboardBillingStatus | null;
 	needsOnboarding: boolean;
@@ -109,7 +97,7 @@ export interface DashboardData {
  */
 async function refreshInstallationStatuses(
 	convex: ReturnType<typeof getConvexClient>,
-	orgId: string,
+	userId: string,
 	installations: Array<{
 		_id: string;
 		status: string;
@@ -141,7 +129,7 @@ async function refreshInstallationStatuses(
 					await callMutation(convex, "scm:upsertInstallation", {
 						providerType: "github",
 						providerInstallationId: inst.providerInstallationId,
-						orgId,
+						userId,
 						accountType: "user",
 						accountLogin: inst.accountLogin,
 						accountName: null,
@@ -164,7 +152,7 @@ async function refreshInstallationStatuses(
 					await callMutation(convex, "scm:upsertInstallation", {
 						providerType: "github",
 						providerInstallationId: inst.providerInstallationId,
-						orgId,
+						userId,
 						accountType: "user",
 						accountLogin: inst.accountLogin,
 						accountName: null,
@@ -195,33 +183,9 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 	}
 
 	const convex = getConvexClient();
+	const userId = session.user._id;
 
-	// Get user's organizations
-	const organizations = await callQuery<DashboardOrganization[]>(
-		convex,
-		"orgs:getUserOrganizations",
-		{ userId: session.user._id }
-	);
-
-	// If no organizations, redirect to onboarding
-	if (!organizations || organizations.length === 0) {
-		return {
-			user: session.user,
-			organizations: [],
-			currentOrg: null,
-			repositories: [],
-			billingStatus: null,
-			needsOnboarding: true,
-			guardrails: [],
-			memories: [],
-			interventionStats: null,
-			guardrailStats: null,
-		};
-	}
-
-	const currentOrg = organizations[0];
-
-	// Get installations for current org
+	// Get installations for user
 	const allInstallations = await callQuery<Array<{
 		_id: string;
 		status: string;
@@ -230,57 +194,57 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 	}>>(
 		convex,
 		"scm:getInstallations",
-		{ orgId: currentOrg._id }
+		{ userId }
 	);
 
 	// Auto-refresh installation status from GitHub for non-deleted installations
 	// This catches uninstalls/suspensions that weren't received via webhook
 	const refreshedInstallations = await refreshInstallationStatuses(
 		convex,
-		currentOrg._id,
+		userId,
 		allInstallations || []
 	);
 
 	// Filter to only active installations
 	const activeInstallations = refreshedInstallations.filter(i => i.status === "active");
 
-	// Get repositories for current org
+	// Get repositories for user
 	const repositories = await callQuery<DashboardRepository[]>(
 		convex,
 		"scm:getRepositories",
-		{ orgId: currentOrg._id }
+		{ userId }
 	);
 
 	// Get billing status
 	const billingStatus = await callQuery<DashboardBillingStatus | null>(
 		convex,
-		"billing:getOrgBillingStatus",
-		{ orgId: currentOrg._id }
+		"billing:getUserBillingStatus",
+		{ userId }
 	);
 
 	// Fetch AI Control Plane data
 	const guardrails = await callQuery<DashboardGuardrail[]>(
 		convex,
 		"guardrails:listGuardrails",
-		{ orgId: currentOrg._id, includeDisabled: true }
+		{ userId, includeDisabled: true }
 	);
 
 	const memories = await callQuery<DashboardMemory[]>(
 		convex,
 		"memories:listMemories",
-		{ orgId: currentOrg._id }
+		{ userId }
 	);
 
 	const interventionStats = await callQuery<DashboardInterventionStats | null>(
 		convex,
 		"interventions:getInterventionStats",
-		{ orgId: currentOrg._id }
+		{ userId }
 	);
 
 	const guardrailStats = await callQuery<DashboardGuardrailStats | null>(
 		convex,
 		"guardrails:getGuardrailStats",
-		{ orgId: currentOrg._id }
+		{ userId }
 	);
 
 	// Check if needs onboarding:
@@ -291,8 +255,6 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 
 	return {
 		user: session.user,
-		organizations: organizations || [],
-		currentOrg,
 		repositories: repositories || [],
 		billingStatus,
 		needsOnboarding,

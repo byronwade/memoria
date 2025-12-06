@@ -18,6 +18,19 @@ export default function DocsPage() {
 			<div className="docs-content">
 				<h1>Memoria Documentation</h1>
 
+				<div className="p-4 rounded-lg border border-green-500/30 bg-green-500/5 mb-6">
+					<div className="flex items-center gap-2 mb-1">
+						<span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold bg-green-500/20 text-green-600 dark:text-green-400 rounded">
+							100% FREE
+						</span>
+						<span className="text-sm font-medium text-foreground">Local & Private</span>
+					</div>
+					<p className="text-sm text-muted-foreground">
+						All 13 git analysis engines run on your machine. No account, no cloud, no limits.
+						Paid plans are optional for teams who want shared cloud memories.
+					</p>
+				</div>
+
 				<div className="flex gap-2 flex-wrap mb-6">
 					<a
 						href="https://www.npmjs.com/package/@byronwade/memoria"

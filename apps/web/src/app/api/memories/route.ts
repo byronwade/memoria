@@ -15,7 +15,7 @@ interface MemoryData {
 
 /**
  * GET /api/memories
- * List all memories for the current organization
+ * List all memories for the current user
  */
 export async function GET() {
 	try {
@@ -25,28 +25,13 @@ export async function GET() {
 		}
 
 		const convex = getConvexClient();
+		const userId = session.user._id;
 
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
-
-		// Get memories for the organization
+		// Get memories for the user
 		const memories = await callQuery<MemoryData[]>(
 			convex,
 			"memories:listMemories",
-			{ orgId }
+			{ userId }
 		);
 
 		return NextResponse.json({ memories: memories || [] });
@@ -81,34 +66,19 @@ export async function POST(request: NextRequest) {
 		}
 
 		const convex = getConvexClient();
-
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Create the memory
 		const result = await callMutation<{ memoryId: string }>(
 			convex,
 			"memories:createMemory",
 			{
-				orgId,
+				userId,
 				context: context.trim(),
 				tags: Array.isArray(tags) ? tags : [],
 				linkedFiles: Array.isArray(linkedFiles) ? linkedFiles : [],
 				repoId: repoId || undefined,
-				createdBy: session.user._id,
+				createdBy: userId,
 			}
 		);
 

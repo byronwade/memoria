@@ -9,82 +9,43 @@ const literals = <T extends string>(...values: T[]) =>
 
 const subscriptionStatusValidator = literals("active", "trialing", "past_due", "canceled", "incomplete", "paused");
 
-export const upsertBillingCustomer = mutation({
+/**
+ * Update user billing info (Stripe customer ID, subscription info)
+ */
+export const updateUserBilling = mutation({
 	args: {
-		orgId: v.id("organizations"),
-		stripeCustomerId: v.string(),
-		defaultPaymentMethodId: v.union(v.string(), v.null()),
-		metadata: v.union(v.any(), v.null()),
+		userId: v.id("users"),
+		stripeCustomerId: v.optional(v.string()),
+		stripeSubscriptionId: v.optional(v.string()),
+		planTier: v.optional(literals("free", "pro", "team")),
+		subscriptionStatus: v.optional(literals("active", "trial", "past_due", "canceled", "suspended")),
+		trialEndsAt: v.optional(v.number()),
+		maxRepos: v.optional(v.number()),
+		maxAnalysesPerMonth: v.optional(v.number()),
 	},
 	handler: async (ctx, args) => {
-		const existing = await ctx.db
-			.query("billing_customers")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
-			.first();
+		const { userId, ...updates } = args;
+		const updateData: Record<string, unknown> = { updatedAt: now() };
 
-		if (existing) {
-			await ctx.db.patch(existing._id, {
-				defaultPaymentMethodId: args.defaultPaymentMethodId,
-				metadata: args.metadata,
-				updatedAt: now(),
-			});
-			return { billingCustomerId: existing._id };
-		}
+		if (updates.stripeCustomerId !== undefined) updateData.stripeCustomerId = updates.stripeCustomerId;
+		if (updates.stripeSubscriptionId !== undefined) updateData.stripeSubscriptionId = updates.stripeSubscriptionId;
+		if (updates.planTier !== undefined) updateData.planTier = updates.planTier;
+		if (updates.subscriptionStatus !== undefined) updateData.subscriptionStatus = updates.subscriptionStatus;
+		if (updates.trialEndsAt !== undefined) updateData.trialEndsAt = updates.trialEndsAt;
+		if (updates.maxRepos !== undefined) updateData.maxRepos = updates.maxRepos;
+		if (updates.maxAnalysesPerMonth !== undefined) updateData.maxAnalysesPerMonth = updates.maxAnalysesPerMonth;
 
-		const billingCustomerId = await ctx.db.insert("billing_customers", {
-			...args,
-			createdAt: now(),
-			updatedAt: null,
-		});
-		return { billingCustomerId };
+		await ctx.db.patch(userId, updateData);
+		return { success: true };
 	},
 });
 
-export const upsertSubscription = mutation({
-	args: {
-		orgId: v.id("organizations"),
-		stripeSubscriptionId: v.string(),
-		planId: v.id("billing_plans"),
-		status: subscriptionStatusValidator,
-		currentPeriodStart: v.number(),
-		currentPeriodEnd: v.number(),
-		cancelAtPeriodEnd: v.boolean(),
-		canceledAt: v.union(v.number(), v.null()),
-		metadata: v.union(v.any(), v.null()),
-	},
-	handler: async (ctx, args) => {
-		const existing = await ctx.db
-			.query("billing_subscriptions")
-			.withIndex("by_stripeSubscriptionId", (q) => q.eq("stripeSubscriptionId", args.stripeSubscriptionId))
-			.first();
-
-		if (existing) {
-			await ctx.db.patch(existing._id, {
-				...args,
-				updatedAt: now(),
-			});
-			return { subscriptionId: existing._id };
-		}
-
-		const subscriptionId = await ctx.db.insert("billing_subscriptions", {
-			...args,
-			createdAt: now(),
-			updatedAt: null,
-		});
-
-		await ctx.db.patch(args.orgId, {
-			planId: args.planId,
-			stripeSubscriptionId: args.stripeSubscriptionId,
-			updatedAt: now(),
-		});
-
-		return { subscriptionId };
-	},
-});
-
+/**
+ * Record usage for billing period
+ */
 export const recordUsage = mutation({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		periodStart: v.number(),
 		periodEnd: v.number(),
 		prAnalysesCountDelta: v.number(),
@@ -93,8 +54,8 @@ export const recordUsage = mutation({
 	handler: async (ctx, args) => {
 		const existing = await ctx.db
 			.query("billing_usage")
-			.withIndex("by_org_period", (q) =>
-				q.eq("orgId", args.orgId).eq("periodStart", args.periodStart).eq("periodEnd", args.periodEnd),
+			.withIndex("by_userId_period", (q) =>
+				q.eq("userId", args.userId).eq("periodStart", args.periodStart).eq("periodEnd", args.periodEnd),
 			)
 			.first();
 
@@ -107,7 +68,7 @@ export const recordUsage = mutation({
 		}
 
 		const usageId = await ctx.db.insert("billing_usage", {
-			orgId: args.orgId,
+			userId: args.userId,
 			periodStart: args.periodStart,
 			periodEnd: args.periodEnd,
 			prAnalysesCount: args.prAnalysesCountDelta,
@@ -171,41 +132,6 @@ export const getPlanByTier = query({
 	},
 });
 
-export const getSubscription = query({
-	args: { orgId: v.id("organizations") },
-	handler: async (ctx, args) => {
-		const subscription = await ctx.db
-			.query("billing_subscriptions")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
-			.first();
-
-		if (!subscription) return null;
-
-		const plan = await ctx.db.get(subscription.planId);
-		return { ...subscription, plan };
-	},
-});
-
-export const getBillingCustomer = query({
-	args: { orgId: v.id("organizations") },
-	handler: async (ctx, args) => {
-		return ctx.db
-			.query("billing_customers")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
-			.first();
-	},
-});
-
-export const getBillingCustomerByStripeId = query({
-	args: { stripeCustomerId: v.string() },
-	handler: async (ctx, args) => {
-		return ctx.db
-			.query("billing_customers")
-			.withIndex("by_stripeCustomerId", (q) => q.eq("stripeCustomerId", args.stripeCustomerId))
-			.first();
-	},
-});
-
 export const getPlanByStripePrice = query({
 	args: { stripePriceId: v.string() },
 	handler: async (ctx, args) => {
@@ -217,13 +143,13 @@ export const getPlanByStripePrice = query({
 });
 
 export const getCurrentUsage = query({
-	args: { orgId: v.id("organizations") },
+	args: { userId: v.id("users") },
 	handler: async (ctx, args) => {
 		// Get current billing period usage
 		const currentTime = now();
 		const usage = await ctx.db
 			.query("billing_usage")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.filter((q) =>
 				q.and(
 					q.lte(q.field("periodStart"), currentTime),
@@ -236,45 +162,48 @@ export const getCurrentUsage = query({
 	},
 });
 
-export const getOrgBillingStatus = query({
-	args: { orgId: v.id("organizations") },
+export const getUserBillingStatus = query({
+	args: { userId: v.id("users") },
 	handler: async (ctx, args) => {
-		const org = await ctx.db.get(args.orgId);
-		if (!org) return null;
-
-		const subscription = await ctx.db
-			.query("billing_subscriptions")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
-			.first();
-
-		const plan = org.planId ? await ctx.db.get(org.planId) : null;
+		const user = await ctx.db.get(args.userId);
+		if (!user) return null;
 
 		const currentTime = now();
-		const isTrialing = org.trialEndsAt ? org.trialEndsAt > currentTime : false;
-		const trialDaysRemaining = org.trialEndsAt
-			? Math.max(0, Math.ceil((org.trialEndsAt - currentTime) / (1000 * 60 * 60 * 24)))
+		const isTrialing = user.trialEndsAt ? user.trialEndsAt > currentTime : false;
+		const trialDaysRemaining = user.trialEndsAt
+			? Math.max(0, Math.ceil((user.trialEndsAt - currentTime) / (1000 * 60 * 60 * 24)))
 			: 0;
 
 		// Count active repos
 		const repos = await ctx.db
 			.query("repositories")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.filter((q) => q.eq(q.field("isActive"), true))
 			.collect();
 
 		return {
-			orgId: org._id,
-			status: org.status,
-			plan,
-			subscription,
+			userId: user._id,
+			planTier: user.planTier || "free",
+			subscriptionStatus: user.subscriptionStatus || "active",
 			isTrialing,
 			trialDaysRemaining,
-			trialEndsAt: org.trialEndsAt,
-			maxRepos: org.maxRepos,
-			maxAnalysesPerMonth: org.maxAnalysesPerMonth,
+			trialEndsAt: user.trialEndsAt,
+			maxRepos: user.maxRepos,
+			maxAnalysesPerMonth: user.maxAnalysesPerMonth,
 			activeReposCount: repos.length,
-			stripeCustomerId: org.stripeCustomerId,
+			stripeCustomerId: user.stripeCustomerId,
+			stripeSubscriptionId: user.stripeSubscriptionId,
 		};
+	},
+});
+
+export const getUserByStripeCustomerId = query({
+	args: { stripeCustomerId: v.string() },
+	handler: async (ctx, args) => {
+		return ctx.db
+			.query("users")
+			.withIndex("by_stripeCustomerId", (q) => q.eq("stripeCustomerId", args.stripeCustomerId))
+			.first();
 	},
 });
 
@@ -295,10 +224,10 @@ export const createFreePlan = mutation({
 			name: "Free",
 			tier: "free",
 			stripePriceId: null,
-			maxRepos: 1,
+			maxRepos: 3,
 			maxAnalysesPerMonth: 50,
 			pricePerMonthUsd: 0,
-			features: ["1 repository", "50 PR analyses/month", "Basic risk reports"],
+			features: ["3 repositories", "50 PR analyses/month", "Basic risk reports"],
 			isPublic: true,
 			createdAt: now(),
 		});
@@ -314,40 +243,30 @@ export const seedPlans = mutation({
 				name: "Free",
 				tier: "free",
 				stripePriceId: null,
-				maxRepos: 1,
+				maxRepos: 3,
 				maxAnalysesPerMonth: 50,
 				pricePerMonthUsd: 0,
-				features: ["1 repository", "50 PR analyses/month", "Basic risk reports"],
+				features: ["3 repositories", "All 13 git analysis engines", "MCP + CLI included", "Works offline"],
 				isPublic: true,
 			},
 			{
-				name: "Solo",
-				tier: "solo",
-				stripePriceId: process.env.STRIPE_SOLO_PRICE_ID || null,
-				maxRepos: 5,
-				maxAnalysesPerMonth: 500,
-				pricePerMonthUsd: 19,
-				features: ["5 repositories", "500 PR analyses/month", "Full risk reports", "Priority support"],
+				name: "Pro",
+				tier: "pro",
+				stripePriceId: process.env.STRIPE_PRO_PRICE_ID || null,
+				maxRepos: -1, // unlimited
+				maxAnalysesPerMonth: -1, // unlimited
+				pricePerMonthUsd: 5,
+				features: ["Unlimited repositories", "Unlimited cloud memories", "Personal guardrails (10 rules)", "Dashboard & analytics", "Email support"],
 				isPublic: true,
 			},
 			{
 				name: "Team",
 				tier: "team",
 				stripePriceId: process.env.STRIPE_TEAM_PRICE_ID || null,
-				maxRepos: 25,
-				maxAnalysesPerMonth: 2500,
-				pricePerMonthUsd: 49,
-				features: ["25 repositories", "2500 PR analyses/month", "Team dashboard", "API access", "Priority support"],
-				isPublic: true,
-			},
-			{
-				name: "Enterprise",
-				tier: "enterprise",
-				stripePriceId: null,
 				maxRepos: -1, // unlimited
 				maxAnalysesPerMonth: -1, // unlimited
-				pricePerMonthUsd: 199,
-				features: ["Unlimited repositories", "Unlimited analyses", "Dedicated support", "Custom integrations", "SLA"],
+				pricePerMonthUsd: 8,
+				features: ["Everything in Pro", "Team-wide shared memories", "Unlimited guardrails", "Org-level analytics", "Priority support"],
 				isPublic: true,
 			},
 		];
@@ -375,32 +294,3 @@ export const seedPlans = mutation({
 		return results;
 	},
 });
-
-export const updateOrgBillingStatus = mutation({
-	args: {
-		orgId: v.id("organizations"),
-		status: v.optional(v.string()),
-		planId: v.optional(v.id("billing_plans")),
-		stripeCustomerId: v.optional(v.string()),
-		stripeSubscriptionId: v.optional(v.string()),
-		trialEndsAt: v.optional(v.number()),
-		maxRepos: v.optional(v.number()),
-		maxAnalysesPerMonth: v.optional(v.number()),
-	},
-	handler: async (ctx, args) => {
-		const { orgId, ...updates } = args;
-		const updateData: Record<string, unknown> = { updatedAt: now() };
-
-		if (updates.status !== undefined) updateData.status = updates.status;
-		if (updates.planId !== undefined) updateData.planId = updates.planId;
-		if (updates.stripeCustomerId !== undefined) updateData.stripeCustomerId = updates.stripeCustomerId;
-		if (updates.stripeSubscriptionId !== undefined) updateData.stripeSubscriptionId = updates.stripeSubscriptionId;
-		if (updates.trialEndsAt !== undefined) updateData.trialEndsAt = updates.trialEndsAt;
-		if (updates.maxRepos !== undefined) updateData.maxRepos = updates.maxRepos;
-		if (updates.maxAnalysesPerMonth !== undefined) updateData.maxAnalysesPerMonth = updates.maxAnalysesPerMonth;
-
-		await ctx.db.patch(orgId, updateData);
-		return { success: true };
-	},
-});
-

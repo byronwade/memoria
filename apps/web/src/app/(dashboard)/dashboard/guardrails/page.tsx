@@ -38,10 +38,10 @@ import { useDashboard } from "../../dashboard-context";
 import type { DashboardGuardrail } from "../../dashboard-data";
 
 type GuardrailLevel = "warn" | "block";
-type FilterScope = "all" | "org" | "repo";
+type FilterScope = "all" | "user" | "repo";
 
 export default function GuardrailsPage() {
-	const { guardrails, guardrailStats, activeRepos, currentOrg } = useDashboard();
+	const { guardrails, guardrailStats, activeRepos } = useDashboard();
 
 	// Filter state
 	const [filterScope, setFilterScope] = useState<FilterScope>("all");
@@ -64,7 +64,7 @@ export default function GuardrailsPage() {
 	const filteredGuardrails = useMemo(() => {
 		let result = guardrails;
 
-		if (filterScope === "org") {
+		if (filterScope === "user") {
 			result = result.filter((g) => !g.repoId);
 		} else if (filterScope === "repo") {
 			result = result.filter((g) => g.repoId);
@@ -78,7 +78,7 @@ export default function GuardrailsPage() {
 	}, [guardrails, filterScope, filterRepo]);
 
 	// Group guardrails by scope
-	const orgGuardrails = filteredGuardrails.filter((g) => !g.repoId);
+	const userGuardrails = filteredGuardrails.filter((g) => !g.repoId);
 	const repoGuardrails = filteredGuardrails.filter((g) => g.repoId);
 
 	// Reset form
@@ -339,7 +339,7 @@ export default function GuardrailsPage() {
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<Button variant="outline" size="sm">
-								{filterScope === "all" ? "All Scopes" : filterScope === "org" ? "Org-Wide Only" : "Repo-Specific Only"}
+								{filterScope === "all" ? "All Scopes" : filterScope === "user" ? "User-Wide Only" : "Repo-Specific Only"}
 								<ChevronDown className="h-3.5 w-3.5 ml-2" />
 							</Button>
 						</DropdownMenuTrigger>
@@ -348,9 +348,9 @@ export default function GuardrailsPage() {
 								All Scopes
 								{filterScope === "all" && <Check className="h-4 w-4 ml-auto" />}
 							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => setFilterScope("org")}>
-								Org-Wide Only
-								{filterScope === "org" && <Check className="h-4 w-4 ml-auto" />}
+							<DropdownMenuItem onClick={() => setFilterScope("user")}>
+								User-Wide Only
+								{filterScope === "user" && <Check className="h-4 w-4 ml-auto" />}
 							</DropdownMenuItem>
 							<DropdownMenuItem onClick={() => setFilterScope("repo")}>
 								Repo-Specific Only
@@ -400,15 +400,15 @@ export default function GuardrailsPage() {
 
 			{/* Guardrails List */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-6 space-y-8">
-				{/* Org-Wide Guardrails */}
-				{orgGuardrails.length > 0 && (
+				{/* User-Wide Guardrails */}
+				{userGuardrails.length > 0 && (
 					<section>
 						<div className="flex items-center gap-2 mb-4">
 							<Shield className="h-4 w-4 text-muted-foreground" />
-							<h2 className="text-sm font-medium">Organization-Wide ({orgGuardrails.length})</h2>
+							<h2 className="text-sm font-medium">All Repositories ({userGuardrails.length})</h2>
 						</div>
 						<div className="space-y-2">
-							{orgGuardrails.map((guardrail) => (
+							{userGuardrails.map((guardrail) => (
 								<GuardrailRow
 									key={guardrail._id}
 									guardrail={guardrail}
@@ -740,13 +740,13 @@ function GuardrailForm({
 						<Button variant="outline" className="w-full justify-between">
 							{repoId
 								? repos.find((r) => r._id === repoId)?.fullName.split("/")[1] || "Unknown"
-								: "Organization-wide (all repos)"}
+								: "All repositories"}
 							<ChevronDown className="h-4 w-4" />
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
 						<DropdownMenuItem onClick={() => setRepoId(undefined)}>
-							Organization-wide (all repos)
+							All repositories
 						</DropdownMenuItem>
 						{repos.map((repo) => (
 							<DropdownMenuItem key={repo._id} onClick={() => setRepoId(repo._id)}>

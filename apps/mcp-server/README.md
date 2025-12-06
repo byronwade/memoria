@@ -6,7 +6,7 @@
 
 **The Memory Your AI Lacks.**
 
-An MCP server that prevents your AI from breaking code by revealing hidden file dependencies through git forensics.
+An MCP server that prevents your AI from breaking code by revealing hidden file dependencies through git forensics — plus cloud memories and guardrails for teams.
 
 [![npm version](https://img.shields.io/npm/v/@byronwade/memoria.svg)](https://www.npmjs.com/package/@byronwade/memoria)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -16,7 +16,24 @@ An MCP server that prevents your AI from breaking code by revealing hidden file 
 
 ---
 
-## ⚡ Quick Install
+## Free vs Paid
+
+| Feature | Free (Local) | Paid (Cloud) |
+|---------|--------------|--------------|
+| **Git Analysis** (13 engines) | Unlimited | Unlimited |
+| **Risk Scores & Coupling** | Unlimited | Unlimited |
+| **History Search** | Unlimited | Unlimited |
+| **Cloud Memories** | - | Team-wide context |
+| **Guardrails** | - | File protection rules |
+| **Dashboard** | - | Visual analytics |
+
+**Free tier runs 100% locally** — no account, no API keys, no cloud.
+
+**Paid tier adds team intelligence** — shared memories, guardrails, and dashboards synced across your org.
+
+---
+
+## Quick Install
 
 ### One-Click Install (Smithery)
 
@@ -49,7 +66,7 @@ Add this to your MCP config file (works with Claude, Cursor, Windsurf, Cline):
 | **npm global** | `npm install -g @byronwade/memoria` |
 
 <details>
-<summary><strong>🪟 Windows PowerShell Install</strong></summary>
+<summary><strong>Windows PowerShell Install</strong></summary>
 
 ```powershell
 # Claude Desktop
@@ -62,7 +79,7 @@ $json | ConvertTo-Json -Depth 10 | Set-Content $config
 </details>
 
 <details>
-<summary><strong>🍎 macOS Manual Install</strong></summary>
+<summary><strong>macOS Manual Install</strong></summary>
 
 ```bash
 # Claude Desktop (requires jq: brew install jq)
@@ -87,221 +104,91 @@ Why? Some other file depended on the old implementation - but there's no import 
 
 ```
 Without Memoria:                        With Memoria:
-─────────────────                       ─────────────
+-----------------                       -------------
 You: "Update route.ts"                  You: "Update route.ts"
-AI: "Done!" ✅                           Memoria: "⚠️ 85% coupled with billing.tsx"
-Result: 💥 CRASH                         AI: "I'll update both files"
-                                        Result: ✅ Works
+AI: "Done!"                             Memoria: "85% coupled with billing.tsx"
+Result: CRASH                           AI: "I'll update both files"
+                                        Result: Works
 ```
 
 ---
 
-## Private & Local
+## The Four MCP Tools
 
-Memoria runs **100% on your machine**.
+### 1. `analyze_file` (FREE)
+Full forensic analysis of any file — risk score, coupled files, static dependents, pre-flight checklist.
 
-- No code is uploaded to the cloud
-- No API keys required
-- Works offline
-- Analyzes your local `.git` folder directly
+### 2. `ask_history` (FREE)
+Search git history to understand WHY code exists. Solves Chesterton's Fence problem.
 
-Your code never leaves your computer.
+### 3. `get_context` (FREE + PAID)
+Get context for a file before editing:
+- **FREE**: Git-based coupling, risk assessment, checklist
+- **PAID**: Cloud memories from your team, guardrail warnings
 
----
-
-## Installation
-
-Choose your AI tool:
-
-| Tool | One-Liner | Config File |
-|------|-----------|-------------|
-| ![Claude](https://img.shields.io/badge/Claude_Desktop-cc785c?style=flat-square&logo=anthropic&logoColor=white) | `npx @anthropic/claude-code mcp add memoria -- npx -y @byronwade/memoria` | See below |
-| ![Claude Code](https://img.shields.io/badge/Claude_Code-cc785c?style=flat-square&logo=anthropic&logoColor=white) | `claude mcp add memoria -- npx -y @byronwade/memoria` | Automatic |
-| ![Cursor](https://img.shields.io/badge/Cursor-000?style=flat-square&logo=cursor&logoColor=white) | `mkdir -p .cursor && echo '{"mcpServers":{"memoria":{"command":"npx","args":["-y","@byronwade/memoria"]}}}' > .cursor/mcp.json` | `.cursor/mcp.json` |
-| ![Windsurf](https://img.shields.io/badge/Windsurf-0ea5e9?style=flat-square&logo=codeium&logoColor=white) | Manual config | `~/.codeium/windsurf/mcp_config.json` |
-| ![VS Code](https://img.shields.io/badge/Continue-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white) | Manual config | `~/.continue/config.json` |
-| ![Cline](https://img.shields.io/badge/Cline-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white) | Settings UI | Cline MCP Settings |
+### 4. `save_lesson` (PAID)
+Save a lesson or context that persists across sessions and team members.
 
 ---
 
-<details>
-<summary><strong>📦 Claude Desktop</strong></summary>
+## Enabling Cloud Features
 
-**Config location:**
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-**Option 1: Claude Code CLI (Recommended)**
-```bash
-npx @anthropic/claude-code mcp add memoria -- npx -y @byronwade/memoria
-```
-
-**Option 2: Manual config**
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "npx",
-      "args": ["-y", "@byronwade/memoria"]
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>📦 Claude Code (CLI)</strong></summary>
+To enable cloud memories and guardrails, set these environment variables:
 
 ```bash
-claude mcp add memoria -- npx -y @byronwade/memoria
+# In your shell or .env file
+export MEMORIA_API_URL=https://memoria.dev
+export MEMORIA_TOKEN=mem_xxxxx  # Get from https://memoria.dev/dashboard
 ```
 
-Done! Claude Code handles everything automatically.
-
-</details>
-
-<details>
-<summary><strong>📦 Cursor</strong></summary>
-
-**One-liner (project-level):**
-```bash
-mkdir -p .cursor && echo '{"mcpServers":{"memoria":{"command":"npx","args":["-y","@byronwade/memoria"]}}}' > .cursor/mcp.json
-```
-
-**Config locations:**
-- Project: `.cursor/mcp.json` (in project root)
-- Global: `~/.cursor/mcp.json`
+Or in your MCP config:
 
 ```json
 {
   "mcpServers": {
     "memoria": {
       "command": "npx",
-      "args": ["-y", "@byronwade/memoria"]
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>📦 Windsurf</strong></summary>
-
-**Config:** `~/.codeium/windsurf/mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "npx",
-      "args": ["-y", "@byronwade/memoria"]
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>📦 Continue (VS Code)</strong></summary>
-
-**Config:** `~/.continue/config.json`
-
-```json
-{
-  "experimental": {
-    "modelContextProtocolServers": [
-      {
-        "transport": {
-          "type": "stdio",
-          "command": "npx",
-          "args": ["-y", "@byronwade/memoria"]
-        }
+      "args": ["-y", "@byronwade/memoria"],
+      "env": {
+        "MEMORIA_API_URL": "https://memoria.dev",
+        "MEMORIA_TOKEN": "mem_xxxxx"
       }
-    ]
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>📦 Cline (VS Code)</strong></summary>
-
-Open Cline settings → MCP Servers → Add new server:
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "npx",
-      "args": ["-y", "@byronwade/memoria"]
     }
   }
 }
 ```
 
-</details>
-
-<details>
-<summary><strong>📦 Other MCP Clients</strong></summary>
-
-Any MCP-compatible client works. Use this universal config:
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "npx",
-      "args": ["-y", "@byronwade/memoria"]
-    }
-  }
-}
-```
-
-</details>
-
-**⚠️ After configuring, restart your AI tool.**
-
-### Verify Installation
-
-After restarting, ask your AI:
-
-```
-"What MCP tools do you have available?"
-```
-
-You should see `analyze_file` and `ask_history` in the list.
-
-Or test directly:
-
-```
-"Use the analyze_file tool on any file in this project"
-```
+Without these, Memoria runs in free mode with full local git analysis.
 
 ---
 
-## Usage
+## The 13 Analysis Engines
 
-Ask your AI to analyze a file before making changes:
+All engines run locally for free:
 
-```
-"Analyze src/api/stripe/route.ts before I refactor it"
-```
+| Engine | What It Does | Speed |
+|--------|--------------|-------|
+| **Volatility** | Panic keyword detection with time-decay | ~10ms |
+| **Entanglement** | Files that change together >15% | ~45ms |
+| **Sentinel** | Drift detection for stale dependencies | <1ms |
+| **Static Imports** | Files that import the target | ~8ms |
+| **History Search** | Git archaeology with line-range support | ~7ms |
+| **Documentation** | Markdown files referencing exports | ~50ms |
+| **Type Coupling** | Files sharing type definitions | ~100ms |
+| **Content Coupling** | Files sharing string literals | ~30ms |
+| **Test Files** | Auto-discovered test/mock files | ~20ms |
+| **Environment** | Files sharing env variables | ~15ms |
+| **Schema/Model** | Database schema dependencies | ~25ms |
+| **API Endpoints** | Client code calling your routes | ~30ms |
+| **Re-Export Chain** | Transitive barrel file imports | ~40ms |
 
-Memoria returns:
-- **Coupled files** - Files that frequently change together
-- **Risk score** - How bug-prone this code is historically
-- **Stale dependencies** - Coupled files that may need updating
-- **Evidence** - Actual code diffs showing why files are related
+**Total analysis time: ~150ms** — all engines run in parallel.
 
 ---
 
 ## CLI Commands
 
-Memoria includes a full CLI for manual analysis - the same capabilities your AI uses:
+Memoria includes a full CLI for manual analysis:
 
 ```bash
 # Full forensic analysis (same as AI's analyze_file)
@@ -319,78 +206,60 @@ memoria importers src/types.ts
 # Search git history (same as AI's ask_history)
 memoria history "setTimeout" src/utils.ts
 memoria history "fix" --type=message
+
+# Install auto-pilot rules for your AI tool
+memoria init --all
 ```
 
-### History Search Options
+---
 
-```bash
-# Filter by time
-memoria history "bug" --since=30days
-memoria history "refactor" --since=2024-01-01 --until=2024-06-01
-
-# Filter by author
-memoria history "API" --author=dave
-
-# Filter by commit type (auto-classified)
-memoria history "auth" --commit-type=bugfix
-memoria history "component" --commit-type=feature,refactor
-
-# Include code snippets (auto for ≤5 results)
-memoria history "setTimeout" --diff
-
-# Combine filters
-memoria history "fix" --since=30days --commit-type=bugfix --diff --json
-```
-
-**Commit Types:** `bugfix`, `feature`, `refactor`, `docs`, `test`, `chore`, `unknown`
-
-### Output Options
-
-```bash
-# JSON output for scripting/CI
-memoria analyze src/index.ts --json
-
-# Pipe to other tools
-memoria risk src/api/route.ts --json | jq '.riskScore'
-```
-
-### Example Output
+## Example Output
 
 ```
-$ memoria analyze src/index.ts
+# Forensics: `route.ts`
 
-Forensics for `index.ts`
+**RISK: 65/100** - HIGH
+45% volatility | 5 coupled | 8 dependents | 1 stale
 
-RISK: 45/100 (MEDIUM)
-Risk factors: High volatility (38%) • Coupled (5 files) • 3 dependents
+> Proceed carefully. Check all coupled files and update stale dependencies.
 
-VOLATILITY
-  Panic score: 38% | Commits: 24
-  Top author: Dave (72%)
+---
 
-COUPLED FILES
-  85% billing/page.tsx [schema]
-      References: billing_records table. Schema changes may break queries.
-  90% index.test.ts [test]
-      Test file matches naming pattern. Update when changing exports.
-  75% config.ts [env]
-      Shares env vars: API_KEY, DATABASE_URL
-  65% hooks/useData.ts [api]
-      Calls endpoint: GET /api/data
+## Coupled Files
 
-STATIC DEPENDENTS
-  - [ ] Check `cli.ts`
-  - [ ] Check `server.ts`
-  - [ ] Check `utils.ts`
+**`billing/page.tsx`** - 85% (schema)
+> These files share type definitions. If you modify types in one, update the other to match.
+  + interface SubscriptionUpdated
+  - oldStatus: string
 
-Analysis completed in 142ms
+**`route.test.ts`** - 90% [test]
+> Test file for this module. Update when changing exports.
+
+**`services/stripe.ts`** - 75% [env]
+> Shares env vars: STRIPE_KEY, STRIPE_SECRET
+
+---
+
+## Cloud Memories (Paid)
+
+**CRITICAL MEMORIES**
+- Safari OAuth requires 100ms delay before redirect (commit abc123)
+- Always invalidate old sessions before creating new ones
+
+---
+
+## Pre-flight Checklist
+
+- [ ] Modify `route.ts`
+- [ ] Update `billing/page.tsx` (schema)
+- [ ] Update `tests/stripe.test.ts` - stale 12d
 ```
 
 ---
 
 ## Configuration (Optional)
 
-Create a `.memoria.json` in your project root to customize thresholds:
+Create a `.memoria.json` in your project root:
 
 ```json
 {
@@ -418,124 +287,24 @@ Create a `.memoria.json` in your project root to customize thresholds:
 }
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `thresholds.couplingPercent` | 15 | Minimum coupling % to report |
-| `thresholds.driftDays` | 7 | Days before a file is "stale" |
-| `thresholds.analysisWindow` | 50 | Number of commits to analyze |
-| `ignore` | [] | Additional glob patterns to ignore |
-| `panicKeywords` | {} | Custom keywords with severity weights |
-| `riskWeights` | {} | Override risk calculation weights |
-
 ---
 
-## How It Works
+## Private & Local
 
-### Volatility Engine
-Scans commits for panic keywords (`fix`, `bug`, `revert`, `urgent`, `hotfix`) with **time-decay** - recent bugs matter more than old ones. Also tracks **Bus Factor** (who owns the code).
+The free tier runs **100% on your machine**.
 
-### Entanglement Engine
-Finds files that change together >15% of the time. Reveals implicit dependencies that imports can't show.
+- No code is uploaded to the cloud
+- No API keys required
+- Works offline
+- Analyzes your local `.git` folder directly
 
-### Sentinel Engine
-Detects when coupled files are >7 days out of sync. Flags stale dependencies before they cause bugs.
-
-### Static Import Engine
-Uses `git grep` to find files that import the target - even for brand new files with no git history.
-
-### History Search (The Archaeologist)
-Search git history to understand *why* code was written. Solves the "Chesterton's Fence" problem before you delete that weird-looking code.
-
-### Documentation Coupling
-Finds markdown files that reference your exported functions/types. Catches README updates needed when output format changes.
-
-### Type Coupling
-Uses git pickaxe (`git log -S`) to find files sharing type definitions - even without direct imports.
-
-### Content Coupling
-Finds files sharing string literals (error messages, constants) that should stay in sync.
-
-### Test File Coupling
-Auto-discovers test files matching naming conventions (`*.test.*`, `*.spec.*`, `*_test.*`, etc.) and mock/fixture files - no hardcoded extensions.
-
-### Environment Variable Coupling
-Finds files sharing `ALL_CAPS_UNDERSCORE` environment variables (`API_KEY`, `DATABASE_URL`, etc.) - works across any language.
-
-### Schema/Model Coupling
-Detects database schema definitions (SQL, Prisma, TypeORM, Mongoose) and finds files that query those tables/models.
-
-### API Endpoint Coupling
-Finds client code that calls API endpoints defined in route files. Catches response shape changes that break consumers.
-
-### Re-Export Chain Coupling
-Detects barrel files (`index.ts`) that re-export your module and finds transitive importers through those barrels.
-
----
-
-## Example Output
-
-```
-# Forensics: `route.ts`
-
-**RISK: 65/100** — HIGH
-45% volatility · 3 coupled · 8 dependents · 1 stale
-
-> Proceed carefully. Check all coupled files and update stale dependencies.
-
----
-
-## Coupled Files
-
-**`billing/page.tsx`** — 85% (schema)
-> These files share type definitions. If you modify types in one, update the other to match.
-  + interface SubscriptionUpdated
-  - oldStatus: string
-
-**`route.test.ts`** — 90% [test]
-> Test file for this module. Update when changing exports.
-
-**`services/stripe.ts`** — 75% [env]
-> Shares env vars: STRIPE_KEY, STRIPE_SECRET
-
-**`README.md`** — 70% [docs]
-> Documentation references: generateReport, SubscriptionStatus
-
-**`types/billing.ts`** — 65% [type]
-> Shared types: SubscriptionUpdated, PaymentStatus
-
-**`features/billing/index.ts`** — 60% [transitive]
-> Re-exports this file. Changes propagate through this barrel.
-
----
-
-## Static Dependents
-
-These files import `route.ts`. API changes require updating them.
-
-- [ ] `src/components/SubscriptionCard.tsx`
-- [ ] `src/hooks/useSubscription.ts`
-
----
-
-## Pre-flight Checklist
-
-- [ ] Modify `route.ts`
-- [ ] Update `billing/page.tsx` (schema)
-- [ ] Update `tests/stripe.test.ts` — stale 12d
-
----
-
-## File History
-
-**Volatile** — 45% panic score
-**Expert:** Dave (90% of commits)
-```
+Your code never leaves your computer unless you opt into cloud features.
 
 ---
 
 ## Auto-Pilot Mode
 
-Want your AI to check Memoria **automatically** before every edit? Install the rule files:
+Want your AI to check Memoria **automatically** before every edit?
 
 ```bash
 # Install globally first
@@ -547,8 +316,6 @@ memoria init --all
 
 This installs rule files that tell your AI to always call `analyze_file` before editing code.
 
-### What Gets Installed
-
 | Flag | File | Tool |
 |------|------|------|
 | `--cursor` | `.cursor/rules/memoria.mdc` | Cursor |
@@ -556,75 +323,6 @@ This installs rule files that tell your AI to always call `analyze_file` before 
 | `--windsurf` | `.windsurfrules` | Windsurf |
 | `--cline` | `.clinerules` | Cline/Continue |
 | `--all` | All of the above | All tools |
-| `--force` | Update existing rules | Overwrites Memoria section |
-
-### Smart Merge Behavior
-
-`memoria init` is safe to run multiple times - it won't overwrite your existing rules:
-
-| Scenario | What Happens |
-|----------|--------------|
-| File doesn't exist | Creates new file with Memoria rules |
-| File exists, no Memoria | **Appends** Memoria rules (your content preserved) |
-| File exists, has Memoria | **Skips** (use `--force` to update) |
-
-```bash
-# First run - creates or appends
-memoria init --cursor
-#   ✓ Created .cursor/rules/memoria.mdc
-
-# Second run - skips (already installed)
-memoria init --cursor
-#   ⊘ Skipped .cursor/rules/memoria.mdc (already has Memoria rules)
-#   Use --force to update existing Memoria rules.
-
-# Force update to latest version
-memoria init --cursor --force
-#   ✓ Updated .cursor/rules/memoria.mdc (--force)
-```
-
-### Auto-Detection
-
-Running `memoria init` without flags will auto-detect which tools you're using:
-
-```bash
-memoria init
-# Detected: Cursor, Claude Code
-# Installing Memoria rules...
-#   ✓ Created .cursor/rules/memoria.mdc
-#   ✓ Appended to .claude/CLAUDE.md (preserved existing content)
-# ✓ Installed/updated 2 rule file(s)
-```
-
-Now Memoria acts as a **mandatory safety guard** for every edit.
-
----
-
-## Performance
-
-Memoria is optimized for speed and minimal token usage:
-
-| Metric | Value |
-|--------|-------|
-| **Full analysis time** | <100ms |
-| **Tokens per analysis** | ~600 tokens |
-| **Cache speedup** | 2000x+ on repeat calls |
-
-### Engine Breakdown
-
-| Engine | Time | Purpose |
-|--------|------|---------|
-| Coupling | ~45ms | Find files that change together |
-| Volatility | ~10ms | Calculate bug-prone score |
-| Drift | <1ms | Detect stale dependencies |
-| Importers | ~8ms | Find static dependents |
-| History Search | ~7ms | Search git commits |
-
-Run benchmarks yourself:
-```bash
-npm run build
-npx tsx benchmarks/run-benchmarks.ts
-```
 
 ---
 
@@ -633,15 +331,6 @@ npx tsx benchmarks/run-benchmarks.ts
 - Node.js 18+
 - Git repository with commit history
 - MCP-compatible AI tool
-
----
-
-## Monorepo Layout (Turbo)
-
-- `apps/mcp-server` — MCP server & npm package (publishes `@byronwade/memoria`)
-- `apps/api` — API backend stub (Node HTTP placeholder)
-- `apps/web` — Web frontend stub
-- `packages` — Shared libraries (future)
 
 ---
 
@@ -662,7 +351,7 @@ npx turbo run dev --filter=@byronwade/memoria
 ## Troubleshooting
 
 <details>
-<summary><strong>❌ "Tool not found" or "analyze_file not available"</strong></summary>
+<summary><strong>"Tool not found" or "analyze_file not available"</strong></summary>
 
 1. **Restart your AI tool** - MCP servers only load on startup
 2. **Check config syntax** - JSON must be valid (no trailing commas)
@@ -672,7 +361,7 @@ npx turbo run dev --filter=@byronwade/memoria
 </details>
 
 <details>
-<summary><strong>❌ "Not a git repository"</strong></summary>
+<summary><strong>"Not a git repository"</strong></summary>
 
 Memoria requires a git repository with history. Make sure:
 1. You're in a git repo (`git status` should work)
@@ -682,7 +371,7 @@ Memoria requires a git repository with history. Make sure:
 </details>
 
 <details>
-<summary><strong>❌ npx is slow or times out</strong></summary>
+<summary><strong>npx is slow or times out</strong></summary>
 
 Install globally for faster startup:
 ```bash
@@ -699,18 +388,6 @@ Then update your config to use `memoria` directly:
   }
 }
 ```
-
-</details>
-
-<details>
-<summary><strong>❌ Windows path issues</strong></summary>
-
-Use forward slashes or escaped backslashes in paths:
-```json
-"args": ["-y", "@byronwade/memoria"]
-```
-
-If issues persist, install globally and use the command directly.
 
 </details>
 

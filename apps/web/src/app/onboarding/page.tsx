@@ -5,16 +5,9 @@ import { getInstallation } from "@/lib/github/auth";
 import { OnboardingFlow } from "./onboarding-flow";
 
 interface OnboardingStatus {
-	hasOrganization: boolean;
 	hasInstallation: boolean;
 	hasRepositories: boolean;
 	hasBillingSetup: boolean;
-	organization: {
-		_id: string;
-		name: string;
-		status: string;
-		trialEndsAt: number | null;
-	} | null;
 	installations: Array<{
 		_id: string;
 		accountLogin: string;
@@ -33,7 +26,7 @@ interface OnboardingStatus {
  */
 async function refreshInstallationStatuses(
 	convex: ReturnType<typeof getConvexClient>,
-	orgId: string,
+	userId: string,
 	installations: Array<{
 		_id: string;
 		status: string;
@@ -61,7 +54,7 @@ async function refreshInstallationStatuses(
 					await callMutation(convex, "scm:upsertInstallation", {
 						providerType: "github",
 						providerInstallationId: inst.providerInstallationId,
-						orgId,
+						userId,
 						accountType: "user",
 						accountLogin: inst.accountLogin,
 						accountName: null,
@@ -81,7 +74,7 @@ async function refreshInstallationStatuses(
 					await callMutation(convex, "scm:upsertInstallation", {
 						providerType: "github",
 						providerInstallationId: inst.providerInstallationId,
-						orgId,
+						userId,
 						accountType: "user",
 						accountLogin: inst.accountLogin,
 						accountName: null,
@@ -103,63 +96,43 @@ async function refreshInstallationStatuses(
 async function getOnboardingStatus(userId: string): Promise<OnboardingStatus> {
 	const convex = getConvexClient();
 
-	// Get user's organizations
-	const orgs = await callQuery<Array<{
-		_id: string;
-		name: string;
-		status: string;
-		trialEndsAt: number | null;
+	// Get user billing status
+	const user = await callQuery<{
 		stripeCustomerId: string | null;
-	}>>(convex, "orgs:getUserOrganizations", { userId });
+	} | null>(convex, "billing:getUserBillingStatus", { userId });
 
-	const org = orgs?.[0] || null;
-
-	if (!org) {
-		return {
-			hasOrganization: false,
-			hasInstallation: false,
-			hasRepositories: false,
-			hasBillingSetup: false,
-			organization: null,
-			installations: [],
-			repositories: [],
-		};
-	}
-
-	// Get installations for org
+	// Get installations for user
 	const allInstallations = await callQuery<Array<{
 		_id: string;
 		accountLogin: string;
 		status: string;
 		providerInstallationId: string;
-	}>>(convex, "scm:getInstallations", { orgId: org._id });
+	}>>(convex, "scm:getInstallations", { userId });
 
 	// Auto-refresh installation status from GitHub for non-deleted installations
 	const refreshedInstallations = await refreshInstallationStatuses(
 		convex,
-		org._id,
+		userId,
 		allInstallations || []
 	);
 
 	// Filter to only active installations (not deleted or suspended)
 	const activeInstallations = refreshedInstallations.filter(i => i.status === "active");
 
-	// Get repositories for org
+	// Get repositories for user
 	const repositories = await callQuery<Array<{
 		_id: string;
 		fullName: string;
 		isActive: boolean;
 		isPrivate: boolean;
-	}>>(convex, "scm:getRepositories", { orgId: org._id });
+	}>>(convex, "scm:getRepositories", { userId });
 
 	const activeRepos = repositories?.filter(r => r.isActive) || [];
 
 	return {
-		hasOrganization: true,
 		hasInstallation: activeInstallations.length > 0,
 		hasRepositories: activeRepos.length > 0,
-		hasBillingSetup: !!org.stripeCustomerId,
-		organization: org,
+		hasBillingSetup: !!user?.stripeCustomerId,
 		installations: activeInstallations,
 		repositories: repositories || [],
 	};
@@ -175,7 +148,7 @@ export default async function OnboardingPage() {
 	const status = await getOnboardingStatus(session.user._id);
 
 	// If fully onboarded, redirect to dashboard
-	if (status.hasOrganization && status.hasInstallation && status.hasRepositories) {
+	if (status.hasInstallation && status.hasRepositories) {
 		redirect("/dashboard");
 	}
 

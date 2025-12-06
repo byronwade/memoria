@@ -7,15 +7,14 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 /**
  * GET /api/github/callback
  * Handles GitHub App installation callback
- * Links installation to user's organization and syncs repositories
+ * Links installation to user and syncs repositories
  */
 export async function GET(request: NextRequest) {
 	const searchParams = request.nextUrl.searchParams;
 	const installationId = searchParams.get("installation_id");
 	const setupAction = searchParams.get("setup_action"); // "install" | "update" | "request"
-	const state = searchParams.get("state"); // Optional org ID
 
-	console.log("[github-callback] Received callback:", { installationId, setupAction, state });
+	console.log("[github-callback] Received callback:", { installationId, setupAction });
 
 	// Validate installation ID
 	if (!installationId) {
@@ -39,7 +38,7 @@ export async function GET(request: NextRequest) {
 		const convex = getConvexClient();
 
 		// Validate session and get user
-		const session = await callQuery<{ user: { _id: string; primaryOrgId?: string } } | null>(
+		const session = await callQuery<{ user: { _id: string } } | null>(
 			convex,
 			"auth:getSession",
 			{ sessionToken }
@@ -53,6 +52,8 @@ export async function GET(request: NextRequest) {
 			);
 		}
 
+		const userId = session.user._id;
+
 		// Get installation details from GitHub
 		console.log("[github-callback] Fetching installation from GitHub:", installationId);
 		const installation = await getInstallation(parseInt(installationId));
@@ -65,46 +66,12 @@ export async function GET(request: NextRequest) {
 		const accountName = account?.name || null;
 		const accountType = account?.type === "Organization" ? "org" : "user";
 
-		// Determine which org to link to - check state, then primaryOrgId, then query for user's orgs
-		let orgId = state || session.user.primaryOrgId;
-
-		// If no org from state or primaryOrgId, get user's existing organizations
-		if (!orgId) {
-			const userOrgs = await callQuery<Array<{ _id: string }>>(
-				convex,
-				"orgs:getUserOrganizations",
-				{ userId: session.user._id }
-			);
-			console.log("[github-callback] User orgs found:", userOrgs?.length || 0);
-
-			if (userOrgs && userOrgs.length > 0) {
-				// Use the first (usually only) organization
-				orgId = userOrgs[0]._id;
-				console.log("[github-callback] Using existing org:", orgId);
-			}
-		}
-
-		// If user still doesn't have an org, create one
-		if (!orgId) {
-			console.log("[github-callback] Creating new org for user");
-			const { orgId: newOrgId } = await callMutation<{ orgId: string }>(
-				convex,
-				"orgs:createOrganization",
-				{
-					name: accountLogin || "My Organization",
-					slug: (accountLogin || `org-${Date.now()}`).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
-					ownerUserId: session.user._id,
-				}
-			);
-			orgId = newOrgId;
-		}
-
-		// Upsert installation in database
-		console.log("[github-callback] Upserting installation for org:", orgId);
+		// Upsert installation in database - link directly to userId
+		console.log("[github-callback] Upserting installation for user:", userId);
 		await callMutation(convex, "scm:upsertInstallation", {
 			providerType: "github",
 			providerInstallationId: String(installationId),
-			orgId,
+			userId,
 			accountType: accountType as "user" | "org",
 			accountLogin,
 			accountName,
@@ -126,14 +93,14 @@ export async function GET(request: NextRequest) {
 
 			for (const repo of repos) {
 				await callMutation(convex, "scm:upsertRepository", {
-					orgId,
+					userId,
 					scmInstallationId: inst._id,
 					providerType: "github",
 					providerRepoId: String(repo.id),
 					fullName: repo.full_name,
 					defaultBranch: repo.default_branch || "main",
 					isPrivate: repo.private,
-					isActive: true,
+					isActive: false, // User will select which repos to activate
 					languageHint: repo.language || null,
 					settings: null,
 				});

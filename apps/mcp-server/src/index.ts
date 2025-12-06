@@ -16,6 +16,10 @@ import ignore from "ignore";
 import { LRUCache } from "lru-cache";
 import simpleGit from "simple-git";
 import { z } from "zod";
+import { getCloudClient, initializeCloudClient, type Memory } from "./convex-client.js";
+import { extractFromCode, extractFromCommitMessage, type ExtractedMemory } from "./auto-librarian.js";
+import { searchBM25, extractKeywords, extractFileKeywords, extractCodeKeywords, combineKeywords } from "./bm25.js";
+import { buildRiskAssessment as buildRiskAssessmentHelper } from "./context-response.js";
 
 // --- CONFIGURATION & CACHE ---
 // Cache results for 5 minutes
@@ -173,6 +177,47 @@ export interface EnhancedCoupledFile {
 	reason: string;
 	evidence?: DiffSummary | string;
 	lastHash?: string;
+}
+
+// --- DIRECTORY SCANNER (for memory extraction) ---
+async function scanDirectory(dirPath: string, maxFiles: number): Promise<string[]> {
+	const files: string[] = [];
+	const codeExtensions = new Set([
+		".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".java", ".rb",
+		".php", ".vue", ".svelte", ".astro", ".c", ".cpp", ".h", ".hpp",
+		".cs", ".swift", ".kt", ".scala", ".clj",
+	]);
+
+	async function scan(dir: string): Promise<void> {
+		if (files.length >= maxFiles) return;
+
+		try {
+			const entries = await fs.readdir(dir, { withFileTypes: true });
+			for (const entry of entries) {
+				if (files.length >= maxFiles) return;
+
+				const fullPath = path.join(dir, entry.name);
+
+				// Skip common non-code directories
+				if (entry.isDirectory()) {
+					if (["node_modules", ".git", "dist", "build", ".next", "__pycache__", "vendor", "target"].includes(entry.name)) {
+						continue;
+					}
+					await scan(fullPath);
+				} else if (entry.isFile()) {
+					const ext = path.extname(entry.name).toLowerCase();
+					if (codeExtensions.has(ext)) {
+						files.push(fullPath);
+					}
+				}
+			}
+		} catch {
+			// Skip unreadable directories
+		}
+	}
+
+	await scan(dirPath);
+	return files;
 }
 
 // --- ANALYSIS CONTEXT (Shared across all engines to avoid redundant initialization) ---
@@ -3160,6 +3205,16 @@ export function calculateCompoundRisk(
 	return { score, level, factors, action };
 }
 
+// Helper for get_context tool - uses shared risk assessment from context-response.ts
+function buildRiskAssessmentFromData(
+	volatilityScore: number,
+	couplingCount: number,
+	importerCount: number,
+	criticalMemoryCount: number,
+): { score: number; level: "low" | "medium" | "high" | "critical"; factors: string[] } {
+	return buildRiskAssessmentHelper(volatilityScore, couplingCount, importerCount, criticalMemoryCount);
+}
+
 // --- OUTPUT FORMATTER (Clean, hierarchical design for AI consumption) ---
 export function generateAiInstructions(
 	filePath: string,
@@ -3524,6 +3579,155 @@ function setupServer(server: Server): Server {
 					openWorldHint: false,
 				},
 			},
+			{
+				name: "get_context",
+				description:
+					"Get relevant memories and context before modifying a file. Returns memories, code graph relationships, and recent high-risk commits. Use this for AI-native retrieval of institutional knowledge.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						path: {
+							type: "string",
+							description: "The ABSOLUTE path to the file being modified",
+						},
+						query: {
+							type: "string",
+							description:
+								"Optional: What you're trying to do (helps find relevant memories)",
+						},
+						orgId: {
+							type: "string",
+							description: "Organization ID for fetching memories from Convex",
+						},
+						repoId: {
+							type: "string",
+							description: "Optional: Repository ID for repo-specific memories",
+						},
+						includeCodeGraph: {
+							type: "boolean",
+							description: "Include code dependencies (default: true)",
+						},
+						includeHistory: {
+							type: "boolean",
+							description: "Include recent commit history (default: false)",
+						},
+					},
+					required: ["path"],
+				},
+				annotations: {
+					title: "Get Context for File",
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
+				},
+			},
+			{
+				name: "save_lesson",
+				description:
+					"Save a lesson, context, or decision for future AI sessions. Use this when you discover important context that should be remembered.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						context: {
+							type: "string",
+							description: "The lesson, context, or knowledge to save",
+						},
+						linkedFiles: {
+							type: "array",
+							items: { type: "string" },
+							description: "File paths this context applies to",
+						},
+						memoryType: {
+							type: "string",
+							enum: ["lesson", "context", "decision", "pattern", "warning", "todo"],
+							description: "Type of memory (default: lesson)",
+						},
+						importance: {
+							type: "string",
+							enum: ["critical", "high", "normal", "low"],
+							description: "Importance level (default: normal)",
+						},
+						tags: {
+							type: "array",
+							items: { type: "string" },
+							description: "Tags for categorization",
+						},
+						orgId: {
+							type: "string",
+							description: "Organization ID (required)",
+						},
+						repoId: {
+							type: "string",
+							description: "Optional: Repository ID for repo-specific memory",
+						},
+						userId: {
+							type: "string",
+							description: "User ID who created this memory (required)",
+						},
+					},
+					required: ["context", "orgId", "userId"],
+				},
+				annotations: {
+					title: "Save Lesson",
+					readOnlyHint: false,
+					idempotentHint: false,
+					openWorldHint: false,
+				},
+			},
+			{
+				name: "extract_memories",
+				description:
+					"Extract memories from code comments (IMPORTANT, WARNING, HACK, TODO, etc.). FREE feature - works without cloud connection. Use to find implicit knowledge in code.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						path: {
+							type: "string",
+							description: "Absolute path to file or directory to scan",
+						},
+						minConfidence: {
+							type: "number",
+							description: "Minimum confidence threshold (0-100, default: 50)",
+						},
+					},
+					required: ["path"],
+				},
+				annotations: {
+					title: "Extract Memories",
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
+				},
+			},
+			{
+				name: "search_memories",
+				description:
+					"Search extracted memories using BM25 keyword matching. FREE feature. Find relevant context from code comments using natural language queries.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						query: {
+							type: "string",
+							description: "Natural language search query",
+						},
+						path: {
+							type: "string",
+							description: "Optional: Scope search to specific file or directory",
+						},
+						limit: {
+							type: "number",
+							description: "Maximum results to return (default: 10)",
+						},
+					},
+					required: ["query"],
+				},
+				annotations: {
+					title: "Search Memories",
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
+				},
+			},
 		],
 	}));
 
@@ -3784,6 +3988,584 @@ function setupServer(server: Server): Server {
 					content: [
 						{ type: "text", text: `History Search Error: ${errorMsg}` },
 					],
+					isError: true,
+				};
+			}
+		}
+
+		// --- TRI-LAYER BRAIN: get_context tool ---
+		if (request.params.name === "get_context") {
+			const rawPath = String(request.params.arguments?.path);
+			const query = request.params.arguments?.query as string | undefined;
+			const includeCodeGraph = request.params.arguments?.includeCodeGraph !== false;
+			const includeHistory = request.params.arguments?.includeHistory === true;
+			const repoId = request.params.arguments?.repoId as string | undefined;
+
+			// Validate path
+			const targetPath = path.resolve(rawPath);
+			try {
+				await fs.access(targetPath);
+			} catch (_e) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`ERROR: File not found at \`${targetPath}\`.\n\n` +
+								`**SYSTEM INSTRUCTION:** Use the ABSOLUTE PATH to the file.`,
+						},
+					],
+					isError: true,
+				};
+			}
+
+			try {
+				// Run analysis to get risk/coupling data (FREE - always works)
+				const ctx = await createAnalysisContext(targetPath);
+
+				// Run git-based engines in parallel (FREE)
+				const [volatility, gitCoupled, importers] = await Promise.all([
+					getVolatility(targetPath, ctx),
+					getCoupledFiles(targetPath, ctx),
+					getImporters(targetPath, ctx),
+				]);
+
+				// Try to fetch memories from cloud (PAID - requires token)
+				const cloudClient = getCloudClient();
+				let memories: Memory[] = [];
+				let localMemories: ExtractedMemory[] = [];
+				let cloudError: string | undefined;
+
+				if (cloudClient.isConfigured()) {
+					const queryKeywords = query ? query.split(/\s+/).filter((w) => w.length > 2) : undefined;
+					const result = await cloudClient.getMemoriesForFile(targetPath, queryKeywords, repoId);
+					memories = result.memories;
+					cloudError = result.error;
+				} else {
+					// FREE TIER: Extract memories from code comments using auto-librarian
+					try {
+						const fileContent = await fs.readFile(targetPath, "utf8");
+						localMemories = extractFromCode(fileContent, targetPath);
+					} catch {
+						// File read error - ignore, will have empty localMemories
+					}
+				}
+
+				// Count critical memories for risk calculation (cloud OR local)
+				const criticalMemoryCount = memories.filter(
+					(m) => m.importance === "critical" || m.importance === "high"
+				).length + localMemories.filter(
+					(m) => m.importance === "critical" || m.importance === "high"
+				).length;
+
+				// Build risk assessment
+				const riskAssessment = buildRiskAssessmentFromData(
+					volatility.panicScore,
+					gitCoupled.length,
+					importers.length,
+					criticalMemoryCount,
+				);
+
+				// Format response
+				const fileName = targetPath.split("/").pop() || targetPath;
+				const sections: string[] = [];
+
+				sections.push(`### Context for \`${fileName}\`\n`);
+				sections.push(
+					`**RISK: ${riskAssessment.score}/100 (${riskAssessment.level.toUpperCase()})**`,
+				);
+				if (riskAssessment.factors.length > 0) {
+					sections.push(`> ${riskAssessment.factors.join(" • ")}`);
+				}
+				sections.push("");
+
+				// Memories section (PAID feature)
+				if (memories.length > 0) {
+					// Critical/high importance first
+					const criticalMemories = memories.filter(
+						(m) => m.importance === "critical" || m.importance === "high"
+					);
+					if (criticalMemories.length > 0) {
+						sections.push("---\n");
+						sections.push("**CRITICAL MEMORIES**\n");
+						for (const memory of criticalMemories) {
+							const levelLabel = memory.importance === "critical" ? "[CRITICAL]" : "[WARNING]";
+							const typeLabel = memory.memoryType ? `[${memory.memoryType.toUpperCase()}]` : "";
+							sections.push(`${levelLabel} **${typeLabel}** ${memory.summary || memory.context.slice(0, 100)}`);
+						}
+						sections.push("");
+					}
+
+					// Other memories
+					const otherMemories = memories.filter(
+						(m) => m.importance !== "critical" && m.importance !== "high"
+					);
+					if (otherMemories.length > 0) {
+						sections.push("---\n");
+						sections.push(`**OTHER CONTEXT** (${otherMemories.length} items)\n`);
+						sections.push("| Type | Summary | Tags |");
+						sections.push("|------|---------|------|");
+						for (const memory of otherMemories.slice(0, 10)) {
+							const type = memory.memoryType || "context";
+							const summary = (memory.summary || memory.context.slice(0, 50)).replace(/\|/g, "\\|");
+							const tags = memory.tags.slice(0, 3).join(", ");
+							sections.push(`| ${type} | ${summary} | ${tags} |`);
+						}
+						sections.push("");
+					}
+				} else if (cloudError) {
+					sections.push("---\n");
+					sections.push("**MEMORIES**\n");
+					sections.push(`> ${cloudError}`);
+					sections.push("");
+				} else if (!cloudClient.isConfigured()) {
+					// Show local memories extracted from code comments (FREE)
+					if (localMemories.length > 0) {
+						const criticalLocal = localMemories.filter(
+							(m) => m.importance === "critical" || m.importance === "high"
+						);
+						if (criticalLocal.length > 0) {
+							sections.push("---\n");
+							sections.push("**CODE WARNINGS** (Extracted from comments)\n");
+							for (const memory of criticalLocal) {
+								const levelLabel = memory.importance === "critical" ? "[CRITICAL]" : "[WARNING]";
+								const typeLabel = `[${memory.memoryType.toUpperCase()}]`;
+								sections.push(`${levelLabel} **${typeLabel}** ${memory.summary}`);
+							}
+							sections.push("");
+						}
+
+						const otherLocal = localMemories.filter(
+							(m) => m.importance !== "critical" && m.importance !== "high"
+						);
+						if (otherLocal.length > 0) {
+							sections.push("---\n");
+							sections.push(`**CODE NOTES** (${otherLocal.length} items from comments)\n`);
+							for (const memory of otherLocal.slice(0, 5)) {
+								const typeLabel = `[${memory.memoryType.toUpperCase()}]`;
+								sections.push(`- ${typeLabel} ${memory.summary}`);
+							}
+							sections.push("");
+						}
+					} else {
+						sections.push("---\n");
+						sections.push("**MEMORIES** (Free Tier)\n");
+						sections.push("> No code annotations found (IMPORTANT, WARNING, HACK, etc.).");
+						sections.push("> Cloud memories available with team token.");
+						sections.push("");
+					}
+				}
+
+				// Code graph (if enabled) - FREE
+				if (includeCodeGraph && (gitCoupled.length > 0 || importers.length > 0)) {
+					sections.push("---\n");
+					sections.push("**CODE GRAPH**\n");
+
+					if (gitCoupled.length > 0) {
+						sections.push(`- **Co-changed files:** ${gitCoupled.length}`);
+						for (const file of gitCoupled.slice(0, 5)) {
+							sections.push(`  - \`${file.file}\` (${file.score}% coupled)`);
+						}
+					}
+
+					if (importers.length > 0) {
+						sections.push(`- **Dependents:** ${importers.length} files import this`);
+						for (const imp of importers.slice(0, 5)) {
+							sections.push(`  - \`${imp}\``);
+						}
+					}
+					sections.push("");
+				}
+
+				// Recent commits (if enabled)
+				if (includeHistory) {
+					sections.push("---\n");
+					sections.push("**RECENT COMMITS**\n");
+					if (volatility.panicCommits.length > 0) {
+						for (const commit of volatility.panicCommits.slice(0, 5)) {
+							sections.push(`- ${commit}`);
+						}
+					} else {
+						sections.push("> No high-risk commits found in recent history.");
+					}
+					sections.push("");
+				}
+
+				// Pre-flight checklist
+				sections.push("---\n");
+				sections.push("**PRE-FLIGHT CHECKLIST**\n");
+				sections.push(`- [ ] Modify \`${fileName}\` (primary target)`);
+
+				for (const coupled of gitCoupled.slice(0, 3).filter((c: { file: string; score: number }) => c.score >= 30)) {
+					sections.push(`- [ ] Verify \`${coupled.file}\` (${coupled.score}% coupled)`);
+				}
+
+				// Add critical memory reminders to checklist (cloud OR local)
+				const criticalForChecklist = memories.filter((m) => m.importance === "critical").slice(0, 3);
+				for (const memory of criticalForChecklist) {
+					const shortContext = memory.summary || memory.context.slice(0, 40);
+					sections.push(`- [ ] Review: ${shortContext}`);
+				}
+				// Also add local critical memories to checklist
+				const localCriticalForChecklist = localMemories.filter((m) => m.importance === "critical").slice(0, 3);
+				for (const memory of localCriticalForChecklist) {
+					sections.push(`- [ ] Review: ${memory.summary}`);
+				}
+
+				return { content: [{ type: "text", text: sections.join("\n") }] };
+			} catch (error: any) {
+				return {
+					content: [
+						{ type: "text", text: `Context Error: ${error.message || String(error)}` },
+					],
+					isError: true,
+				};
+			}
+		}
+
+		// --- TRI-LAYER BRAIN: save_lesson tool ---
+		if (request.params.name === "save_lesson") {
+			const context = String(request.params.arguments?.context || "");
+			const linkedFiles = (request.params.arguments?.linkedFiles as string[]) || [];
+			const memoryType =
+				(request.params.arguments?.memoryType as string) || "lesson";
+			const importance =
+				(request.params.arguments?.importance as string) || "normal";
+			const tags = (request.params.arguments?.tags as string[]) || [];
+			const orgId = request.params.arguments?.orgId as string | undefined;
+			const userId = request.params.arguments?.userId as string | undefined;
+
+			if (!context.trim()) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`ERROR: Context is required.\n\n` +
+								`**SYSTEM INSTRUCTION:** Provide the lesson or context to save.`,
+						},
+					],
+					isError: true,
+				};
+			}
+
+			// Check if cloud is configured
+			const cloudClient = getCloudClient();
+
+			if (!cloudClient.isConfigured()) {
+				// FREE TIER: Cloud not configured, provide draft message
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`**Memory Draft (Cloud Not Configured)**\n\n` +
+								`To save memories to the cloud, configure \`MEMORIA_API_URL\` and provide a team token.\n\n` +
+								`**Draft Memory:**\n` +
+								`- Type: ${memoryType}\n` +
+								`- Importance: ${importance}\n` +
+								`- Context: ${context.slice(0, 200)}${context.length > 200 ? "..." : ""}\n` +
+								`- Files: ${linkedFiles.length > 0 ? linkedFiles.join(", ") : "none"}\n` +
+								`- Tags: ${tags.length > 0 ? tags.join(", ") : "none"}\n\n` +
+								`> Get a team token from https://memoria.dev/dashboard to enable cloud memories.`,
+						},
+					],
+				};
+			}
+
+			if (!userId) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`ERROR: userId is required to save memories.\n\n` +
+								`**SYSTEM INSTRUCTION:** Provide the userId (typically the current user's ID from your session).`,
+						},
+					],
+					isError: true,
+				};
+			}
+
+			// PAID TIER: Save to Convex cloud
+			try {
+				const result = await cloudClient.saveMemory({
+					orgId: orgId || "", // Cloud client will use org from token
+					repoId: request.params.arguments?.repoId as string | undefined,
+					context: context.trim(),
+					summary: request.params.arguments?.summary as string | undefined,
+					tags,
+					keywords: request.params.arguments?.keywords as string[] | undefined,
+					linkedFiles,
+					memoryType: memoryType as "lesson" | "context" | "decision" | "pattern" | "warning" | "todo",
+					importance: importance as "critical" | "high" | "normal" | "low",
+					userId,
+				});
+
+				if (result.error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`**Failed to Save Memory**\n\n` +
+									`Error: ${result.error}\n\n` +
+									`**Draft Memory:**\n` +
+									`- Type: ${memoryType}\n` +
+									`- Importance: ${importance}\n` +
+									`- Context: ${context.slice(0, 200)}${context.length > 200 ? "..." : ""}\n\n` +
+									`> Try saving manually via the Memoria dashboard.`,
+							},
+						],
+						isError: true,
+					};
+				}
+
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`**Memory Saved Successfully**\n\n` +
+								`Memory ID: \`${result.memoryId}\`\n\n` +
+								`**Details:**\n` +
+								`- Type: ${memoryType}\n` +
+								`- Importance: ${importance}\n` +
+								`- Context: ${context.slice(0, 200)}${context.length > 200 ? "..." : ""}\n` +
+								`- Files: ${linkedFiles.length > 0 ? linkedFiles.join(", ") : "none"}\n` +
+								`- Tags: ${tags.length > 0 ? tags.join(", ") : "none"}\n\n` +
+								`> This memory will now appear in context for related files.`,
+						},
+					],
+				};
+			} catch (error: any) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Memory Save Error: ${error.message || String(error)}`,
+						},
+					],
+					isError: true,
+				};
+			}
+		}
+
+		// --- EXTRACT_MEMORIES TOOL (FREE) ---
+		if (request.params.name === "extract_memories") {
+			const rawPath = String(request.params.arguments?.path || "");
+			const minConfidence = Number(request.params.arguments?.minConfidence) || 50;
+
+			if (!rawPath) {
+				return {
+					content: [{ type: "text", text: "ERROR: Path is required" }],
+					isError: true,
+				};
+			}
+
+			const targetPath = path.resolve(rawPath);
+
+			try {
+				await fs.access(targetPath);
+			} catch {
+				return {
+					content: [{ type: "text", text: `ERROR: Path not found: ${targetPath}` }],
+					isError: true,
+				};
+			}
+
+			try {
+				const stats = await fs.stat(targetPath);
+				let allMemories: ExtractedMemory[] = [];
+
+				if (stats.isDirectory()) {
+					// Scan directory recursively (limit to 50 files)
+					const files = await scanDirectory(targetPath, 50);
+					for (const file of files) {
+						try {
+							const content = await fs.readFile(file, "utf8");
+							const memories = extractFromCode(content, file);
+							allMemories.push(...memories);
+						} catch {
+							// Skip unreadable files
+						}
+					}
+				} else {
+					// Single file
+					const content = await fs.readFile(targetPath, "utf8");
+					allMemories = extractFromCode(content, targetPath);
+				}
+
+				// Filter by confidence
+				const filtered = allMemories.filter((m) => m.confidence >= minConfidence);
+
+				if (filtered.length === 0) {
+					return {
+						content: [{
+							type: "text",
+							text: `### Memory Extraction: ${targetPath}\n\nNo memories found with confidence >= ${minConfidence}%.\n\n` +
+								`Try lowering the minConfidence threshold or ensure files contain annotations like:\n` +
+								`- // IMPORTANT: ...\n- // WARNING: ...\n- // HACK: ...\n- // TODO: ...`,
+						}],
+					};
+				}
+
+				// Group by importance
+				const critical = filtered.filter((m) => m.importance === "critical");
+				const high = filtered.filter((m) => m.importance === "high");
+				const normal = filtered.filter((m) => m.importance === "normal");
+				const low = filtered.filter((m) => m.importance === "low");
+
+				const sections: string[] = [];
+				sections.push(`### Memory Extraction: ${filtered.length} memories found\n`);
+
+				if (critical.length > 0) {
+					sections.push("**CRITICAL**");
+					for (const m of critical) {
+						sections.push(`- [${m.memoryType.toUpperCase()}] ${m.summary} (${m.confidence}% confidence)`);
+						sections.push(`  File: ${m.linkedFiles[0]}`);
+					}
+					sections.push("");
+				}
+
+				if (high.length > 0) {
+					sections.push("**HIGH IMPORTANCE**");
+					for (const m of high) {
+						sections.push(`- [${m.memoryType.toUpperCase()}] ${m.summary} (${m.confidence}% confidence)`);
+						sections.push(`  File: ${m.linkedFiles[0]}`);
+					}
+					sections.push("");
+				}
+
+				if (normal.length > 0) {
+					sections.push(`**NORMAL** (${normal.length} items)`);
+					for (const m of normal.slice(0, 10)) {
+						sections.push(`- [${m.memoryType.toUpperCase()}] ${m.summary}`);
+					}
+					if (normal.length > 10) sections.push(`  ...and ${normal.length - 10} more`);
+					sections.push("");
+				}
+
+				if (low.length > 0) {
+					sections.push(`**LOW** (${low.length} items)`);
+					for (const m of low.slice(0, 5)) {
+						sections.push(`- [${m.memoryType.toUpperCase()}] ${m.summary}`);
+					}
+					if (low.length > 5) sections.push(`  ...and ${low.length - 5} more`);
+				}
+
+				return { content: [{ type: "text", text: sections.join("\n") }] };
+			} catch (error: any) {
+				return {
+					content: [{ type: "text", text: `Extract Error: ${error.message || String(error)}` }],
+					isError: true,
+				};
+			}
+		}
+
+		// --- SEARCH_MEMORIES TOOL (FREE with BM25) ---
+		if (request.params.name === "search_memories") {
+			const query = String(request.params.arguments?.query || "");
+			const rawPath = request.params.arguments?.path ? String(request.params.arguments.path) : undefined;
+			const limit = Number(request.params.arguments?.limit) || 10;
+
+			if (!query) {
+				return {
+					content: [{ type: "text", text: "ERROR: Query is required" }],
+					isError: true,
+				};
+			}
+
+			try {
+				// Determine scope
+				let targetPath: string;
+				if (rawPath) {
+					targetPath = path.resolve(rawPath);
+					try {
+						await fs.access(targetPath);
+					} catch {
+						return {
+							content: [{ type: "text", text: `ERROR: Path not found: ${targetPath}` }],
+							isError: true,
+						};
+					}
+				} else {
+					// Use current working directory
+					targetPath = process.cwd();
+				}
+
+				// Collect memories from files
+				const stats = await fs.stat(targetPath);
+				let allMemories: ExtractedMemory[] = [];
+
+				if (stats.isDirectory()) {
+					const files = await scanDirectory(targetPath, 100);
+					for (const file of files) {
+						try {
+							const content = await fs.readFile(file, "utf8");
+							const memories = extractFromCode(content, file);
+							allMemories.push(...memories);
+						} catch {
+							// Skip unreadable files
+						}
+					}
+				} else {
+					const content = await fs.readFile(targetPath, "utf8");
+					allMemories = extractFromCode(content, targetPath);
+				}
+
+				if (allMemories.length === 0) {
+					return {
+						content: [{
+							type: "text",
+							text: `### Memory Search: "${query}"\n\nNo memories found in codebase. ` +
+								`Ensure files contain annotations like // IMPORTANT:, // WARNING:, etc.`,
+						}],
+					};
+				}
+
+				// Prepare for BM25 search
+				const queryKeywords = extractKeywords(query);
+				const documents = allMemories.map((memory) => ({
+					item: memory,
+					keywords: combineKeywords([
+						{ keywords: extractKeywords(memory.context), weight: 2 },
+						{ keywords: memory.keywords, weight: 1.5 },
+						{ keywords: extractFileKeywords(memory.linkedFiles[0] || ""), weight: 1 },
+					]),
+				}));
+
+				// Search with BM25
+				const results = searchBM25(documents, queryKeywords, limit);
+
+				if (results.length === 0) {
+					return {
+						content: [{
+							type: "text",
+							text: `### Memory Search: "${query}"\n\nNo matching memories found.\n\n` +
+								`Found ${allMemories.length} total memories, but none matched your query.`,
+						}],
+					};
+				}
+
+				const sections: string[] = [];
+				sections.push(`### Memory Search: "${query}"\n`);
+				sections.push(`**Found ${results.length} matching memories:**\n`);
+
+				for (const result of results) {
+					const m = result.document;
+					const levelLabel = m.importance === "critical" ? "[CRITICAL]" :
+						m.importance === "high" ? "[HIGH]" : "";
+					sections.push(`${levelLabel} **[${m.memoryType.toUpperCase()}]** ${m.summary}`);
+					sections.push(`  Score: ${result.score.toFixed(2)} | File: ${m.linkedFiles[0]}`);
+					sections.push(`  Matched: ${result.matchedTerms.join(", ")}`);
+					sections.push("");
+				}
+
+				return { content: [{ type: "text", text: sections.join("\n") }] };
+			} catch (error: any) {
+				return {
+					content: [{ type: "text", text: `Search Error: ${error.message || String(error)}` }],
 					isError: true,
 				};
 			}

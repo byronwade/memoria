@@ -17,70 +17,84 @@ const tiers = [
 	{
 		name: "Free",
 		price: "$0",
-		tagline: "Perfect for personal repos or local MCP use.",
+		period: "forever",
+		tagline: "All 13 engines. No account. No limits.",
 		features: [
-			"1 active repo",
-			"Up to 20 PR analyses / month",
+			"All 13 git analysis engines",
+			"Unlimited local analysis",
 			"MCP + CLI included",
-			"Risk & Impact PR comments",
+			"Works offline",
 		],
-		cta: "Start on GitHub",
-		link: siteConfig.github,
+		cta: "Install Free",
+		link: "/docs/installation",
 		popular: false,
 	},
 	{
-		name: "Solo",
-		price: "$9",
-		tagline: "For indie builders shipping with guardrails.",
+		name: "Pro",
+		price: "$5",
+		period: "/month",
+		tagline: "Cloud memories that persist across sessions.",
 		features: [
-			"3 active repos",
-			"Up to 100 PR analyses / month",
-			"MCP + CLI + GitHub App",
-			"Priority fixes & support",
+			"Everything in Free",
+			"Unlimited cloud memories",
+			"Personal guardrails (10 rules)",
+			"Dashboard & analytics",
+			"Email support",
 		],
-		cta: "Upgrade",
-		link: siteConfig.github,
+		cta: "Start Free Trial",
+		link: "/register",
 		popular: true,
 	},
 	{
 		name: "Team",
-		price: "$39",
-		tagline: "For teams needing automated risk checks.",
+		price: "$8",
+		period: "/seat/month",
+		tagline: "Shared memories across your whole team.",
 		features: [
-			"10 active repos",
-			"Up to 500 PR analyses / month",
-			"Org dashboards & usage limits",
-			"Slack-ready summaries (soon)",
+			"Everything in Pro",
+			"Team-wide shared memories",
+			"Unlimited guardrails",
+			"Org-level analytics",
+			"Priority support",
+			"SSO & audit logs (coming)",
 		],
-		cta: "Talk to us",
-		link: "mailto:byron@byronwade.com?subject=Memoria%20Team",
+		cta: "Start Team Trial",
+		link: "/register?plan=team",
 		popular: false,
 	},
 ];
 
 const faqs = [
 	{
-		q: "Is the core engine open source?",
-		a: "Yes. The MCP server, CLI, and analysis engine are all OSS. The GitHub App and hosted automation are the paid layer.",
+		q: "Why is Pro only $5/month?",
+		a: "We want every developer to afford cloud memories. $5 is less than a coffee. If Memoria saves you from one regression, it's paid for itself for years.",
 	},
 	{
-		q: "Can I self-host?",
-		a: "Absolutely. You can run the CLI or MCP locally, or deploy the engine yourself. The paid plans are for convenience, GitHub integration, and managed infra.",
+		q: "Can I use the free tier forever?",
+		a: "Yes. All 13 git analysis engines run 100% free, locally, forever. No account, no limits. Pro just adds cloud sync so your memories persist across sessions.",
 	},
 	{
-		q: "What happens if I exceed my plan limits?",
-		a: "We pause new analyses for the billing period and prompt you to upgrade. Your data stays safe; nothing is deleted.",
+		q: "How does Team pricing work?",
+		a: "$8/seat/month. A team of 5 is $40/month. Memories are shared across the whole team, so when one person learns something, everyone benefits.",
+	},
+	{
+		q: "Is there a free trial?",
+		a: "Yes! Pro and Team both have a 14-day free trial. No credit card required to start. Cancel anytime.",
+	},
+	{
+		q: "What if I need more than 10 guardrails on Pro?",
+		a: "Upgrade to Team for unlimited guardrails. Or reach out — we're flexible for solo developers with complex setups.",
 	},
 	{
 		q: "Do you store my code?",
-		a: "Diffs are processed in-memory for analysis and discarded. We keep metadata (repo, PR number, risk level) for dashboard history.",
+		a: "Never. We only store memory text and guardrail patterns. Your source code stays on your machine. The free tier doesn't even need an account.",
 	},
 ];
 
 export const metadata: Metadata = {
 	title: "Pricing",
 	description:
-		"Simple pricing for Memoria: open-source MCP locally, paid GitHub App and hosted automation when you need it.",
+		"Memoria pricing: Free local git analysis forever. Paid plans add cloud memories, guardrails, and team dashboards.",
 };
 
 export default function PricingPage() {
@@ -94,11 +108,11 @@ export default function PricingPage() {
 						</span>
 					</div>
 					<h1 className="text-4xl md:text-5xl font-semibold tracking-tight">
-						Keep the engine free. Pay for automation.
+						Free locally. Pay for team intelligence.
 					</h1>
 					<p className="text-lg text-muted-foreground">
-						Memoria MCP + CLI stay open-source. The GitHub App, hosted API, and
-						dashboard live on paid plans so your team never ships blind.
+						All 13 git analysis engines run free forever. Paid plans add cloud
+						memories, guardrails, and team dashboards.
 					</p>
 					<div className="flex flex-wrap items-center justify-center gap-3">
 						<Button asChild size="lg" variant="cta">
@@ -136,7 +150,7 @@ export default function PricingPage() {
 								<div className="text-3xl font-semibold text-foreground">
 									{tier.price}
 									<span className="text-sm text-muted-foreground font-normal">
-										{tier.name === "Team" ? "/seat/mo" : "/mo"}
+										{tier.period}
 									</span>
 								</div>
 								<CardDescription className="text-muted-foreground">
@@ -175,48 +189,47 @@ export default function PricingPage() {
 				<Container className="grid gap-8 lg:grid-cols-[1.1fr_1fr] items-start">
 					<div className="space-y-3">
 						<span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-[0_8px_30px_-20px_var(--glow-color)]">
-							Included in every plan
+							Free forever
 						</span>
 						<h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
-							Same engine everywhere.
+							All 13 engines. Zero cost.
 						</h2>
 						<p className="text-muted-foreground">
-							You get the full Memoria engines whether you run it locally via
-							MCP/CLI or through the hosted GitHub App. The difference is the
-							automation, storage, and team controls.
+							The full git analysis suite runs locally on your machine. No account,
+							no cloud, no limits. Works offline. We&apos;ll never paywall the core engines.
 						</p>
 					</div>
 					<Card className="border border-primary/25 bg-gradient-to-br from-primary/10 via-card to-card/85 shadow-[0_20px_90px_-60px_var(--glow-color)]">
 						<CardHeader className="space-y-2">
 							<div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-primary">
 								<Sparkles className="size-4" />
-								What you always get
+								What you always get (free)
 							</div>
 							<CardTitle className="text-xl text-foreground">
-								Risk & Impact analysis on every diff
+								Complete git forensics analysis
 							</CardTitle>
 							<CardDescription className="text-sm text-muted-foreground">
-								Volatility, entanglement, static imports, and Sentinel drift
-								checks combined into one actionable report.
+								Volatility, entanglement, static imports, drift detection, history search,
+								and 8 more engines running in parallel.
 							</CardDescription>
 						</CardHeader>
 						<CardContent>
 							<ul className="space-y-2 text-sm text-muted-foreground">
 								<li className="flex items-start gap-2">
 									<Check className="mt-0.5 size-4 text-primary" />
-									<span>Risk level with missing co-change files</span>
+									<span>Risk scores and coupled file detection</span>
 								</li>
 								<li className="flex items-start gap-2">
 									<Check className="mt-0.5 size-4 text-primary" />
-									<span>Suggested tests and pre-flight checklist</span>
+									<span>Pre-flight checklist before every edit</span>
 								</li>
 								<li className="flex items-start gap-2">
 									<Check className="mt-0.5 size-4 text-primary" />
-									<span>PR comments via GitHub App or local MCP output</span>
+									<span>Git history search (Chesterton&apos;s Fence)</span>
 								</li>
 								<li className="flex items-start gap-2">
 									<Check className="mt-0.5 size-4 text-primary" />
-									<span>Open-source core you can self-host anytime</span>
+									<span>~150ms total analysis time</span>
 								</li>
 							</ul>
 						</CardContent>

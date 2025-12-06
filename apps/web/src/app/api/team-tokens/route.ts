@@ -14,7 +14,7 @@ interface TokenData {
 
 /**
  * GET /api/team-tokens
- * List all tokens for the current organization
+ * List all tokens for the current user
  */
 export async function GET() {
 	try {
@@ -24,28 +24,13 @@ export async function GET() {
 		}
 
 		const convex = getConvexClient();
+		const userId = session.user._id;
 
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
-
-		// Get tokens for the organization
+		// Get tokens for the user
 		const tokens = await callQuery<TokenData[]>(
 			convex,
 			"teamTokens:listTokens",
-			{ orgId }
+			{ userId }
 		);
 
 		return NextResponse.json({ tokens: tokens || [] });
@@ -80,31 +65,16 @@ export async function POST(request: NextRequest) {
 		}
 
 		const convex = getConvexClient();
-
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Create the token
 		const result = await callMutation<{ tokenId: string; token: string }>(
 			convex,
 			"teamTokens:createToken",
 			{
-				orgId,
+				userId,
 				name: name.trim(),
-				createdBy: session.user._id,
+				createdBy: userId,
 			}
 		);
 

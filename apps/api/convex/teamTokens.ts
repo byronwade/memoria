@@ -26,7 +26,7 @@ function hashToken(token: string): string {
  */
 export const createToken = mutation({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		name: v.string(),
 		createdBy: v.id("users"),
 	},
@@ -39,7 +39,7 @@ export const createToken = mutation({
 		const token = `mem_${rawToken}`;
 
 		const tokenId = await ctx.db.insert("team_tokens", {
-			orgId: args.orgId,
+			userId: args.userId,
 			name: args.name,
 			tokenHash: hashToken(token), // Hash the full token including prefix
 			lastUsedAt: null,
@@ -82,17 +82,17 @@ export const revokeToken = mutation({
 });
 
 /**
- * List all tokens for an organization (without exposing the actual tokens)
+ * List all tokens for a user (without exposing the actual tokens)
  */
 export const listTokens = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		includeRevoked: v.optional(v.boolean()),
 	},
 	handler: async (ctx, args) => {
 		const tokens = await ctx.db
 			.query("team_tokens")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		// Filter out revoked unless requested
@@ -125,7 +125,7 @@ export const listTokens = query({
 });
 
 /**
- * Validate a token and return the associated org
+ * Validate a token and return the associated user
  * Used by API routes to authenticate MCP server requests
  */
 export const validateToken = query({
@@ -150,17 +150,17 @@ export const validateToken = query({
 			return { valid: false, error: "Token has been revoked" };
 		}
 
-		// Get the organization
-		const org = await ctx.db.get(tokenRecord.orgId);
-		if (!org) {
-			return { valid: false, error: "Organization not found" };
+		// Get the user
+		const user = await ctx.db.get(tokenRecord.userId);
+		if (!user) {
+			return { valid: false, error: "User not found" };
 		}
 
 		return {
 			valid: true,
-			orgId: tokenRecord.orgId,
-			orgName: org.name,
-			orgSlug: org.slug,
+			userId: tokenRecord.userId,
+			userName: user.name,
+			userEmail: user.email,
 			tokenId: tokenRecord._id,
 		};
 	},
@@ -183,16 +183,16 @@ export const updateTokenLastUsed = mutation({
 });
 
 /**
- * Get token stats for an organization
+ * Get token stats for a user
  */
 export const getTokenStats = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 	},
 	handler: async (ctx, args) => {
 		const tokens = await ctx.db
 			.query("team_tokens")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		const active = tokens.filter((t) => t.revokedAt === null);

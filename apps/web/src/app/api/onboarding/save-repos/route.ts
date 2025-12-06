@@ -25,22 +25,23 @@ export async function POST(request: NextRequest) {
 		}
 
 		const body = await request.json();
-		const { orgId, repoIds } = body;
+		const { repoIds } = body;
+		const userId = session.user._id;
 
-		if (!orgId || !Array.isArray(repoIds)) {
+		if (!Array.isArray(repoIds)) {
 			return NextResponse.json(
-				{ error: "Missing orgId or repoIds" },
+				{ error: "Missing repoIds" },
 				{ status: 400 }
 			);
 		}
 
 		const convex = getConvexClient();
 
-		// Get all repos for this org with installation info
+		// Get all repos for this user with installation info
 		const allRepos = await callQuery<Repository[]>(
 			convex,
 			"scm:getRepositories",
-			{ orgId }
+			{ userId }
 		);
 
 		// Track newly activated repos for scanning

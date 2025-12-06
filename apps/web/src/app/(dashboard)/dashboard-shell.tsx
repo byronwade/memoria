@@ -58,14 +58,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 	const router = useRouter();
 	const {
 		user,
-		organizations,
-		currentOrg,
-		setCurrentOrg,
 		activeRepos,
 		billingStatus,
 		canAddRepo,
 		repoLimit,
-		isSwitchingOrg,
 		logout,
 	} = useDashboard();
 
@@ -151,47 +147,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 								className="h-6 w-6 sm:h-7 sm:w-7 dark:invert"
 							/>
 						</Link>
-
-						{/* Organization Switcher */}
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<Button
-									variant="ghost"
-									className="flex items-center gap-1.5 sm:gap-2 px-1.5 sm:px-2 h-8 text-sm font-medium"
-								>
-									<div className="h-5 w-5 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
-										{currentOrg?.name?.[0] || "?"}
-									</div>
-									<span className="hidden sm:inline">{currentOrg?.name || "Select Org"}</span>
-									<ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-								</Button>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="start" className="w-60">
-								<div className="px-2.5 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
-									Organizations
-								</div>
-								{organizations.map((org) => (
-									<DropdownMenuItem
-										key={org._id}
-										onClick={() => setCurrentOrg(org)}
-										className="flex items-center gap-3 py-2.5"
-									>
-										<div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
-											{org.name[0]}
-										</div>
-										<span className="flex-1 font-medium text-foreground">{org.name}</span>
-										{currentOrg?._id === org._id && (
-											<Check className="h-4 w-4 text-primary" />
-										)}
-									</DropdownMenuItem>
-								))}
-								<DropdownMenuSeparator />
-								<DropdownMenuItem className="flex items-center gap-3 text-foreground">
-									<Plus className="h-4 w-4 text-muted-foreground" />
-									<span>Create Organization</span>
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
 
 						<span className="hidden sm:inline text-muted-foreground/30">/</span>
 
@@ -409,7 +364,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 													const response = await fetch("/api/billing/portal", {
 														method: "POST",
 														headers: { "Content-Type": "application/json" },
-														body: JSON.stringify({ orgId: currentOrg?._id }),
+														body: JSON.stringify({}),
 													});
 													if (!response.ok) {
 														toast.error("Failed to open billing portal", {
@@ -624,7 +579,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 			<UpgradeModal
 				open={showUpgradeModal}
 				onOpenChange={setShowUpgradeModal}
-				orgId={currentOrg?._id || ""}
 				currentPlan={billingStatus?.plan?.tier}
 				reason="repo_limit"
 			/>

@@ -15,7 +15,6 @@ import { cn } from "@/lib/utils";
 interface UpgradeModalProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	orgId: string;
 	currentPlan?: string;
 	reason?: "repo_limit" | "analysis_limit" | "feature";
 }
@@ -39,7 +38,6 @@ const plans = [
 export function UpgradeModal({
 	open,
 	onOpenChange,
-	orgId,
 	currentPlan = "free",
 	reason,
 }: UpgradeModalProps) {
@@ -53,7 +51,6 @@ export function UpgradeModal({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					orgId,
 					planTier: selectedPlan,
 					successUrl: `${window.location.origin}/dashboard?upgraded=true`,
 					cancelUrl: window.location.href,

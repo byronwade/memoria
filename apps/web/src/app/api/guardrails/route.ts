@@ -16,7 +16,7 @@ interface GuardrailData {
 
 /**
  * GET /api/guardrails
- * List all guardrails for the current organization
+ * List all guardrails for the current user
  */
 export async function GET() {
 	try {
@@ -26,28 +26,13 @@ export async function GET() {
 		}
 
 		const convex = getConvexClient();
+		const userId = session.user._id;
 
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
-
-		// Get guardrails for the organization
+		// Get guardrails for the user
 		const guardrails = await callQuery<GuardrailData[]>(
 			convex,
 			"guardrails:listGuardrails",
-			{ orgId, includeDisabled: true }
+			{ userId, includeDisabled: true }
 		);
 
 		return NextResponse.json({ guardrails: guardrails || [] });
@@ -72,7 +57,7 @@ export async function POST(request: NextRequest) {
 		}
 
 		const body = await request.json();
-		const { pattern, level, message, repoId, isEnabled } = body;
+		const { pattern, level, message, repoId } = body;
 
 		if (!pattern || typeof pattern !== "string" || !pattern.trim()) {
 			return NextResponse.json(
@@ -96,35 +81,19 @@ export async function POST(request: NextRequest) {
 		}
 
 		const convex = getConvexClient();
-
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Create the guardrail
 		const result = await callMutation<{ guardrailId: string }>(
 			convex,
 			"guardrails:createGuardrail",
 			{
-				orgId,
+				userId,
 				pattern: pattern.trim(),
 				level,
 				message: message.trim(),
 				repoId: repoId || undefined,
-				isEnabled: isEnabled !== false,
-				createdBy: session.user._id,
+				createdBy: userId,
 			}
 		);
 

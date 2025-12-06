@@ -3,9 +3,8 @@ import { getSession } from "@/lib/auth/session";
 import { getConvexClient, callQuery } from "@/lib/convex";
 import { createBillingPortalSession } from "@/lib/stripe/server";
 
-interface Organization {
+interface UserBilling {
 	_id: string;
-	name: string;
 	stripeCustomerId: string | null;
 }
 
@@ -17,35 +16,32 @@ export async function POST(request: NextRequest) {
 		}
 
 		const body = await request.json();
-		const { orgId, returnUrl } = body;
+		const { returnUrl } = body;
 
-		if (!orgId) {
-			return NextResponse.json({ error: "Missing orgId" }, { status: 400 });
-		}
-
+		const userId = session.user._id;
 		const convex = getConvexClient();
 
-		// Get org
-		const org = await callQuery<Organization | null>(
+		// Get user billing status
+		const user = await callQuery<UserBilling | null>(
 			convex,
-			"orgs:getOrg",
-			{ orgId }
+			"billing:getUserBillingStatus",
+			{ userId }
 		);
 
-		if (!org) {
-			return NextResponse.json({ error: "Organization not found" }, { status: 404 });
+		if (!user) {
+			return NextResponse.json({ error: "User not found" }, { status: 404 });
 		}
 
-		if (!org.stripeCustomerId) {
+		if (!user.stripeCustomerId) {
 			return NextResponse.json(
-				{ error: "No billing setup for this organization" },
+				{ error: "No billing setup for this user" },
 				{ status: 400 }
 			);
 		}
 
 		// Create billing portal session
 		const portalSession = await createBillingPortalSession({
-			customerId: org.stripeCustomerId,
+			customerId: user.stripeCustomerId,
 			returnUrl: returnUrl || `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/settings`,
 		});
 

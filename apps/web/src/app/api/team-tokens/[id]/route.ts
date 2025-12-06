@@ -4,7 +4,7 @@ import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
 
 interface TokenRecord {
 	_id: string;
-	orgId: string;
+	userId: string;
 }
 
 /**
@@ -24,28 +24,13 @@ export async function DELETE(
 		const { id: tokenId } = await params;
 
 		const convex = getConvexClient();
-
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Get the token to verify ownership
 		const tokens = await callQuery<TokenRecord[]>(
 			convex,
 			"teamTokens:listTokens",
-			{ orgId, includeRevoked: false }
+			{ userId, includeRevoked: false }
 		);
 
 		const token = tokens?.find(t => t._id === tokenId);

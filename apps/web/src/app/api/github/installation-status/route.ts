@@ -5,7 +5,7 @@ import { listInstallationRepos } from "@/lib/github/auth";
 
 /**
  * GET /api/github/installation-status
- * Check if the user's org has a GitHub installation
+ * Check if the user has a GitHub installation
  */
 export async function GET(request: NextRequest) {
 	try {
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
 		// Get session and user
 		const session = await callQuery<{
-			user: { _id: string; primaryOrgId?: string };
+			user: { _id: string };
 		} | null>(convex, "auth:getSession", { sessionToken });
 
 		console.log("[installation-status] Session user:", session?.user?._id || "none");
@@ -31,26 +31,10 @@ export async function GET(request: NextRequest) {
 			return NextResponse.json({ error: "Invalid session" }, { status: 401 });
 		}
 
-		// Get user's organizations
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
+		const userId = session.user._id;
 
-		console.log("[installation-status] User orgs:", orgs?.length || 0);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json({
-				hasInstallation: false,
-				installations: [],
-				repositories: [],
-			});
-		}
-
-		// Get installations for the first org
-		const orgId = orgs[0]._id;
-		console.log("[installation-status] Checking org:", orgId);
+		// Get installations for the user
+		console.log("[installation-status] Checking user:", userId);
 
 		const allInstallations = await callQuery<
 			Array<{
@@ -59,7 +43,7 @@ export async function GET(request: NextRequest) {
 				status: string;
 				providerInstallationId: string;
 			}>
-		>(convex, "scm:getInstallations", { orgId });
+		>(convex, "scm:getInstallations", { userId });
 
 		// Filter to only active installations (exclude deleted/suspended)
 		const installations = allInstallations?.filter(i => i.status === "active") || [];
@@ -78,7 +62,7 @@ export async function GET(request: NextRequest) {
 			repositories = await callQuery<typeof repositories>(
 				convex,
 				"scm:getRepositories",
-				{ orgId }
+				{ userId }
 			);
 			console.log("[installation-status] Repositories found:", repositories?.length || 0);
 		}
@@ -118,25 +102,14 @@ export async function POST(request: NextRequest) {
 
 		// Get session and user
 		const session = await callQuery<{
-			user: { _id: string; primaryOrgId?: string };
+			user: { _id: string };
 		} | null>(convex, "auth:getSession", { sessionToken });
 
 		if (!session?.user) {
 			return NextResponse.json({ error: "Invalid session" }, { status: 401 });
 		}
 
-		// Get user's organizations
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json({ error: "No organization found" }, { status: 400 });
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Get installations
 		const installations = await callQuery<
@@ -144,7 +117,7 @@ export async function POST(request: NextRequest) {
 				_id: string;
 				providerInstallationId: string;
 			}>
-		>(convex, "scm:getInstallations", { orgId });
+		>(convex, "scm:getInstallations", { userId });
 
 		if (!installations || installations.length === 0) {
 			return NextResponse.json({ error: "No installation found" }, { status: 400 });
@@ -158,7 +131,7 @@ export async function POST(request: NextRequest) {
 
 			for (const repo of repos) {
 				await callMutation(convex, "scm:upsertRepository", {
-					orgId,
+					userId,
 					scmInstallationId: inst._id,
 					providerType: "github",
 					providerRepoId: String(repo.id),

@@ -4,9 +4,9 @@ import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
 interface TokenValidation {
 	valid: boolean;
 	error?: string;
-	orgId?: string;
-	orgName?: string;
-	orgSlug?: string;
+	userId?: string;
+	userName?: string;
+	userEmail?: string;
 	tokenId?: string;
 }
 
@@ -34,7 +34,7 @@ interface Repository {
 
 /**
  * GET /api/mcp/config
- * Returns all guardrails and memories for the authenticated organization
+ * Returns all guardrails and memories for the authenticated user
  * Used by MCP server to fetch team configuration
  *
  * Headers:
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
 			{ token }
 		);
 
-		if (!validation.valid) {
+		if (!validation.valid || !validation.userId) {
 			return NextResponse.json(
 				{ error: validation.error || "Invalid token" },
 				{ status: 401 }
@@ -82,18 +82,18 @@ export async function GET(request: NextRequest) {
 		// Get optional repo filter
 		const repoFullName = request.nextUrl.searchParams.get("repoFullName");
 
-		// Fetch guardrails for this org
+		// Fetch guardrails for this user
 		let guardrails = await callQuery<Guardrail[]>(
 			convex,
 			"guardrails:listGuardrails",
-			{ orgId: validation.orgId }
+			{ userId: validation.userId }
 		);
 
-		// Fetch memories for this org
+		// Fetch memories for this user
 		let memories = await callQuery<Memory[]>(
 			convex,
 			"memories:listMemories",
-			{ orgId: validation.orgId }
+			{ userId: validation.userId }
 		);
 
 		// If repo filter is specified, find the repo and filter results
@@ -103,14 +103,14 @@ export async function GET(request: NextRequest) {
 			const repos = await callQuery<Repository[]>(
 				convex,
 				"scm:getRepositories",
-				{ orgId: validation.orgId }
+				{ userId: validation.userId }
 			);
 			const repo = repos.find((r) => r.fullName === repoFullName);
 
 			if (repo) {
 				repoId = repo._id;
 
-				// Filter to org-wide + this repo's guardrails/memories
+				// Filter to user-wide + this repo's guardrails/memories
 				guardrails = guardrails.filter(
 					(g) => g.repoId === undefined || g.repoId === repoId
 				);
@@ -122,24 +122,24 @@ export async function GET(request: NextRequest) {
 
 		// Format response for MCP consumption
 		const config = {
-			org: {
-				id: validation.orgId,
-				name: validation.orgName,
-				slug: validation.orgSlug,
+			user: {
+				id: validation.userId,
+				name: validation.userName,
+				email: validation.userEmail,
 			},
 			guardrails: guardrails.map((g) => ({
 				id: g._id,
 				pattern: g.pattern,
 				level: g.level,
 				message: g.message,
-				scope: g.repoId ? "repo" : "org",
+				scope: g.repoId ? "repo" : "user",
 			})),
 			memories: memories.map((m) => ({
 				id: m._id,
 				context: m.context,
 				tags: m.tags,
 				linkedFiles: m.linkedFiles,
-				scope: m.repoId ? "repo" : "org",
+				scope: m.repoId ? "repo" : "user",
 			})),
 			fetchedAt: new Date().toISOString(),
 		};

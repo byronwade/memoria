@@ -9,7 +9,6 @@ const literals = <T extends string>(...values: T[]) =>
 
 const providerValidator = literals("github", "gitlab");
 const roleValidator = literals("user", "admin", "support");
-const ownerTypeValidator = literals("user", "organization");
 
 export const upsertUserWithIdentity = mutation({
 	args: {
@@ -58,10 +57,11 @@ export const upsertUserWithIdentity = mutation({
 				emailVerified: args.emailVerified,
 				name: args.name,
 				avatarUrl: args.avatarUrl,
-				primaryOrgId: undefined,
 				githubUserId: args.provider === "github" ? args.providerUserId : null,
 				gitlabUserId: args.provider === "gitlab" ? args.providerUserId : null,
 				role: args.role ?? "user",
+				planTier: "free",
+				subscriptionStatus: "active",
 				createdAt: now(),
 				updatedAt: null,
 			});
@@ -157,15 +157,16 @@ export const getSession = query({
 export const createApiToken = mutation({
 	args: {
 		name: v.string(),
-		ownerType: ownerTypeValidator,
-		userId: v.optional(v.id("users")),
-		orgId: v.optional(v.id("organizations")),
+		userId: v.id("users"),
 		tokenHash: v.string(),
 		scopes: v.array(v.string()),
 	},
 	handler: async (ctx, args) => {
 		const tokenId = await ctx.db.insert("api_tokens", {
-			...args,
+			name: args.name,
+			userId: args.userId,
+			tokenHash: args.tokenHash,
+			scopes: args.scopes,
 			lastUsedAt: null,
 			createdAt: now(),
 			revokedAt: null,

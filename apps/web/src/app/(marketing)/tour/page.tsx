@@ -15,36 +15,42 @@ import { siteConfig } from "@/lib/seo/constants";
 
 const flows = [
 	{
+		label: "MCP + CLI",
+		badge: "100% FREE",
+		badgeColor: "green",
+		title: "Local analysis",
+		copy: "Run the MCP server in Cursor/Windsurf/Claude or use the CLI. All 13 engines run locally with no account or cloud connection.",
+		points: [
+			"All 13 git analysis engines included",
+			"Works entirely offline — no account needed",
+			"Same engines as paid plans",
+			"Unlimited local analysis forever",
+		],
+	},
+	{
 		label: "GitHub App",
-		title: "Pull request comments",
+		badge: "PAID",
+		badgeColor: "primary",
+		title: "PR automation",
 		copy: "Memoria inspects the PR diff, calculates risk, finds missing co-change files, and posts a Risk & Impact Report as a comment.",
 		points: [
-			"Risk level (Low / Medium / High)",
-			"Changed files with coupling scores",
-			"Missing but historically co-changed files",
-			"Suggested tests and pre-flight checklist",
+			"Automatic PR comments on every push",
+			"Risk level with coupling scores",
+			"Missing co-changed files flagged",
+			"Team-wide visibility",
 		],
 	},
 	{
-		label: "MCP + CLI",
-		title: "Local guardrails",
-		copy: "Run the MCP server in Cursor/Windsurf/Claude or use the CLI. The same engines surface checklists before you commit.",
+		label: "Dashboard + Memories",
+		badge: "PAID",
+		badgeColor: "primary",
+		title: "Team intelligence",
+		copy: "Cloud memories persist lessons learned across sessions. Guardrails protect critical files. Dashboards show trends.",
 		points: [
-			"`memoria analyze HEAD~1..HEAD` for local diffs",
-			"Lightweight JSON output for other tools",
-			"Works entirely offline/self-hosted",
-			"Same engines as the GitHub App",
-		],
-	},
-	{
-		label: "Dashboard",
-		title: "Org and repo insight",
-		copy: "See risk history, spicy files, and usage limits in one place. Flip repos on/off and review past analyses.",
-		points: [
-			"Recent analyses with risk levels",
-			"File heatmap for high-risk areas",
-			"Usage by repo and billing period",
-			"Simple controls to pause repos",
+			"Cloud memories shared across team",
+			"Guardrails to protect sensitive files",
+			"Risk history and file heatmaps",
+			"Org-wide analytics",
 		],
 	},
 ];
@@ -87,8 +93,8 @@ export default function TourPage() {
 						Risk & Impact, everywhere you ship code.
 					</h1>
 					<p className="text-lg text-muted-foreground">
-						Memoria is the same engine across the GitHub App, MCP, CLI, and the
-						web dashboard. Pick your entry point; the output stays consistent.
+						Memoria&apos;s core analysis is <strong>100% free</strong> via MCP/CLI. Paid plans add
+						automation, cloud memories, and team features.
 					</p>
 					<div className="flex flex-wrap items-center gap-3">
 						<Button asChild size="lg" variant="cta">
@@ -114,12 +120,21 @@ export default function TourPage() {
 					{flows.map((flow) => (
 						<Card
 							key={flow.title}
-							className="border-card-border/70 bg-card shadow-sm"
+							className={`border-card-border/70 bg-card shadow-sm ${flow.badgeColor === "green" ? "border-green-500/30" : ""}`}
 						>
 							<CardHeader className="space-y-2">
-								<div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-primary">
-									<ArrowUpRight className="size-4" />
-									{flow.label}
+								<div className="flex items-center justify-between">
+									<div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-primary">
+										<ArrowUpRight className="size-4" />
+										{flow.label}
+									</div>
+									<span className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded ${
+										flow.badgeColor === "green"
+											? "bg-green-500/20 text-green-600 dark:text-green-400"
+											: "bg-primary/20 text-primary"
+									}`}>
+										{flow.badge}
+									</span>
 								</div>
 								<CardTitle className="text-xl text-foreground">
 									{flow.title}

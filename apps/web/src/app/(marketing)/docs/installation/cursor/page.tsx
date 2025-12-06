@@ -51,6 +51,13 @@ export default function CursorPage() {
 				/>
 				<h1>Cursor</h1>
 
+				<div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/5 mb-4">
+					<span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold bg-green-500/20 text-green-600 dark:text-green-400 rounded">
+						100% FREE
+					</span>
+					<span className="text-sm text-muted-foreground">No account or API key required</span>
+				</div>
+
 				<p className="lead">Install Memoria for the Cursor AI code editor.</p>
 
 				<h2>Quick Install (One-liner)</h2>

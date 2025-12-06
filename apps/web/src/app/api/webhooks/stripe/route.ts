@@ -117,17 +117,17 @@ async function handleCheckoutCompleted(
 	convex: ReturnType<typeof getConvexClient>,
 	session: Stripe.Checkout.Session
 ) {
-	const orgId = session.metadata?.orgId;
+	const userId = session.metadata?.userId;
 	const planId = session.metadata?.planId;
 
-	if (!orgId || !planId) {
-		console.error("Missing orgId or planId in checkout session metadata");
+	if (!userId || !planId) {
+		console.error("Missing userId or planId in checkout session metadata");
 		return;
 	}
 
 	// The subscription will be created via the subscription.created webhook
 	// Just log for now
-	console.log(`Checkout completed for org ${orgId}, plan ${planId}`);
+	console.log(`Checkout completed for user ${userId}, plan ${planId}`);
 }
 
 async function handleSubscriptionUpdated(
@@ -136,19 +136,19 @@ async function handleSubscriptionUpdated(
 ) {
 	const customerId = subscription.customer as string;
 
-	// Find org by Stripe customer ID
-	const billingCustomer = await callQuery<{ orgId: string } | null>(
+	// Find user by Stripe customer ID
+	const user = await callQuery<{ _id: string } | null>(
 		convex,
-		"billing:getBillingCustomerByStripeId",
+		"billing:getUserByStripeCustomerId",
 		{ stripeCustomerId: customerId }
 	);
 
-	if (!billingCustomer) {
-		console.error(`No billing customer found for Stripe customer ${customerId}`);
+	if (!user) {
+		console.error(`No user found for Stripe customer ${customerId}`);
 		return;
 	}
 
-	const orgId = billingCustomer.orgId;
+	const userId = user._id;
 
 	// Get plan from metadata or price
 	const priceId = subscription.items.data[0]?.price?.id;
@@ -164,46 +164,27 @@ async function handleSubscriptionUpdated(
 	}
 
 	// Map Stripe status to our status
-	const statusMap: Record<string, "active" | "trialing" | "past_due" | "canceled" | "incomplete" | "paused"> = {
+	const statusMap: Record<string, "active" | "trial" | "past_due" | "canceled"> = {
 		active: "active",
-		trialing: "trialing",
+		trialing: "trial",
 		past_due: "past_due",
 		canceled: "canceled",
-		incomplete: "incomplete",
+		incomplete: "past_due",
 		incomplete_expired: "canceled",
 		unpaid: "past_due",
-		paused: "paused",
+		paused: "canceled",
 	};
 
-	const status = statusMap[subscription.status] || "incomplete";
+	const status = statusMap[subscription.status] || "active";
 
-	// Get billing period from subscription item (Stripe API 2025+ moved periods to items)
-	const subscriptionItem = subscription.items.data[0];
-	const currentPeriodStart = subscriptionItem?.current_period_start ?? Math.floor(Date.now() / 1000);
-	const currentPeriodEnd = subscriptionItem?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-
-	// Update subscription record
-	await callMutation(convex, "billing:upsertSubscription", {
-		orgId,
+	// Update user billing status
+	await callMutation(convex, "billing:updateUserBilling", {
+		userId,
 		stripeSubscriptionId: subscription.id,
-		planId: plan._id,
-		status,
-		currentPeriodStart: currentPeriodStart * 1000,
-		currentPeriodEnd: currentPeriodEnd * 1000,
-		cancelAtPeriodEnd: subscription.cancel_at_period_end,
-		canceledAt: subscription.canceled_at ? subscription.canceled_at * 1000 : null,
-		metadata: subscription.metadata as Record<string, string>,
-	});
-
-	// Update org billing status
-	await callMutation(convex, "billing:updateOrgBillingStatus", {
-		orgId,
-		status: status === "trialing" ? "trial" : status === "active" ? "active" : status,
-		planId: plan._id,
-		stripeSubscriptionId: subscription.id,
+		planTier: plan._id.includes("pro") ? "pro" : plan._id.includes("team") ? "team" : "free",
+		subscriptionStatus: status,
 		trialEndsAt: subscription.trial_end ? subscription.trial_end * 1000 : undefined,
 		maxRepos: plan.maxRepos ?? undefined,
-		maxAnalysesPerMonth: plan.maxAnalysesPerMonth ?? undefined,
 	});
 }
 
@@ -213,31 +194,21 @@ async function handleSubscriptionDeleted(
 ) {
 	const customerId = subscription.customer as string;
 
-	const billingCustomer = await callQuery<{ orgId: string } | null>(
+	const user = await callQuery<{ _id: string } | null>(
 		convex,
-		"billing:getBillingCustomerByStripeId",
+		"billing:getUserByStripeCustomerId",
 		{ stripeCustomerId: customerId }
 	);
 
-	if (!billingCustomer) return;
-
-	const orgId = billingCustomer.orgId;
-
-	// Get free plan
-	const freePlan = await callQuery<{ _id: string } | null>(
-		convex,
-		"billing:getPlanByTier",
-		{ tier: "free" }
-	);
+	if (!user) return;
 
 	// Downgrade to free plan
-	await callMutation(convex, "billing:updateOrgBillingStatus", {
-		orgId,
-		status: "canceled",
-		planId: freePlan?._id,
+	await callMutation(convex, "billing:updateUserBilling", {
+		userId: user._id,
+		planTier: "free",
+		subscriptionStatus: "canceled",
 		stripeSubscriptionId: undefined,
 		maxRepos: 1,
-		maxAnalysesPerMonth: 50,
 	});
 }
 
@@ -255,19 +226,19 @@ async function handleInvoicePaymentFailed(
 ) {
 	const customerId = invoice.customer as string;
 
-	const billingCustomer = await callQuery<{ orgId: string } | null>(
+	const user = await callQuery<{ _id: string } | null>(
 		convex,
-		"billing:getBillingCustomerByStripeId",
+		"billing:getUserByStripeCustomerId",
 		{ stripeCustomerId: customerId }
 	);
 
-	if (!billingCustomer) return;
+	if (!user) return;
 
-	// Update org status to past_due
-	await callMutation(convex, "billing:updateOrgBillingStatus", {
-		orgId: billingCustomer.orgId,
-		status: "past_due",
+	// Update user status to past_due
+	await callMutation(convex, "billing:updateUserBilling", {
+		userId: user._id,
+		subscriptionStatus: "past_due",
 	});
 
-	console.log(`Invoice payment failed for org ${billingCustomer.orgId}`);
+	console.log(`Invoice payment failed for user ${user._id}`);
 }

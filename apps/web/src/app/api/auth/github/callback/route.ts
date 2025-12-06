@@ -165,42 +165,18 @@ export async function GET(request: NextRequest) {
 			expiresAt,
 		});
 
-		// Check if user has any organizations
-		const userOrgs = await callQuery<Array<{ _id: string }>>(
+		// Check if user has any installations to determine redirect
+		const installations = await callQuery<Array<{ _id: string }>>(
 			convex,
-			"orgs:getUserOrganizations",
+			"scm:getInstallations",
 			{ userId }
 		);
 
-		let redirectUrl = "/dashboard";
-		let orgId: string | null = userOrgs?.[0]?._id || null;
-
-		// If no organizations, create one and redirect to onboarding
-		if (!userOrgs || userOrgs.length === 0) {
-			// Create a personal organization for the user
-			const slug = githubUser.login.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-			const orgName = githubUser.name || githubUser.login;
-
-			// Get free plan
-			const freePlan = await callQuery<{ _id: string } | null>(
-				convex,
-				"billing:getPlanByTier",
-				{ tier: "free" }
-			);
-
-			const result = await callMutation<{ orgId: string }>(convex, "orgs:createOrganization", {
-				name: orgName,
-				slug,
-				ownerUserId: userId,
-				planId: freePlan?._id,
-			});
-
-			orgId = result.orgId;
-			redirectUrl = "/onboarding";
-		}
+		// Redirect to onboarding if no installations, otherwise dashboard
+		let redirectUrl = (!installations || installations.length === 0) ? "/onboarding" : "/dashboard";
 
 		// Handle GitHub App installation if installation_id is present
-		if (installationId && orgId) {
+		if (installationId) {
 			console.log("[oauth-callback] Processing installation:", installationId);
 			try {
 				// Get installation details from GitHub
@@ -214,7 +190,7 @@ export async function GET(request: NextRequest) {
 				await callMutation(convex, "scm:upsertInstallation", {
 					providerType: "github",
 					providerInstallationId: String(installationId),
-					orgId,
+					userId,
 					accountType: accountType as "user" | "org",
 					accountLogin,
 					accountName,
@@ -222,7 +198,7 @@ export async function GET(request: NextRequest) {
 					status: "active",
 				});
 
-				console.log("[oauth-callback] Installation created for org:", orgId);
+				console.log("[oauth-callback] Installation created for user:", userId);
 
 				// Get the installation ID from database to sync repos
 				const inst = await callQuery<{ _id: string } | null>(
@@ -238,7 +214,7 @@ export async function GET(request: NextRequest) {
 
 					for (const repo of repos) {
 						await callMutation(convex, "scm:upsertRepository", {
-							orgId,
+							userId,
 							scmInstallationId: inst._id,
 							providerType: "github",
 							providerRepoId: String(repo.id),

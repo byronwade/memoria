@@ -14,7 +14,7 @@ const actionValidator = literals("blocked", "warned");
  */
 export const recordIntervention = mutation({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.id("repositories"),
 		guardrailId: v.optional(v.id("guardrails")),
 		filePath: v.string(),
@@ -25,7 +25,7 @@ export const recordIntervention = mutation({
 	},
 	handler: async (ctx, args) => {
 		const interventionId = await ctx.db.insert("interventions", {
-			orgId: args.orgId,
+			userId: args.userId,
 			repoId: args.repoId,
 			guardrailId: args.guardrailId,
 			filePath: args.filePath,
@@ -40,11 +40,11 @@ export const recordIntervention = mutation({
 });
 
 /**
- * List interventions for an organization with pagination
+ * List interventions for a user with pagination
  */
 export const listInterventions = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.optional(v.id("repositories")),
 		limit: v.optional(v.number()),
 		cursor: v.optional(v.number()), // timestamp cursor for pagination
@@ -54,7 +54,7 @@ export const listInterventions = query({
 
 		let interventions = await ctx.db
 			.query("interventions")
-			.withIndex("by_org_timestamp", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId_timestamp", (q) => q.eq("userId", args.userId))
 			.order("desc")
 			.collect();
 
@@ -103,13 +103,13 @@ export const listInterventions = query({
  */
 export const getInterventionStats = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.optional(v.id("repositories")),
 	},
 	handler: async (ctx, args) => {
 		let interventions = await ctx.db
 			.query("interventions")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		// Filter by repo if specified
@@ -157,7 +157,7 @@ export const getInterventionStats = query({
  */
 export const getInterventionTrend = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.optional(v.id("repositories")),
 		days: v.optional(v.number()), // default 30
 	},
@@ -167,7 +167,7 @@ export const getInterventionTrend = query({
 
 		let interventions = await ctx.db
 			.query("interventions")
-			.withIndex("by_org_timestamp", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId_timestamp", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		// Filter by repo if specified
@@ -217,7 +217,7 @@ export const getInterventionTrend = query({
  */
 export const getMostBlockedFiles = query({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.optional(v.id("repositories")),
 		limit: v.optional(v.number()),
 	},
@@ -226,7 +226,7 @@ export const getMostBlockedFiles = query({
 
 		let interventions = await ctx.db
 			.query("interventions")
-			.withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
 		// Filter by repo if specified

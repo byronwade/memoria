@@ -4,7 +4,7 @@ import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
 
 interface MemoryRecord {
 	_id: string;
-	orgId: string;
+	userId: string;
 }
 
 /**
@@ -26,28 +26,13 @@ export async function PATCH(
 		const { context, tags, linkedFiles, repoId } = body;
 
 		const convex = getConvexClient();
-
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Get the memory to verify ownership
 		const memories = await callQuery<MemoryRecord[]>(
 			convex,
 			"memories:listMemories",
-			{ orgId }
+			{ userId }
 		);
 
 		const memory = memories?.find((m) => m._id === memoryId);
@@ -98,28 +83,13 @@ export async function DELETE(
 		const { id: memoryId } = await params;
 
 		const convex = getConvexClient();
-
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Get the memory to verify ownership
 		const memories = await callQuery<MemoryRecord[]>(
 			convex,
 			"memories:listMemories",
-			{ orgId }
+			{ userId }
 		);
 
 		const memory = memories?.find((m) => m._id === memoryId);

@@ -62,7 +62,7 @@ export const markWebhookProcessed = mutation({
 
 export const storeOutboundWebhook = mutation({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		targetType: targetTypeValidator,
 		targetUrl: v.string(),
 		eventType: v.string(),
@@ -122,4 +122,3 @@ export const listRecentWebhooks = query({
 		return webhooks;
 	},
 });
-

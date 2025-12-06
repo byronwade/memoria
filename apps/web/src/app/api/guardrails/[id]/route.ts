@@ -4,7 +4,7 @@ import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
 
 interface GuardrailRecord {
 	_id: string;
-	orgId: string;
+	userId: string;
 }
 
 /**
@@ -26,28 +26,13 @@ export async function PATCH(
 		const { pattern, level, message, repoId, isEnabled } = body;
 
 		const convex = getConvexClient();
-
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Get the guardrail to verify ownership
 		const guardrails = await callQuery<GuardrailRecord[]>(
 			convex,
 			"guardrails:listGuardrails",
-			{ orgId, includeDisabled: true }
+			{ userId, includeDisabled: true }
 		);
 
 		const guardrail = guardrails?.find((g) => g._id === guardrailId);
@@ -99,28 +84,13 @@ export async function DELETE(
 		const { id: guardrailId } = await params;
 
 		const convex = getConvexClient();
-
-		// Get user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
+		const userId = session.user._id;
 
 		// Get the guardrail to verify ownership
 		const guardrails = await callQuery<GuardrailRecord[]>(
 			convex,
 			"guardrails:listGuardrails",
-			{ orgId, includeDisabled: true }
+			{ userId, includeDisabled: true }
 		);
 
 		const guardrail = guardrails?.find((g) => g._id === guardrailId);

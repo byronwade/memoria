@@ -27,29 +27,14 @@ export async function PATCH(
 			);
 		}
 
+		const userId = session.user._id;
 		const convex = getConvexClient();
 
-		// Verify the repository belongs to the user's organization
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
-
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json(
-				{ error: "No organization found" },
-				{ status: 404 }
-			);
-		}
-
-		const orgId = orgs[0]._id;
-
 		// Get the repository to verify ownership
-		const repos = await callQuery<Array<{ _id: string; orgId: string }>>(
+		const repos = await callQuery<Array<{ _id: string; userId: string }>>(
 			convex,
 			"scm:getRepositories",
-			{ orgId }
+			{ userId }
 		);
 
 		const repo = repos?.find(r => r._id === repoId);

@@ -28,20 +28,9 @@ export async function POST(request: NextRequest) {
 			return NextResponse.json({ error: "Invalid session" }, { status: 401 });
 		}
 
-		// Get user's organizations
-		const orgs = await callQuery<Array<{ _id: string }>>(
-			convex,
-			"orgs:getUserOrganizations",
-			{ userId: session.user._id }
-		);
+		const userId = session.user._id;
 
-		if (!orgs || orgs.length === 0) {
-			return NextResponse.json({ error: "No organization found" }, { status: 400 });
-		}
-
-		const orgId = orgs[0]._id;
-
-		// Get all installations for this org (including deleted/suspended)
+		// Get all installations for this user (including deleted/suspended)
 		const installations = await callQuery<
 			Array<{
 				_id: string;
@@ -49,7 +38,7 @@ export async function POST(request: NextRequest) {
 				status: string;
 				accountLogin: string;
 			}>
-		>(convex, "scm:getInstallations", { orgId });
+		>(convex, "scm:getInstallations", { userId });
 
 		if (!installations || installations.length === 0) {
 			return NextResponse.json({
@@ -96,7 +85,7 @@ export async function POST(request: NextRequest) {
 					await callMutation(convex, "scm:upsertInstallation", {
 						providerType: "github",
 						providerInstallationId: inst.providerInstallationId,
-						orgId,
+						userId,
 						accountType: "user", // We don't need to update this
 						accountLogin: inst.accountLogin,
 						accountName: null,
@@ -123,7 +112,7 @@ export async function POST(request: NextRequest) {
 					await callMutation(convex, "scm:upsertInstallation", {
 						providerType: "github",
 						providerInstallationId: inst.providerInstallationId,
-						orgId,
+						userId,
 						accountType: "user",
 						accountLogin: inst.accountLogin,
 						accountName: null,

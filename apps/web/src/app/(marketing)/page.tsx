@@ -416,8 +416,8 @@ const faqs = [
 		answer: "Memoria runs as an MCP (Model Context Protocol) server that your AI assistant connects to. When you edit a file, your AI calls Memoria's analyze_file tool to get risk scores, coupled files, and a pre-flight checklist. This takes ~150ms and gives your AI context it couldn't get otherwise.",
 	},
 	{
-		question: "Does Memoria slow down my development workflow?",
-		answer: "Not at all. Memoria analyzes files in about 150ms total. It uses smart caching (5-minute TTL) so repeated analyses of the same file are instant. The analysis runs in the background while you work.",
+		question: "What's free and what's paid?",
+		answer: "The 13 git analysis engines run 100% free and locally - no account needed. Paid plans add cloud memories (shared context across your team), guardrails (file protection rules), and a dashboard. Free tier is fully functional for solo developers.",
 	},
 	{
 		question: "What AI tools does Memoria support?",
@@ -425,15 +425,15 @@ const faqs = [
 	},
 	{
 		question: "Is my code sent to external servers?",
-		answer: "No. Memoria runs entirely locally on your machine. It analyzes your git history and file imports without sending any code to external servers. Your code never leaves your computer.",
+		answer: "The free tier runs 100% locally - your code never leaves your machine. If you opt into paid cloud features, only memories and guardrail metadata are synced, never your actual source code.",
 	},
 	{
-		question: "What does the risk score mean?",
-		answer: "The risk score (0-100) combines four factors: file volatility (how often it's been buggy), coupling strength (how many files change with it), drift (how stale coupled files are), and import count (how many files depend on it). Higher scores mean more caution is needed.",
+		question: "What are cloud memories?",
+		answer: "Cloud memories let your team save lessons learned (e.g., 'Safari OAuth needs a 100ms delay'). These memories appear automatically when anyone on your team edits related files, preventing the same bugs from recurring.",
 	},
 	{
-		question: "Can I customize Memoria's behavior?",
-		answer: "Yes! Create a .memoria.json file in your repo to customize thresholds, add custom panic keywords, adjust risk weights, and ignore specific patterns. Check the docs for all configuration options.",
+		question: "What are guardrails?",
+		answer: "Guardrails are file protection rules your team sets via the dashboard. For example, block AI from editing production configs, or warn before touching critical authentication code. They enforce team policies automatically.",
 	},
 ];
 
@@ -503,7 +503,7 @@ export default function Home() {
 								{[
 									"Reveals hidden file dependencies through git forensics",
 									"Calculates risk scores before you touch a file",
-									"Works with any AI coding assistant",
+									"Free local analysis + paid cloud memories for teams",
 								].map((item, i) => (
 									<div key={i} className="flex items-start gap-3">
 										<div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center mt-0.5 shrink-0">
@@ -1131,13 +1131,13 @@ export default function Home() {
 							variants={fadeInUp}
 							className="mt-4 text-3xl md:text-4xl font-semibold tracking-tight"
 						>
-							Open source core. Pay for automation.
+							Free locally. Pay for team intelligence.
 						</m.h2>
 						<m.p
 							variants={fadeInUp}
 							className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto"
 						>
-							The MCP + CLI stay free forever. Paid plans add GitHub integration and team features.
+							All 13 git analysis engines run free forever. Paid plans add cloud memories, guardrails, and team dashboards.
 						</m.p>
 					</m.div>
 
@@ -1151,77 +1151,77 @@ export default function Home() {
 						{/* Free */}
 						<m.div variants={fadeInUp} className="p-6 rounded-sm border border-border/50 bg-card">
 							<div className="text-lg font-semibold text-foreground">Free</div>
-							<div className="mt-2 text-3xl font-bold text-foreground">$0<span className="text-sm font-normal text-muted-foreground">/mo</span></div>
-							<p className="mt-2 text-sm text-muted-foreground">Perfect for personal repos</p>
+							<div className="mt-2 text-3xl font-bold text-foreground">$0<span className="text-sm font-normal text-muted-foreground"> forever</span></div>
+							<p className="mt-2 text-sm text-muted-foreground">All 13 engines. No account needed.</p>
 							<ul className="mt-6 space-y-3 text-sm">
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									1 active repo
+									All 13 git analysis engines
 								</li>
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									20 PR analyses/month
+									Unlimited local analysis
 								</li>
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									MCP + CLI included
+									Works offline
 								</li>
 							</ul>
 							<Button variant="outline" className="w-full mt-6" asChild>
-								<Link href="/pricing">Get started</Link>
+								<Link href="/docs/installation">Install Free</Link>
 							</Button>
 						</m.div>
 
-						{/* Solo */}
+						{/* Pro */}
 						<m.div variants={fadeInUp} className="p-6 rounded-sm border border-primary/30 bg-card shadow-lg relative">
 							<div className="absolute -top-3 left-1/2 -translate-x-1/2">
 								<span className="bg-primary text-primary-foreground text-xs font-medium px-3 py-1 rounded-sm">
 									Popular
 								</span>
 							</div>
-							<div className="text-lg font-semibold text-foreground">Solo</div>
-							<div className="mt-2 text-3xl font-bold text-foreground">$9<span className="text-sm font-normal text-muted-foreground">/mo</span></div>
-							<p className="mt-2 text-sm text-muted-foreground">For indie builders</p>
+							<div className="text-lg font-semibold text-foreground">Pro</div>
+							<div className="mt-2 text-3xl font-bold text-foreground">$5<span className="text-sm font-normal text-muted-foreground">/month</span></div>
+							<p className="mt-2 text-sm text-muted-foreground">Cloud memories that persist.</p>
 							<ul className="mt-6 space-y-3 text-sm">
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									3 active repos
+									Unlimited cloud memories
 								</li>
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									100 PR analyses/month
+									Personal guardrails
 								</li>
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									GitHub App integration
+									Dashboard & analytics
 								</li>
 							</ul>
 							<Button variant="cta" className="w-full mt-6" asChild>
-								<Link href="/pricing">Upgrade</Link>
+								<Link href="/register">Start Free Trial</Link>
 							</Button>
 						</m.div>
 
 						{/* Team */}
 						<m.div variants={fadeInUp} className="p-6 rounded-sm border border-border/50 bg-card">
 							<div className="text-lg font-semibold text-foreground">Team</div>
-							<div className="mt-2 text-3xl font-bold text-foreground">$39<span className="text-sm font-normal text-muted-foreground">/seat/mo</span></div>
-							<p className="mt-2 text-sm text-muted-foreground">For teams needing guardrails</p>
+							<div className="mt-2 text-3xl font-bold text-foreground">$8<span className="text-sm font-normal text-muted-foreground">/seat/mo</span></div>
+							<p className="mt-2 text-sm text-muted-foreground">Shared memories for your team.</p>
 							<ul className="mt-6 space-y-3 text-sm">
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									10 active repos
+									Team-wide shared memories
 								</li>
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									500 PR analyses/month
+									Unlimited guardrails
 								</li>
 								<li className="flex items-center gap-2 text-muted-foreground">
 									<Check className="w-4 h-4 text-primary" />
-									Org dashboards
+									Org-level analytics
 								</li>
 							</ul>
 							<Button variant="outline" className="w-full mt-6" asChild>
-								<Link href="/pricing">Talk to us</Link>
+								<Link href="/register?plan=team">Start Team Trial</Link>
 							</Button>
 						</m.div>
 					</m.div>

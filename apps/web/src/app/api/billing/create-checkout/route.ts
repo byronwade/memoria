@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
-import { stripe, createCustomer, createCheckoutSession } from "@/lib/stripe/server";
+import { createCustomer, createCheckoutSession } from "@/lib/stripe/server";
 
 interface BillingPlan {
 	_id: string;
@@ -13,9 +13,10 @@ interface BillingPlan {
 	pricePerMonthUsd: number;
 }
 
-interface Organization {
+interface UserData {
 	_id: string;
-	name: string;
+	name: string | null;
+	email: string;
 	stripeCustomerId: string | null;
 }
 
@@ -27,15 +28,16 @@ export async function POST(request: NextRequest) {
 		}
 
 		const body = await request.json();
-		const { orgId, planTier, successUrl, cancelUrl } = body;
+		const { planTier, successUrl, cancelUrl } = body;
 
-		if (!orgId || !planTier) {
+		if (!planTier) {
 			return NextResponse.json(
-				{ error: "Missing orgId or planTier" },
+				{ error: "Missing planTier" },
 				{ status: 400 }
 			);
 		}
 
+		const userId = session.user._id;
 		const convex = getConvexClient();
 
 		// Get the plan
@@ -52,43 +54,34 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
-		// Get org
-		const org = await callQuery<Organization | null>(
+		// Get user billing info
+		const user = await callQuery<UserData | null>(
 			convex,
-			"orgs:getOrg",
-			{ orgId }
+			"billing:getUserBillingStatus",
+			{ userId }
 		);
 
-		if (!org) {
-			return NextResponse.json({ error: "Organization not found" }, { status: 404 });
+		if (!user) {
+			return NextResponse.json({ error: "User not found" }, { status: 404 });
 		}
 
 		// Create or get Stripe customer
-		let stripeCustomerId = org.stripeCustomerId;
+		let stripeCustomerId = user.stripeCustomerId;
 
 		if (!stripeCustomerId) {
 			const customer = await createCustomer({
 				email: session.user.email,
-				name: org.name,
+				name: user.name || session.user.email,
 				metadata: {
-					orgId: org._id,
-					userId: session.user._id,
+					userId,
 				},
 			});
 			stripeCustomerId = customer.id;
 
-			// Update org with Stripe customer ID
-			await callMutation(convex, "billing:updateOrgBillingStatus", {
-				orgId,
+			// Update user with Stripe customer ID
+			await callMutation(convex, "billing:updateUserBilling", {
+				userId,
 				stripeCustomerId,
-			});
-
-			// Also create billing customer record
-			await callMutation(convex, "billing:upsertBillingCustomer", {
-				orgId,
-				stripeCustomerId,
-				defaultPaymentMethodId: null,
-				metadata: { userId: session.user._id },
 			});
 		}
 
@@ -100,9 +93,8 @@ export async function POST(request: NextRequest) {
 			cancelUrl: cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/onboarding`,
 			trialDays: 14, // 14-day trial
 			metadata: {
-				orgId: org._id,
 				planId: plan._id,
-				userId: session.user._id,
+				userId,
 			},
 		});
 

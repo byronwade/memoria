@@ -15,7 +15,7 @@ const severityValidator = literals("low", "medium", "high");
 
 export const recordAnalysis = mutation({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.id("repositories"),
 		pullRequestId: v.optional(v.id("pull_requests")),
 		commitSha: v.union(v.string(), v.null()),
@@ -46,10 +46,9 @@ export const recordAnalysis = mutation({
 		}
 
 		await ctx.db.insert("events", {
-			orgId: args.orgId,
+			userId: args.userId,
 			repoId: args.repoId,
 			pullRequestId: args.pullRequestId,
-			userId: undefined,
 			type: "analysis.completed",
 			context: { riskLevel: args.riskLevel, score: args.score },
 			createdAt: now(),
@@ -127,31 +126,31 @@ export const updateFileRisk = mutation({
 
 export const bumpDailyStats = mutation({
 	args: {
-		orgId: v.id("organizations"),
+		userId: v.id("users"),
 		repoId: v.id("repositories"),
 		date: v.string(),
 		riskLevel: riskLevelValidator,
 		riskScore: v.union(v.number(), v.null()),
 	},
 	handler: async (ctx, args) => {
-		const orgStats = await ctx.db
-			.query("daily_org_stats")
-			.withIndex("by_org_date", (q) => q.eq("orgId", args.orgId).eq("date", args.date))
+		const userStats = await ctx.db
+			.query("daily_user_stats")
+			.withIndex("by_userId_date", (q) => q.eq("userId", args.userId).eq("date", args.date))
 			.first();
-		if (orgStats) {
-			await ctx.db.patch(orgStats._id, {
-				prAnalysesCount: orgStats.prAnalysesCount + 1,
-				highRiskAnalysesCount: orgStats.highRiskAnalysesCount + (args.riskLevel === "high" ? 1 : 0),
-				mediumRiskAnalysesCount: orgStats.mediumRiskAnalysesCount + (args.riskLevel === "medium" ? 1 : 0),
-				lowRiskAnalysesCount: orgStats.lowRiskAnalysesCount + (args.riskLevel === "low" ? 1 : 0),
+		if (userStats) {
+			await ctx.db.patch(userStats._id, {
+				prAnalysesCount: userStats.prAnalysesCount + 1,
+				highRiskAnalysesCount: userStats.highRiskAnalysesCount + (args.riskLevel === "high" ? 1 : 0),
+				mediumRiskAnalysesCount: userStats.mediumRiskAnalysesCount + (args.riskLevel === "medium" ? 1 : 0),
+				lowRiskAnalysesCount: userStats.lowRiskAnalysesCount + (args.riskLevel === "low" ? 1 : 0),
 				averageRiskScore:
 					args.riskScore !== null
-						? ((orgStats.averageRiskScore ?? 0) + args.riskScore) / 2
-						: orgStats.averageRiskScore,
+						? ((userStats.averageRiskScore ?? 0) + args.riskScore) / 2
+						: userStats.averageRiskScore,
 			});
 		} else {
-			await ctx.db.insert("daily_org_stats", {
-				orgId: args.orgId,
+			await ctx.db.insert("daily_user_stats", {
+				userId: args.userId,
 				date: args.date,
 				prAnalysesCount: 1,
 				highRiskAnalysesCount: args.riskLevel === "high" ? 1 : 0,
@@ -193,4 +192,3 @@ export const bumpDailyStats = mutation({
 		return { updated: true };
 	},
 });
-

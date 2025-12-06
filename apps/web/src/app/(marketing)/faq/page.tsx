@@ -15,6 +15,18 @@ import { siteConfig } from "@/lib/seo/constants";
 
 const faqs = [
 	{
+		q: "Is Memoria really free?",
+		a: "Yes! All 13 git analysis engines run 100% free and locally on your machine. No account, no API keys, no limits, no cloud connection required. We'll never paywall the core analysis.",
+	},
+	{
+		q: "What do paid plans add?",
+		a: "Paid plans add cloud memories (shared context across your team that persists between sessions), guardrails (file protection rules), and a team dashboard. The free tier is fully functional for solo developers.",
+	},
+	{
+		q: "Do I need a paid plan to use Memoria with Claude/Cursor?",
+		a: "No. Install the MCP server and use all 13 analysis engines completely free. Paid plans are optional for teams who want shared context across sessions and team members.",
+	},
+	{
 		q: "What exactly does Memoria do?",
 		a: "Memoria analyzes git history and diffs to find risky changes, missing co-change files, stale dependencies, and suggests tests. It posts a Risk & Impact Report to GitHub PRs or returns JSON via MCP/CLI.",
 	},
@@ -24,11 +36,11 @@ const faqs = [
 	},
 	{
 		q: "Do you store my code?",
-		a: "Diffs are processed transiently to build the report and then discarded. We store metadata like repo, PR number, risk level, and timestamps for history and billing.",
+		a: "No source code is ever stored. The free tier runs 100% locally. For paid cloud features, we only store memory text and guardrail patterns—never your actual codebase.",
 	},
 	{
 		q: "Can I run Memoria locally?",
-		a: "Absolutely. Run the MCP server inside Cursor/Windsurf/Claude or use the CLI. The same engines run locally with no cloud dependency.",
+		a: "Absolutely. Run the MCP server inside Cursor/Windsurf/Claude or use the CLI. The same 13 engines run locally with no cloud dependency. This is the free tier and it works offline.",
 	},
 	{
 		q: "How do I integrate with GitHub?",

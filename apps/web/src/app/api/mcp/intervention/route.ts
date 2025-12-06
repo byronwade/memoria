@@ -4,7 +4,7 @@ import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
 interface TokenValidation {
 	valid: boolean;
 	error?: string;
-	orgId?: string;
+	userId?: string;
 	tokenId?: string;
 }
 
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
 			{ token }
 		);
 
-		if (!validation.valid) {
+		if (!validation.valid || !validation.userId) {
 			return NextResponse.json(
 				{ error: validation.error || "Invalid token" },
 				{ status: 401 }
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
 		const repos = await callQuery<Repository[]>(
 			convex,
 			"scm:getRepositories",
-			{ orgId: validation.orgId }
+			{ userId: validation.userId }
 		);
 		const repo = repos.find((r) => r.fullName === body.repoFullName);
 
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
 			convex,
 			"interventions:recordIntervention",
 			{
-				orgId: validation.orgId,
+				userId: validation.userId,
 				repoId: repo._id,
 				guardrailId: body.guardrailId || undefined,
 				filePath: body.filePath,
