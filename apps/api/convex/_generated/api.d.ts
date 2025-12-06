@@ -16,6 +16,8 @@ import type * as github_handlers from "../github/handlers.js";
 import type * as github_index from "../github/index.js";
 import type * as github_mutations from "../github/mutations.js";
 import type * as orgs from "../orgs.js";
+import type * as scanWorker from "../scanWorker.js";
+import type * as scans from "../scans.js";
 import type * as scm from "../scm.js";
 import type * as webhooks from "../webhooks.js";
 
@@ -34,6 +36,8 @@ declare const fullApi: ApiFromModules<{
   "github/index": typeof github_index;
   "github/mutations": typeof github_mutations;
   orgs: typeof orgs;
+  scanWorker: typeof scanWorker;
+  scans: typeof scans;
   scm: typeof scm;
   webhooks: typeof webhooks;
 }>;

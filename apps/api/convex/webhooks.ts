@@ -100,3 +100,26 @@ export const markOutboundResult = mutation({
 	},
 });
 
+/**
+ * List recent inbound webhooks for debugging
+ */
+export const listRecentWebhooks = query({
+	args: {
+		source: v.optional(sourceValidator),
+		limit: v.optional(v.number()),
+	},
+	handler: async (ctx, args) => {
+		const limit = args.limit || 20;
+		let q = ctx.db.query("inbound_webhooks").order("desc");
+
+		const webhooks = await q.take(limit);
+
+		// Filter by source if specified
+		if (args.source) {
+			return webhooks.filter((w) => w.source === args.source);
+		}
+
+		return webhooks;
+	},
+});
+

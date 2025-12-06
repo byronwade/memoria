@@ -10,6 +10,9 @@
 	"scripts": {
 		"build": "turbo run build",
 		"dev": "turbo run dev --parallel",
+		"dev:tunnel": "concurrently \"turbo run dev --parallel\" \"cloudflared tunnel run memoria\"",
+		"tunnel": "cloudflared tunnel run memoria",
+		"tunnel:setup": "./scripts/setup-tunnel.sh",
 		"test": "turbo run test",
 		"lint": "turbo run lint --parallel"
 	},
@@ -27,6 +30,7 @@
 		"node": ">=18.0.0"
 	},
 	"devDependencies": {
+		"concurrently": "^9.2.1",
 		"turbo": "^1.13.3"
 	}
 }

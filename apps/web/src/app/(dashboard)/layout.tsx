@@ -14,8 +14,8 @@ export default async function DashboardLayout({
 		redirect("/login");
 	}
 
-	// If needs onboarding, redirect
-	if (data.needsOnboarding && !data.currentOrg) {
+	// If needs onboarding (no active installation or no active repos), redirect
+	if (data.needsOnboarding) {
 		redirect("/onboarding");
 	}
 

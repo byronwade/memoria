@@ -62,7 +62,9 @@
       "WebFetch(domain:simpleicons.org)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(wc:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(cloudflared tunnel:*)",
+      "Bash(chmod:*)"
     ],
     "deny": [],
     "ask": []

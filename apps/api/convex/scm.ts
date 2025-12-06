@@ -264,8 +264,12 @@ export const getRepositoryByProviderId = query({
 });
 
 export const getRepository = query({
-	args: { repoId: v.id("repositories") },
-	handler: async (ctx, args) => ctx.db.get(args.repoId),
+	args: { repoId: v.string() },
+	handler: async (ctx, args) => {
+		const repoId = ctx.db.normalizeId("repositories", args.repoId);
+		if (!repoId) return null;
+		return ctx.db.get(repoId);
+	},
 });
 
 export const getPullRequest = query({
@@ -307,6 +311,15 @@ export const getInstallations = query({
 			.query("scm_installations")
 			.withIndex("by_org", (q) => q.eq("orgId", orgId))
 			.collect();
+	},
+});
+
+export const getInstallationById = query({
+	args: { installationId: v.string() },
+	handler: async (ctx, args) => {
+		const installationId = ctx.db.normalizeId("scm_installations", args.installationId);
+		if (!installationId) return null;
+		return ctx.db.get(installationId);
 	},
 });
 
@@ -374,3 +387,347 @@ export const updateInstallationStatus = mutation({
 	},
 });
 
+// ============ REPOSITORY STATISTICS QUERIES ============
+
+/**
+ * Get comprehensive repository statistics for the detail page
+ */
+export const getRepositoryStats = query({
+	args: { repoId: v.string() },
+	handler: async (ctx, args) => {
+		const repoId = ctx.db.normalizeId("repositories", args.repoId);
+		if (!repoId) return null;
+
+		const repo = await ctx.db.get(repoId);
+		if (!repo) return null;
+
+		// Get all analyses for this repo
+		const analyses = await ctx.db
+			.query("analyses")
+			.withIndex("by_repo", (q) => q.eq("repoId", repoId))
+			.collect();
+
+		// Calculate stats from analyses
+		const totalAnalyses = analyses.length;
+		const highRiskAnalyses = analyses.filter(a => a.riskLevel === "high").length;
+		const mediumRiskAnalyses = analyses.filter(a => a.riskLevel === "medium").length;
+		const lowRiskAnalyses = analyses.filter(a => a.riskLevel === "low").length;
+
+		// Issues prevented = high risk analyses that had comments posted
+		const issuesPrevented = analyses.filter(a => a.riskLevel === "high" && a.commentPosted).length;
+
+		// Average risk score
+		const scoresWithValues = analyses.filter(a => a.score !== null).map(a => a.score as number);
+		const avgRiskScore = scoresWithValues.length > 0
+			? Math.round(scoresWithValues.reduce((a, b) => a + b, 0) / scoresWithValues.length)
+			: 0;
+
+		// Get file risk stats
+		const fileRiskStats = await ctx.db
+			.query("file_risk_stats")
+			.withIndex("by_repo_highRisk", (q) => q.eq("repoId", repoId))
+			.collect();
+
+		const criticalFiles = fileRiskStats.filter(f => f.highRiskCount >= 3).length;
+		const highRiskFiles = fileRiskStats.filter(f => f.highRiskCount >= 1 && f.highRiskCount < 3).length;
+		const mediumRiskFiles = fileRiskStats.filter(f => f.mediumRiskCount >= 2 && f.highRiskCount === 0).length;
+		const lowRiskFiles = fileRiskStats.filter(f => f.highRiskCount === 0 && f.mediumRiskCount < 2).length;
+
+		// Calculate health score based on risk distribution
+		const totalFiles = fileRiskStats.length || 1;
+		const healthScore = Math.max(0, Math.min(100, Math.round(
+			100 - (criticalFiles * 20 + highRiskFiles * 10 + mediumRiskFiles * 3) / totalFiles * 10
+		)));
+
+		// Determine trend from recent analyses
+		const nowMs = Date.now();
+		const thirtyDaysAgo = nowMs - 30 * 24 * 60 * 60 * 1000;
+		const sixtyDaysAgo = nowMs - 60 * 24 * 60 * 60 * 1000;
+
+		const recentAnalyses = analyses.filter(a => a.createdAt >= thirtyDaysAgo);
+		const olderAnalyses = analyses.filter(a => a.createdAt >= sixtyDaysAgo && a.createdAt < thirtyDaysAgo);
+
+		const recentAvg = recentAnalyses.length > 0
+			? recentAnalyses.filter(a => a.score !== null).reduce((sum, a) => sum + (a.score || 0), 0) / recentAnalyses.length
+			: 0;
+		const olderAvg = olderAnalyses.length > 0
+			? olderAnalyses.filter(a => a.score !== null).reduce((sum, a) => sum + (a.score || 0), 0) / olderAnalyses.length
+			: 0;
+
+		let trend: "up" | "down" | "stable" = "stable";
+		if (recentAvg < olderAvg - 5) trend = "up"; // Lower risk = improving
+		if (recentAvg > olderAvg + 5) trend = "down"; // Higher risk = declining
+
+		return {
+			totalAnalyses,
+			issuesPrevented,
+			avgRiskScore,
+			healthScore,
+			trend,
+			riskDistribution: {
+				critical: criticalFiles,
+				high: highRiskFiles,
+				medium: mediumRiskFiles,
+				low: lowRiskFiles,
+			},
+			analysisBreakdown: {
+				high: highRiskAnalyses,
+				medium: mediumRiskAnalyses,
+				low: lowRiskAnalyses,
+			},
+		};
+	},
+});
+
+/**
+ * Get risky files for a repository
+ */
+export const getRepositoryRiskyFiles = query({
+	args: {
+		repoId: v.string(),
+		limit: v.optional(v.number()),
+		offset: v.optional(v.number()),
+	},
+	handler: async (ctx, args) => {
+		const repoId = ctx.db.normalizeId("repositories", args.repoId);
+		if (!repoId) return { files: [], total: 0 };
+
+		const limit = args.limit ?? 10;
+		const offset = args.offset ?? 0;
+
+		// Get all file risk stats for this repo
+		const allFileStats = await ctx.db
+			.query("file_risk_stats")
+			.withIndex("by_repo_highRisk", (q) => q.eq("repoId", repoId))
+			.collect();
+
+		// Sort by risk (high risk count first, then medium, then total)
+		const sorted = allFileStats.sort((a, b) => {
+			if (b.highRiskCount !== a.highRiskCount) return b.highRiskCount - a.highRiskCount;
+			if (b.mediumRiskCount !== a.mediumRiskCount) return b.mediumRiskCount - a.mediumRiskCount;
+			return b.totalAnalysesTouching - a.totalAnalysesTouching;
+		});
+
+		// Apply pagination
+		const paginated = sorted.slice(offset, offset + limit);
+
+		// Enrich with additional data
+		const files = paginated.map(f => {
+			// Calculate risk score (0-100)
+			const risk = Math.min(100, f.highRiskCount * 30 + f.mediumRiskCount * 10 + f.lowRiskCount * 2);
+			const riskLevel = risk >= 75 ? "critical" : risk >= 50 ? "high" : risk >= 25 ? "medium" : "low";
+
+			return {
+				file: f.filePath,
+				risk,
+				riskLevel,
+				highRiskCount: f.highRiskCount,
+				mediumRiskCount: f.mediumRiskCount,
+				lowRiskCount: f.lowRiskCount,
+				totalAnalyses: f.totalAnalysesTouching,
+				lastTouchedAt: f.lastTouchedAt,
+			};
+		});
+
+		return {
+			files,
+			total: allFileStats.length,
+		};
+	},
+});
+
+/**
+ * Get recent activity for a repository
+ */
+export const getRepositoryActivity = query({
+	args: {
+		repoId: v.string(),
+		limit: v.optional(v.number()),
+		offset: v.optional(v.number()),
+	},
+	handler: async (ctx, args) => {
+		const repoId = ctx.db.normalizeId("repositories", args.repoId);
+		if (!repoId) return { activities: [], total: 0 };
+
+		const limit = args.limit ?? 10;
+		const offset = args.offset ?? 0;
+
+		// Get analyses for this repo (ordered by createdAt desc)
+		const analyses = await ctx.db
+			.query("analyses")
+			.withIndex("by_repo_createdAt", (q) => q.eq("repoId", repoId))
+			.order("desc")
+			.collect();
+
+		const total = analyses.length;
+		const paginated = analyses.slice(offset, offset + limit);
+
+		const activities = paginated.map(a => {
+			const type = a.riskLevel === "high" && a.commentPosted ? "prevented" :
+						 a.riskLevel === "low" ? "safe" : "analysis";
+
+			// Get first changed file as representative
+			const file = a.changedFiles[0] || "unknown";
+
+			return {
+				type,
+				file,
+				risk: a.score || 0,
+				time: a.createdAt,
+				result: a.summary || `${a.riskLevel} risk analysis`,
+				riskLevel: a.riskLevel,
+				changedFilesCount: a.changedFiles.length,
+			};
+		});
+
+		return {
+			activities,
+			total,
+		};
+	},
+});
+
+/**
+ * Get file coupling data for a repository
+ */
+export const getRepositoryCoupling = query({
+	args: {
+		repoId: v.string(),
+		limit: v.optional(v.number()),
+		offset: v.optional(v.number()),
+	},
+	handler: async (ctx, args) => {
+		const repoId = ctx.db.normalizeId("repositories", args.repoId);
+		if (!repoId) return { pairs: [], total: 0 };
+
+		const limit = args.limit ?? 10;
+		const offset = args.offset ?? 0;
+
+		// Get analyses that have missing co-changed files
+		const analyses = await ctx.db
+			.query("analyses")
+			.withIndex("by_repo", (q) => q.eq("repoId", repoId))
+			.collect();
+
+		// Build coupling map from missing co-changed files
+		const couplingMap = new Map<string, { primary: string; coupled: string; strength: number; coChanges: number }>();
+
+		for (const analysis of analyses) {
+			if (analysis.missingCoChangedFiles && analysis.missingCoChangedFiles.length > 0) {
+				for (const changedFile of analysis.changedFiles) {
+					for (const missing of analysis.missingCoChangedFiles) {
+						const key = `${changedFile}:${missing.file}`;
+						const existing = couplingMap.get(key);
+						if (existing) {
+							existing.coChanges++;
+							existing.strength = Math.min(100, Math.round(missing.probability * 100));
+						} else {
+							couplingMap.set(key, {
+								primary: changedFile,
+								coupled: missing.file,
+								strength: Math.round(missing.probability * 100),
+								coChanges: 1,
+							});
+						}
+					}
+				}
+			}
+		}
+
+		// Convert to array and sort by strength
+		const allPairs = Array.from(couplingMap.values()).sort((a, b) => b.strength - a.strength);
+		const paginated = allPairs.slice(offset, offset + limit);
+
+		return {
+			pairs: paginated,
+			total: allPairs.length,
+		};
+	},
+});
+
+/**
+ * Get chart data for repository (last 30 days)
+ */
+export const getRepositoryChartData = query({
+	args: { repoId: v.string() },
+	handler: async (ctx, args) => {
+		const repoId = ctx.db.normalizeId("repositories", args.repoId);
+		if (!repoId) return [];
+
+		// Get daily stats for this repo
+		const stats = await ctx.db
+			.query("daily_repo_stats")
+			.withIndex("by_repo_date", (q) => q.eq("repoId", repoId))
+			.collect();
+
+		// Create a map of date -> stats
+		const statsMap = new Map(stats.map(s => [s.date, s]));
+
+		// Generate last 30 days
+		const chartData = [];
+		const nowMs = Date.now();
+		for (let i = 29; i >= 0; i--) {
+			const date = new Date(nowMs);
+			date.setDate(date.getDate() - i);
+			const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+			const displayDate = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+			const dayStats = statsMap.get(dateStr);
+			chartData.push({
+				date: displayDate,
+				analyses: dayStats?.prAnalysesCount || 0,
+				prevented: dayStats?.highRiskAnalysesCount || 0,
+				avgRisk: dayStats?.averageRiskScore || 0,
+			});
+		}
+
+		return chartData;
+	},
+});
+
+/**
+ * Get top contributors for a repository (from commit data)
+ */
+export const getRepositoryContributors = query({
+	args: { repoId: v.string(), limit: v.optional(v.number()) },
+	handler: async (ctx, args) => {
+		const repoId = ctx.db.normalizeId("repositories", args.repoId);
+		if (!repoId) return [];
+
+		const limit = args.limit ?? 5;
+
+		// Get commits for this repo
+		const commits = await ctx.db
+			.query("commits")
+			.withIndex("by_repo_sha", (q) => q.eq("repoId", repoId))
+			.collect();
+
+		// Group by author
+		const authorMap = new Map<string, { name: string; email: string; commits: number }>();
+		for (const commit of commits) {
+			const key = commit.authorEmail;
+			const existing = authorMap.get(key);
+			if (existing) {
+				existing.commits++;
+			} else {
+				authorMap.set(key, {
+					name: commit.authorName,
+					email: commit.authorEmail,
+					commits: 1,
+				});
+			}
+		}
+
+		// Sort by commits and take top N
+		const sorted = Array.from(authorMap.values())
+			.sort((a, b) => b.commits - a.commits)
+			.slice(0, limit);
+
+		return sorted.map(c => ({
+			name: c.name,
+			avatar: null, // Could be fetched from GitHub API
+			commits: c.commits,
+			filesOwned: 0, // Would need file ownership tracking
+		}));
+	},
+});

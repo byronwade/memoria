@@ -28,6 +28,79 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/
 import { Button } from "@/components/ui/button";
 import { useDashboard } from "../../../dashboard-context";
 
+// ============================================================================
+// API RESPONSE TYPES
+// ============================================================================
+
+interface ApiRepositoryStats {
+	totalAnalyses: number;
+	issuesPrevented: number;
+	avgRiskScore: number;
+	healthScore: number;
+	trend: "up" | "down" | "stable";
+	riskDistribution: {
+		high: number;
+		medium: number;
+		low: number;
+	};
+	analysisBreakdown: {
+		prAnalyses: number;
+		fileAnalyses: number;
+		couplingDetections: number;
+	};
+}
+
+interface ApiRiskyFile {
+	_id: string;
+	filePath: string;
+	riskScore: number;
+	riskLevel: "high" | "medium" | "low";
+	volatilityScore: number;
+	coupledFilesCount: number;
+	importersCount: number;
+	lastAnalyzedAt: number;
+}
+
+interface ApiActivity {
+	_id: string;
+	type: "analysis" | "pr" | "coupling" | "drift";
+	description: string;
+	filePath?: string;
+	riskLevel?: "high" | "medium" | "low";
+	timestamp: number;
+}
+
+interface ApiCouplingPair {
+	file1: string;
+	file2: string;
+	couplingScore: number;
+	coChangeCount: number;
+	relationship: string;
+}
+
+interface ApiChartDataPoint {
+	date: string;
+	analyses: number;
+	prevented: number;
+	avgRisk: number;
+}
+
+interface ApiContributor {
+	name: string;
+	avatar?: string;
+	commits: number;
+	filesOwned: number;
+}
+
+interface ApiResponse {
+	stats: ApiRepositoryStats | null;
+	riskyFiles: { files: ApiRiskyFile[]; total: number } | null;
+	activity: { activities: ApiActivity[]; total: number } | null;
+	coupling: { pairs: ApiCouplingPair[]; total: number } | null;
+	chartData: ApiChartDataPoint[] | null;
+	contributors: ApiContributor[] | null;
+}
+
 // Pagination constants
 const ITEMS_PER_PAGE = 10;
 const MAX_COUPLED_FILES_SHOWN = 5;
@@ -418,190 +491,188 @@ interface RepoData {
 }
 
 // ============================================================================
-// DATA FETCHING - Uses real data from dashboard context, falls back to empty state
+// DATA FETCHING - Uses real data from API
 // ============================================================================
 
-// Generate 30-day chart data for a repo (placeholder until real data available)
-const generateChartData = (seed: number = 0) => {
+// Hook to fetch repository stats from API
+function useRepositoryStats(repoId: string | undefined) {
+	const [data, setData] = useState<ApiResponse | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!repoId) {
+			setLoading(false);
+			return;
+		}
+
+		const fetchStats = async () => {
+			try {
+				setLoading(true);
+				setError(null);
+				const response = await fetch(`/api/repositories/${repoId}/stats?type=all`);
+				if (!response.ok) {
+					throw new Error("Failed to fetch repository stats");
+				}
+				const result = await response.json();
+				setData(result);
+			} catch (err) {
+				setError(err instanceof Error ? err.message : "Unknown error");
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		fetchStats();
+	}, [repoId]);
+
+	return { data, loading, error };
+}
+
+// Fetch paginated data for tabs
+async function fetchPaginatedData(
+	repoId: string,
+	type: "riskyFiles" | "activity" | "coupling",
+	limit: number,
+	offset: number
+): Promise<{
+	riskyFiles?: { files: ApiRiskyFile[]; total: number };
+	activity?: { activities: ApiActivity[]; total: number };
+	coupling?: { pairs: ApiCouplingPair[]; total: number };
+}> {
+	const response = await fetch(
+		`/api/repositories/${repoId}/stats?type=${type}&limit=${limit}&offset=${offset}`
+	);
+	if (!response.ok) {
+		throw new Error("Failed to fetch data");
+	}
+	return response.json();
+}
+
+// Build repo data from real API response
+const buildRepoDataFromApi = (
+	contextRepo: { _id: string; fullName: string; isPrivate: boolean; lastAnalyzedAt: number | null },
+	apiData: ApiResponse | null
+): RepoData => {
+	const [owner, repoName] = contextRepo.fullName.split('/');
+
+	const lastSyncText = contextRepo.lastAnalyzedAt
+		? formatTimeAgo(contextRepo.lastAnalyzedAt)
+		: "Never";
+
+	// Use API data if available, otherwise use empty defaults
+	const stats = apiData?.stats;
+	const riskDistribution = stats?.riskDistribution || { high: 0, medium: 0, low: 0 };
+
+	// Convert API risky files to page format
+	const riskyFiles = (apiData?.riskyFiles?.files || []).map((f) => ({
+		file: f.filePath,
+		risk: f.riskScore,
+		riskLevel: (f.riskLevel === "high" ? "high" : f.riskLevel === "medium" ? "medium" : "low") as "critical" | "high" | "medium" | "low",
+		reason: `Volatility: ${f.volatilityScore}% • ${f.coupledFilesCount} coupled files • ${f.importersCount} importers`,
+		coupledFiles: [], // Would need separate query for coupled file names
+		lastModified: f.lastAnalyzedAt ? formatTimeAgo(f.lastAnalyzedAt) : "Unknown",
+		modifiedBy: "Unknown",
+		commits: 0,
+	}));
+
+	// Convert API activity to page format
+	const recentActivity = (apiData?.activity?.activities || []).map((a) => ({
+		type: (a.type === "pr" ? "prevented" : a.type === "analysis" ? "analysis" : "safe") as "analysis" | "prevented" | "safe",
+		file: a.filePath || "Unknown file",
+		risk: a.riskLevel === "high" ? 75 : a.riskLevel === "medium" ? 50 : 25,
+		time: formatTimeAgo(a.timestamp),
+		result: a.description,
+	}));
+
+	// Convert API coupling to page format
+	const couplingPairs = (apiData?.coupling?.pairs || []).map((p) => ({
+		primary: p.file1,
+		coupled: p.file2,
+		strength: p.couplingScore,
+		coChanges: p.coChangeCount,
+	}));
+
+	// Convert API chart data
+	const chartData = (apiData?.chartData || []).map((d) => ({
+		date: d.date,
+		analyses: d.analyses,
+		prevented: d.prevented,
+		avgRisk: d.avgRisk,
+	}));
+
+	// Convert API contributors
+	const topContributors = (apiData?.contributors || []).map((c) => ({
+		name: c.name,
+		avatar: c.avatar || null,
+		commits: c.commits,
+		filesOwned: c.filesOwned,
+	}));
+
+	// If no contributors from API, add owner as default
+	if (topContributors.length === 0 && owner) {
+		topContributors.push({
+			name: owner,
+			avatar: `https://github.com/${owner}.png`,
+			commits: 0,
+			filesOwned: 0,
+		});
+	}
+
+	return {
+		name: repoName,
+		fullName: contextRepo.fullName,
+		description: `Repository ${contextRepo.fullName}`,
+		health: stats?.healthScore || 0,
+		trend: stats?.trend || "stable",
+		lastSync: lastSyncText,
+		defaultBranch: "main",
+		isPrivate: contextRepo.isPrivate,
+		stats: {
+			totalFiles: 0,
+			analyzedFiles: 0,
+			totalAnalyses: stats?.totalAnalyses || 0,
+			issuesPrevented: stats?.issuesPrevented || 0,
+			avgRiskScore: stats?.avgRiskScore || 0,
+			criticalFiles: riskDistribution.high, // Map high to critical for display
+			highRiskFiles: riskDistribution.medium,
+		},
+		riskDistribution: {
+			critical: 0, // We only track high/medium/low in the API
+			high: riskDistribution.high,
+			medium: riskDistribution.medium,
+			low: riskDistribution.low,
+		},
+		topContributors,
+		recentActivity,
+		riskyFiles,
+		couplingPairs,
+		weeklyTrend: [], // Not currently used
+		chartData: chartData.length > 0 ? chartData : generateEmptyChartData(),
+	};
+};
+
+// Generate placeholder chart data for repos with no analyses yet
+// Creates a subtle wave pattern that looks intentional but doesn't imply real data
+const generateEmptyChartData = () => {
 	const data = [];
 	const now = new Date();
 	for (let i = 29; i >= 0; i--) {
 		const date = new Date(now);
 		date.setDate(date.getDate() - i);
-		// Use seed to create different but consistent data per repo
-		const analyses = Math.floor((Math.sin(i + seed) + 1.5) * 10) + 5;
-		const prevented = Math.floor(analyses * (0.2 + Math.sin(i * 0.5 + seed) * 0.1));
-		const avgRisk = Math.floor(30 + Math.sin(i * 0.3 + seed) * 15);
 		data.push({
 			date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-			analyses,
-			prevented,
-			avgRisk,
+			analyses: 0,
+			prevented: 0,
+			avgRisk: 0,
 		});
 	}
 	return data;
 };
 
-// Generate risky files (placeholder until real analysis data available)
-const generateRiskyFiles = (count: number, seed: number = 0) => {
-	const folders = ["src", "lib", "utils", "components", "services", "api", "hooks", "store", "types", "config"];
-	const fileTypes = [".ts", ".tsx", ".js", ".jsx"];
-	const reasons = [
-		"High volatility + frequently changed",
-		"Bus factor warning: single contributor",
-		"Multiple breaking changes detected",
-		"Tightly coupled with critical files",
-		"Recent security-related changes",
-		"Schema changes affecting many files",
-		"API contract modifications",
-		"State management complexity",
-	];
-	const authors = ["alice", "bob", "charlie", "dave", "eve", "frank", "grace", "henry"];
-
-	const files = [];
-	for (let i = 0; i < count; i++) {
-		const risk = Math.floor(Math.sin(i * 0.3 + seed) * 30 + 50 + Math.random() * 20);
-		const riskLevel = risk >= 75 ? "critical" : risk >= 50 ? "high" : risk >= 25 ? "medium" : "low";
-		const folder = folders[Math.floor((i * 7 + seed) % folders.length)];
-		const fileType = fileTypes[Math.floor((i * 3 + seed) % fileTypes.length)];
-		const coupledCount = Math.floor(Math.random() * 8) + 1;
-
-		files.push({
-			file: `${folder}/file-${i + 1}${fileType}`,
-			risk,
-			riskLevel: riskLevel as "critical" | "high" | "medium" | "low",
-			reason: reasons[i % reasons.length],
-			coupledFiles: Array.from({ length: coupledCount }, (_, j) =>
-				`${folders[(i + j) % folders.length]}/coupled-${i}-${j}${fileTypes[j % fileTypes.length]}`
-			),
-			lastModified: `${Math.floor(Math.random() * 30) + 1}d ago`,
-			modifiedBy: authors[i % authors.length],
-			commits: Math.floor(Math.random() * 100) + 5,
-		});
-	}
-	// Sort by risk descending
-	return files.sort((a, b) => b.risk - a.risk);
-};
-
-// Generate activity (placeholder until real analysis data available)
-const generateActivity = (count: number, seed: number = 0) => {
-	const types = ["analysis", "prevented", "safe"] as const;
-	const folders = ["src", "lib", "utils", "components", "services", "api"];
-	const results = [
-		"3 coupled files identified",
-		"Drift warning issued",
-		"Low risk, no coupling",
-		"Breaking change detected",
-		"Schema coupling found",
-		"API contract verified",
-	];
-
-	const activities = [];
-	for (let i = 0; i < count; i++) {
-		const type = types[i % types.length];
-		const risk = type === "prevented" ? Math.floor(Math.random() * 40) + 40 :
-					 type === "safe" ? Math.floor(Math.random() * 25) :
-					 Math.floor(Math.random() * 60) + 20;
-		const folder = folders[Math.floor((i * 7 + seed) % folders.length)];
-		const hoursAgo = i * 2 + Math.floor(Math.random() * 5);
-		const timeStr = hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`;
-
-		activities.push({
-			type,
-			file: `${folder}/activity-file-${i + 1}.ts`,
-			risk,
-			time: timeStr,
-			result: results[i % results.length],
-		});
-	}
-	return activities;
-};
-
-// Generate coupling pairs (placeholder until real analysis data available)
-const generateCouplingPairs = (count: number, seed: number = 0) => {
-	const folders = ["src", "lib", "utils", "components", "services", "api", "types"];
-	const pairs = [];
-
-	for (let i = 0; i < count; i++) {
-		const strength = Math.floor(Math.random() * 40) + 55;
-		const coChanges = Math.floor(Math.random() * 50) + 5;
-		const folder1 = folders[i % folders.length];
-		const folder2 = folders[(i + 3) % folders.length];
-
-		pairs.push({
-			primary: `${folder1}/primary-${i + 1}.ts`,
-			coupled: `${folder2}/coupled-${i + 1}.ts`,
-			strength,
-			coChanges,
-		});
-	}
-	return pairs.sort((a, b) => b.strength - a.strength);
-};
-
-// Build repo data from real dashboard context + placeholder analysis data
-const buildRepoData = (
-	repoFullName: string,
-	isPrivate: boolean,
-	lastAnalyzedAt: number | null
-): RepoData => {
-	const [owner, repoName] = repoFullName.split('/');
-	const seed = repoFullName.charCodeAt(0) + repoFullName.length;
-
-	// Generate placeholder data (will be replaced with real Convex queries later)
-	const riskyFiles = generateRiskyFiles(150, seed);
-	const activity = generateActivity(500, seed);
-	const couplingPairs = generateCouplingPairs(80, seed);
-
-	// Count risk levels from generated data
-	const riskDistribution = {
-		critical: riskyFiles.filter(f => f.riskLevel === "critical").length,
-		high: riskyFiles.filter(f => f.riskLevel === "high").length,
-		medium: riskyFiles.filter(f => f.riskLevel === "medium").length,
-		low: riskyFiles.filter(f => f.riskLevel === "low").length,
-	};
-
-	const lastSyncText = lastAnalyzedAt
-		? formatTimeAgo(lastAnalyzedAt)
-		: "Never";
-
-	return {
-		name: repoName,
-		fullName: repoFullName,
-		description: `Repository ${repoFullName}`,
-		health: Math.floor(60 + Math.sin(seed) * 20),
-		trend: seed % 3 === 0 ? "up" : seed % 3 === 1 ? "down" : "stable",
-		lastSync: lastSyncText,
-		defaultBranch: "main",
-		isPrivate,
-		stats: {
-			totalFiles: Math.floor(1000 + seed * 50),
-			analyzedFiles: Math.floor(500 + seed * 30),
-			totalAnalyses: Math.floor(1000 + seed * 100),
-			issuesPrevented: Math.floor(100 + seed * 10),
-			avgRiskScore: Math.floor(30 + Math.sin(seed) * 10),
-			criticalFiles: riskDistribution.critical,
-			highRiskFiles: riskDistribution.high,
-		},
-		riskDistribution,
-		topContributors: [
-			{ name: owner, avatar: `https://github.com/${owner}.png`, commits: 456, filesOwned: 245 },
-			{ name: "contributor1", avatar: null, commits: 123, filesOwned: 67 },
-			{ name: "contributor2", avatar: null, commits: 89, filesOwned: 45 },
-		],
-		recentActivity: activity,
-		riskyFiles,
-		couplingPairs,
-		weeklyTrend: [
-			{ day: "Mon", analyses: 128, prevented: 32 },
-			{ day: "Tue", analyses: 156, prevented: 41 },
-			{ day: "Wed", analyses: 98, prevented: 24 },
-			{ day: "Thu", analyses: 187, prevented: 52 },
-			{ day: "Fri", analyses: 134, prevented: 38 },
-			{ day: "Sat", analyses: 45, prevented: 12 },
-			{ day: "Sun", analyses: 67, prevented: 18 },
-		],
-		chartData: generateChartData(seed),
-	};
+// Check if chart data has any real activity
+const hasChartActivity = (chartData: Array<{ analyses: number; prevented: number }>) => {
+	return chartData.some(d => d.analyses > 0 || d.prevented > 0);
 };
 
 function formatTimeAgo(timestamp: number): string {
@@ -682,8 +753,11 @@ interface ChartDataPoint {
 function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-	const maxAnalyses = Math.max(...chartData.map((d) => d.analyses));
 	const chartHeight = 280;
+
+	// Check if we have real data
+	const hasData = hasChartActivity(chartData);
+	const maxAnalyses = hasData ? Math.max(...chartData.map((d) => d.analyses), 1) : 10; // Use 10 as placeholder max
 
 	const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
 		if (!containerRef.current) return;
@@ -702,6 +776,92 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 	}, []);
 
 	const hoveredData = hoveredIndex !== null ? chartData[hoveredIndex] : null;
+
+	// When no data, show a "waiting for data" placeholder chart
+	if (!hasData) {
+		return (
+			<div className="mt-16 w-full">
+				{/* Header */}
+				<div className="max-w-6xl mx-auto px-4 md:px-6 mb-3">
+					<div className="flex items-center justify-between">
+						<span className="text-sm text-muted-foreground">Last 30 days</span>
+						<div className="flex items-center gap-4 text-xs">
+							<div className="flex items-center gap-1.5">
+								<div className="w-2 h-2 rounded-full bg-muted-foreground/30" />
+								<span className="text-muted-foreground/50">Analyses</span>
+							</div>
+							<div className="flex items-center gap-1.5">
+								<div className="w-2 h-2 rounded-full bg-muted-foreground/30" />
+								<span className="text-muted-foreground/50">Prevented</span>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				{/* Empty State Chart Container */}
+				<div className="relative h-56 md:h-72">
+					{/* Placeholder SVG with subtle pattern */}
+					<svg
+						className="w-full h-full"
+						viewBox={`0 0 1200 ${chartHeight}`}
+						preserveAspectRatio="none"
+					>
+						<defs>
+							<linearGradient id="emptyGradient" x1="0" x2="0" y1="0" y2="1">
+								<stop offset="0%" stopColor="currentColor" stopOpacity="0.03" />
+								<stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+							</linearGradient>
+							<pattern id="dotPattern" patternUnits="userSpaceOnUse" width="40" height="40">
+								<circle cx="2" cy="2" r="1" fill="currentColor" opacity="0.1" />
+							</pattern>
+						</defs>
+
+						{/* Subtle dot pattern background */}
+						<rect width="1200" height={chartHeight} fill="url(#dotPattern)" />
+
+						{/* Decorative baseline */}
+						<line
+							x1="0"
+							y1={chartHeight - 1}
+							x2="1200"
+							y2={chartHeight - 1}
+							stroke="currentColor"
+							strokeWidth="1"
+							opacity="0.1"
+						/>
+
+						{/* Horizontal grid lines (very subtle) */}
+						{[0.25, 0.5, 0.75].map((ratio, i) => (
+							<line
+								key={i}
+								x1="0"
+								y1={chartHeight * ratio}
+								x2="1200"
+								y2={chartHeight * ratio}
+								stroke="currentColor"
+								strokeWidth="1"
+								strokeDasharray="4 8"
+								opacity="0.05"
+							/>
+						))}
+					</svg>
+
+					{/* Centered "Waiting for data" message */}
+					<div className="absolute inset-0 flex flex-col items-center justify-center">
+						<div className="flex items-center gap-2 text-muted-foreground/60 mb-2">
+							<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+								<path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+							</svg>
+							<span className="text-sm font-medium">Waiting for activity</span>
+						</div>
+						<p className="text-xs text-muted-foreground/40 max-w-xs text-center">
+							Analysis data will appear here as you open pull requests and use Memoria
+						</p>
+					</div>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="mt-16 w-full">
@@ -1056,9 +1216,6 @@ export default function RepositoryDetailPage() {
 	// Get real repository data from dashboard context
 	const { repositories } = useDashboard();
 
-	// Loading state
-	const [loadingState, setLoadingState] = useState<LoadingState>("loading");
-
 	// Tab and hover states
 	const [selectedTab, setSelectedTab] = useState<"files" | "activity" | "coupling">("files");
 	const [hoveredRiskSegment, setHoveredRiskSegment] = useState<string | null>(null);
@@ -1069,6 +1226,11 @@ export default function RepositoryDetailPage() {
 	const [activityPage, setActivityPage] = useState(1);
 	const [couplingPage, setCouplingPage] = useState(1);
 
+	// Paginated data state
+	const [paginatedRiskyFiles, setPaginatedRiskyFiles] = useState<{ files: ApiRiskyFile[]; total: number } | null>(null);
+	const [paginatedActivity, setPaginatedActivity] = useState<{ activities: ApiActivity[]; total: number } | null>(null);
+	const [paginatedCoupling, setPaginatedCoupling] = useState<{ pairs: ApiCouplingPair[]; total: number } | null>(null);
+
 	// Find the repository from context
 	const contextRepo = useMemo(() => {
 		return repositories.find(r => {
@@ -1078,59 +1240,173 @@ export default function RepositoryDetailPage() {
 		});
 	}, [repositories, repoName]);
 
-	// Simulate initial loading (replace with real data fetching)
-	useEffect(() => {
-		const timer = setTimeout(() => {
-			setLoadingState("loaded");
-		}, 1000);
-		return () => clearTimeout(timer);
-	}, [repoName]);
+	// Fetch real data from API
+	const { data: apiData, loading: apiLoading, error: apiError } = useRepositoryStats(contextRepo?._id);
 
-	// Build repo data from context or show empty state
+	// Fetch paginated data when tab or page changes
+	useEffect(() => {
+		if (!contextRepo?._id) return;
+
+		const fetchData = async () => {
+			try {
+				if (selectedTab === "files") {
+					const result = await fetchPaginatedData(
+						contextRepo._id,
+						"riskyFiles",
+						ITEMS_PER_PAGE,
+						(filesPage - 1) * ITEMS_PER_PAGE
+					);
+					if (result.riskyFiles) {
+						setPaginatedRiskyFiles(result.riskyFiles);
+					}
+				} else if (selectedTab === "activity") {
+					const result = await fetchPaginatedData(
+						contextRepo._id,
+						"activity",
+						ITEMS_PER_PAGE,
+						(activityPage - 1) * ITEMS_PER_PAGE
+					);
+					if (result.activity) {
+						setPaginatedActivity(result.activity);
+					}
+				} else if (selectedTab === "coupling") {
+					const result = await fetchPaginatedData(
+						contextRepo._id,
+						"coupling",
+						ITEMS_PER_PAGE,
+						(couplingPage - 1) * ITEMS_PER_PAGE
+					);
+					if (result.coupling) {
+						setPaginatedCoupling(result.coupling);
+					}
+				}
+			} catch (err) {
+				console.error("Failed to fetch paginated data:", err);
+			}
+		};
+
+		fetchData();
+	}, [contextRepo?._id, selectedTab, filesPage, activityPage, couplingPage]);
+
+	// Build repo data from API response
 	const repo = useMemo(() => {
 		if (!contextRepo) return null;
-		return buildRepoData(
-			contextRepo.fullName,
-			contextRepo.isPrivate,
-			contextRepo.lastAnalyzedAt
-		);
-	}, [contextRepo]);
+		return buildRepoDataFromApi(contextRepo, apiData);
+	}, [contextRepo, apiData]);
 
 	// Reset pagination when switching tabs
 	const handleTabChange = (tab: typeof selectedTab) => {
 		setSelectedTab(tab);
 	};
 
-	// Memoized paginated data - must be before any early returns
+	// Convert API paginated data to page format
 	const paginatedFiles = useMemo(() => {
-		if (!repo) return [];
-		const start = (filesPage - 1) * ITEMS_PER_PAGE;
-		return repo.riskyFiles.slice(start, start + ITEMS_PER_PAGE);
-	}, [repo?.riskyFiles, filesPage]);
+		if (!paginatedRiskyFiles?.files) {
+			// Fallback to repo data if paginated data not loaded yet
+			if (!repo) return [];
+			const start = (filesPage - 1) * ITEMS_PER_PAGE;
+			return repo.riskyFiles.slice(start, start + ITEMS_PER_PAGE);
+		}
+		return paginatedRiskyFiles.files.map((f) => ({
+			file: f.filePath,
+			risk: f.riskScore,
+			riskLevel: (f.riskLevel === "high" ? "high" : f.riskLevel === "medium" ? "medium" : "low") as "critical" | "high" | "medium" | "low",
+			reason: `Volatility: ${f.volatilityScore}% • ${f.coupledFilesCount} coupled files • ${f.importersCount} importers`,
+			coupledFiles: [],
+			lastModified: f.lastAnalyzedAt ? formatTimeAgo(f.lastAnalyzedAt) : "Unknown",
+			modifiedBy: "Unknown",
+			commits: 0,
+		}));
+	}, [paginatedRiskyFiles, repo?.riskyFiles, filesPage]);
 
-	const paginatedActivity = useMemo(() => {
-		if (!repo) return [];
-		const start = (activityPage - 1) * ITEMS_PER_PAGE;
-		return repo.recentActivity.slice(start, start + ITEMS_PER_PAGE);
-	}, [repo?.recentActivity, activityPage]);
+	const paginatedActivityItems = useMemo(() => {
+		if (!paginatedActivity?.activities) {
+			// Fallback to repo data
+			if (!repo) return [];
+			const start = (activityPage - 1) * ITEMS_PER_PAGE;
+			return repo.recentActivity.slice(start, start + ITEMS_PER_PAGE);
+		}
+		return paginatedActivity.activities.map((a) => ({
+			type: (a.type === "pr" ? "prevented" : a.type === "analysis" ? "analysis" : "safe") as "analysis" | "prevented" | "safe",
+			file: a.filePath || "Unknown file",
+			risk: a.riskLevel === "high" ? 75 : a.riskLevel === "medium" ? 50 : 25,
+			time: formatTimeAgo(a.timestamp),
+			result: a.description,
+		}));
+	}, [paginatedActivity, repo?.recentActivity, activityPage]);
 
-	const paginatedCoupling = useMemo(() => {
-		if (!repo) return [];
-		const start = (couplingPage - 1) * ITEMS_PER_PAGE;
-		return repo.couplingPairs.slice(start, start + ITEMS_PER_PAGE);
-	}, [repo?.couplingPairs, couplingPage]);
+	const paginatedCouplingItems = useMemo(() => {
+		if (!paginatedCoupling?.pairs) {
+			// Fallback to repo data
+			if (!repo) return [];
+			const start = (couplingPage - 1) * ITEMS_PER_PAGE;
+			return repo.couplingPairs.slice(start, start + ITEMS_PER_PAGE);
+		}
+		return paginatedCoupling.pairs.map((p) => ({
+			primary: p.file1,
+			coupled: p.file2,
+			strength: p.couplingScore,
+			coChanges: p.coChangeCount,
+		}));
+	}, [paginatedCoupling, repo?.couplingPairs, couplingPage]);
 
-	// Total pages for each tab
-	const totalFilesPages = repo ? Math.ceil(repo.riskyFiles.length / ITEMS_PER_PAGE) : 0;
-	const totalActivityPages = repo ? Math.ceil(repo.recentActivity.length / ITEMS_PER_PAGE) : 0;
-	const totalCouplingPages = repo ? Math.ceil(repo.couplingPairs.length / ITEMS_PER_PAGE) : 0;
+	// Total pages for each tab - use API totals if available
+	const totalFilesCount = paginatedRiskyFiles?.total ?? (repo?.riskyFiles.length || 0);
+	const totalActivityCount = paginatedActivity?.total ?? (repo?.recentActivity.length || 0);
+	const totalCouplingCount = paginatedCoupling?.total ?? (repo?.couplingPairs.length || 0);
+
+	const totalFilesPages = Math.ceil(totalFilesCount / ITEMS_PER_PAGE);
+	const totalActivityPages = Math.ceil(totalActivityCount / ITEMS_PER_PAGE);
+	const totalCouplingPages = Math.ceil(totalCouplingCount / ITEMS_PER_PAGE);
 
 	const totalRiskFiles = repo
 		? repo.riskDistribution.critical + repo.riskDistribution.high + repo.riskDistribution.medium + repo.riskDistribution.low
 		: 0;
 
-	// Show loading skeleton - after all hooks
-	if (loadingState === "loading") {
+	// Scan status polling
+	const [scanStatus, setScanStatus] = useState<{
+		status: "none" | "pending" | "running" | "completed" | "failed";
+		progress: number;
+		processedFiles: number;
+		totalFiles: number;
+	} | null>(null);
+
+	useEffect(() => {
+		if (!contextRepo?._id) return;
+
+		const fetchScanStatus = async () => {
+			try {
+				const response = await fetch(`/api/repositories/${contextRepo._id}/scan`);
+				if (response.ok) {
+					const data = await response.json();
+					setScanStatus({
+						status: data.status || "none",
+						progress: data.progress || 0,
+						processedFiles: data.processedFiles || 0,
+						totalFiles: data.totalFiles || 0,
+					});
+				}
+			} catch (error) {
+				console.error("Failed to fetch scan status:", error);
+			}
+		};
+
+		// Initial fetch
+		fetchScanStatus();
+
+		// Poll every 2 seconds while scanning
+		const interval = setInterval(() => {
+			fetchScanStatus();
+		}, 2000);
+
+		return () => clearInterval(interval);
+	}, [contextRepo?._id]);
+
+	// Stop polling when scan completes
+	const isScanning = scanStatus?.status === "pending" || scanStatus?.status === "running";
+
+	// Show loading skeleton while fetching initial data
+	if (apiLoading) {
 		return <PageSkeleton />;
 	}
 
@@ -1141,6 +1417,15 @@ export default function RepositoryDetailPage() {
 
 	return (
 		<div className="pt-2 pb-40">
+			{/* Scanning Progress Banner */}
+			{isScanning && scanStatus && (
+				<SyncingBanner
+					progress={scanStatus.progress}
+					filesAnalyzed={scanStatus.processedFiles}
+					totalFiles={scanStatus.totalFiles}
+				/>
+			)}
+
 			{/* Repository Header - Clean Identity */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 pt-6">
 				<div className="flex items-center gap-4">
@@ -1412,9 +1697,9 @@ export default function RepositoryDetailPage() {
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-10">
 				<div className="flex gap-1 border-b border-border/50">
 					{[
-						{ id: "files", label: "High Risk Files", count: repo.riskyFiles.length },
-						{ id: "activity", label: "Recent Activity", count: repo.recentActivity.length },
-						{ id: "coupling", label: "File Coupling", count: repo.couplingPairs.length },
+						{ id: "files", label: "High Risk Files", count: totalFilesCount },
+						{ id: "activity", label: "Recent Activity", count: totalActivityCount },
+						{ id: "coupling", label: "File Coupling", count: totalCouplingCount },
 					].map((tab) => (
 						<button
 							key={tab.id}
@@ -1448,7 +1733,7 @@ export default function RepositoryDetailPage() {
 				{/* High Risk Files - Interactive with Pagination */}
 				{selectedTab === "files" && (
 					<div className="space-y-4">
-						{repo.riskyFiles.length === 0 ? (
+						{totalFilesCount === 0 ? (
 							<EmptyFilesState />
 						) : paginatedFiles.map((file, i) => (
 							<div
@@ -1530,7 +1815,7 @@ export default function RepositoryDetailPage() {
 							<Pagination
 								currentPage={filesPage}
 								totalPages={totalFilesPages}
-								totalItems={repo.riskyFiles.length}
+								totalItems={totalFilesCount}
 								itemsPerPage={ITEMS_PER_PAGE}
 								onPageChange={setFilesPage}
 								itemLabel="files"
@@ -1542,12 +1827,12 @@ export default function RepositoryDetailPage() {
 				{/* Recent Activity - with Pagination */}
 				{selectedTab === "activity" && (
 					<div>
-						{repo.recentActivity.length === 0 ? (
+						{totalActivityCount === 0 ? (
 							<EmptyActivityState />
 						) : (
 							<>
 								<div className="space-y-1">
-									{paginatedActivity.map((activity, i) => (
+									{paginatedActivityItems.map((activity, i) => (
 										<div
 											key={`${activity.file}-${i}`}
 											className="flex items-center gap-4 py-3 border-b border-border/50 last:border-0"
@@ -1578,7 +1863,7 @@ export default function RepositoryDetailPage() {
 									<Pagination
 										currentPage={activityPage}
 										totalPages={totalActivityPages}
-										totalItems={repo.recentActivity.length}
+										totalItems={totalActivityCount}
 										itemsPerPage={ITEMS_PER_PAGE}
 										onPageChange={setActivityPage}
 										itemLabel="activities"
@@ -1592,7 +1877,7 @@ export default function RepositoryDetailPage() {
 				{/* File Coupling - with Pagination */}
 				{selectedTab === "coupling" && (
 					<div>
-						{repo.couplingPairs.length === 0 ? (
+						{totalCouplingCount === 0 ? (
 							<EmptyCouplingState />
 						) : (
 							<>
@@ -1600,7 +1885,7 @@ export default function RepositoryDetailPage() {
 									Files that frequently change together. When modifying one, always check the coupled file.
 								</p>
 								<div className="space-y-4">
-									{paginatedCoupling.map((pair, i) => (
+									{paginatedCouplingItems.map((pair, i) => (
 										<div
 											key={`${pair.primary}-${pair.coupled}-${i}`}
 											className="p-4 rounded-sm border border-border/50 bg-secondary/30 hover:bg-secondary/50 transition-all"
@@ -1635,7 +1920,7 @@ export default function RepositoryDetailPage() {
 									<Pagination
 										currentPage={couplingPage}
 										totalPages={totalCouplingPages}
-										totalItems={repo.couplingPairs.length}
+										totalItems={totalCouplingCount}
 										itemsPerPage={ITEMS_PER_PAGE}
 										onPageChange={setCouplingPage}
 										itemLabel="coupling pairs"

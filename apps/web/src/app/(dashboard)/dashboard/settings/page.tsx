@@ -9,8 +9,10 @@ import {
 	ExternalLink,
 	Eye,
 	EyeOff,
+	FolderGit2,
 	Github,
 	Key,
+	Loader2,
 	Lock,
 	Mail,
 	Plus,
@@ -21,7 +23,8 @@ import {
 	User,
 	Zap,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,11 +39,23 @@ interface Installation {
 }
 
 export default function SettingsPage() {
-	const { user, currentOrg, billingStatus, activeRepos, repoLimit } = useDashboard();
+	const router = useRouter();
+	const { user, currentOrg, billingStatus, activeRepos, repoLimit, repositories, canAddRepo } = useDashboard();
 	const [showApiKey, setShowApiKey] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [installations, setInstallations] = useState<Installation[]>([]);
 	const [loadingInstallations, setLoadingInstallations] = useState(true);
+	const [updatingRepo, setUpdatingRepo] = useState<string | null>(null);
+	const [repoStatuses, setRepoStatuses] = useState<Record<string, boolean>>({});
+
+	// Initialize repo statuses from repositories
+	useEffect(() => {
+		const statuses: Record<string, boolean> = {};
+		repositories.forEach(r => {
+			statuses[r._id] = r.isActive;
+		});
+		setRepoStatuses(statuses);
+	}, [repositories]);
 
 	// Fetch installations on mount
 	useEffect(() => {
@@ -67,6 +82,44 @@ export default function SettingsPage() {
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
 	};
+
+	const handleToggleRepo = useCallback(async (repoId: string, currentStatus: boolean) => {
+		const newStatus = !currentStatus;
+
+		// Check if we're activating and at limit
+		if (newStatus && !canAddRepo) {
+			// Don't allow activation if at limit
+			return;
+		}
+
+		setUpdatingRepo(repoId);
+
+		// Optimistically update UI
+		setRepoStatuses(prev => ({ ...prev, [repoId]: newStatus }));
+
+		try {
+			const res = await fetch(`/api/repositories/${repoId}/status`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ isActive: newStatus }),
+			});
+
+			if (!res.ok) {
+				// Revert on error
+				setRepoStatuses(prev => ({ ...prev, [repoId]: currentStatus }));
+				console.error("Failed to update repository status");
+			} else {
+				// Refresh the page to get updated context
+				router.refresh();
+			}
+		} catch (error) {
+			// Revert on error
+			setRepoStatuses(prev => ({ ...prev, [repoId]: currentStatus }));
+			console.error("Failed to update repository status:", error);
+		} finally {
+			setUpdatingRepo(null);
+		}
+	}, [canAddRepo, router]);
 
 	// Calculate usage percentages
 	const repoUsagePercent = repoLimit === -1 ? 0 : Math.min(100, (activeRepos.length / repoLimit) * 100);
@@ -221,6 +274,135 @@ export default function SettingsPage() {
 							<Button variant="outline" size="sm" disabled>
 								Connect
 							</Button>
+						</div>
+					</div>
+				</section>
+
+				{/* ============================================ */}
+				{/* REPOSITORIES SECTION */}
+				{/* ============================================ */}
+				<section>
+					<div className="flex items-center gap-3 mb-6">
+						<div className="w-9 h-9 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
+							<FolderGit2 className="h-4.5 w-4.5 text-muted-foreground" />
+						</div>
+						<div className="flex-1">
+							<h2 className="font-medium">Monitored Repositories</h2>
+							<p className="text-sm text-muted-foreground">Choose which repositories Memoria actively monitors</p>
+						</div>
+						<div className="text-sm text-muted-foreground">
+							{Object.values(repoStatuses).filter(Boolean).length} / {repoLimit === -1 ? "∞" : repoLimit} active
+						</div>
+					</div>
+
+					<div className="p-5 rounded-sm bg-secondary/30 border border-border/50">
+						{/* Explanation */}
+						<div className="mb-4 p-3 bg-primary/5 border border-primary/10 rounded-sm">
+							<p className="text-sm text-muted-foreground">
+								Active repositories receive real-time AI monitoring on pull requests.
+								Inactive repos remain synced but won't receive automatic analysis.
+							</p>
+						</div>
+
+						{/* Repository List */}
+						<div className="space-y-2">
+							{repositories.length === 0 ? (
+								<div className="py-8 text-center">
+									<FolderGit2 className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+									<div className="text-sm font-medium">No repositories connected</div>
+									<div className="text-xs text-muted-foreground mt-1 mb-4">
+										Connect your GitHub account to get started
+									</div>
+									<Button variant="outline" size="sm" asChild>
+										<a href="/api/github/install">
+											<Github className="h-4 w-4 mr-1.5" />
+											Connect GitHub
+										</a>
+									</Button>
+								</div>
+							) : (
+								<>
+									{repositories.map((repo) => {
+										const isActive = repoStatuses[repo._id] ?? repo.isActive;
+										const isUpdating = updatingRepo === repo._id;
+										const cannotActivate = !isActive && !canAddRepo;
+
+										return (
+											<div
+												key={repo._id}
+												className={`flex items-center gap-4 p-3 rounded-sm border transition-colors ${
+													isActive
+														? "bg-primary/5 border-primary/20"
+														: "bg-background/50 border-border/50"
+												}`}
+											>
+												<div className="w-8 h-8 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center shrink-0">
+													<Github className="h-4 w-4 text-muted-foreground" />
+												</div>
+												<div className="flex-1 min-w-0">
+													<div className="flex items-center gap-2">
+														<span className="font-medium text-sm truncate">{repo.fullName}</span>
+														{repo.isPrivate && (
+															<span className="px-1.5 py-0.5 text-[10px] bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
+																Private
+															</span>
+														)}
+													</div>
+													<div className="text-xs text-muted-foreground">
+														{isActive ? (
+															<span className="text-primary">Actively monitored</span>
+														) : (
+															"Not monitored"
+														)}
+													</div>
+												</div>
+												<div className="flex items-center gap-3">
+													{isUpdating ? (
+														<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+													) : (
+														<Switch
+															checked={isActive}
+															onCheckedChange={() => handleToggleRepo(repo._id, isActive)}
+															disabled={cannotActivate}
+															aria-label={`Toggle monitoring for ${repo.fullName}`}
+														/>
+													)}
+												</div>
+											</div>
+										);
+									})}
+
+									{/* Limit Warning */}
+									{!canAddRepo && (
+										<div className="mt-4 p-3 bg-orange-500/10 border border-orange-500/20 rounded-sm">
+											<div className="flex items-center gap-2 text-sm">
+												<Zap className="h-4 w-4 text-orange-500" />
+												<span className="text-orange-600 font-medium">Repository limit reached</span>
+											</div>
+											<p className="text-xs text-muted-foreground mt-1">
+												Upgrade your plan to monitor more repositories.{" "}
+												<a href="/pricing" className="text-primary hover:underline">View plans</a>
+											</p>
+										</div>
+									)}
+
+									{/* Add More Repos Button */}
+									{githubInstallation && canAddRepo && (
+										<div className="mt-4 pt-4 border-t border-border/50">
+											<Button variant="outline" size="sm" asChild>
+												<a href={`https://github.com/apps/memoria-dev/installations/${githubInstallation._id}`} target="_blank" rel="noopener noreferrer">
+													<Plus className="h-4 w-4 mr-1.5" />
+													Add More Repositories
+													<ExternalLink className="h-3 w-3 ml-1.5 opacity-50" />
+												</a>
+											</Button>
+											<p className="text-xs text-muted-foreground mt-2">
+												Manage repository access in GitHub to add more repos
+											</p>
+										</div>
+									)}
+								</>
+							)}
 						</div>
 					</div>
 				</section>

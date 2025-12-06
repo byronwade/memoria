@@ -8,12 +8,21 @@ import {
 	CreditCard,
 	Rocket,
 	ChevronRight,
+	ChevronLeft,
 	Lock,
 	Loader2,
 	ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 interface OnboardingStatus {
@@ -54,12 +63,17 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 
 	// Determine initial step based on status
 	const getInitialStep = (): Step => {
-		// If user has installation and repos (even if none active), go to repos step
-		if (status.hasInstallation && status.repositories.length > 0) {
-			return status.hasRepositories ? "plan" : "repos";
+		// If user has billing setup (already chose a plan), skip to connect/repos
+		if (status.hasBillingSetup) {
+			// If user has installation and repos, go to repos step
+			if (status.hasInstallation && status.repositories.length > 0) {
+				return status.hasRepositories ? "complete" : "repos";
+			}
+			// Has billing but no installation, go to connect
+			return "connect";
 		}
-		// No installation, need to connect GitHub
-		return "connect";
+		// No billing setup yet, start with plan selection
+		return "plan";
 	};
 
 	const [currentStep, setCurrentStep] = useState<Step>(getInitialStep());
@@ -70,6 +84,11 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 		new Set(status.repositories.filter(r => r.isActive).map(r => r._id))
 	);
 	const [selectedPlan, setSelectedPlan] = useState<"free" | "solo" | "team">("free");
+	const [limitDialog, setLimitDialog] = useState<{
+		open: boolean;
+		title: string;
+		description: string;
+	}>({ open: false, title: "", description: "" });
 	const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 	const githubWindowRef = useRef<Window | null>(null);
 
@@ -144,20 +163,29 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 	}, [isPolling]);
 
 	const steps: { id: Step; label: string; description: string }[] = [
+		{ id: "plan", label: "Choose Plan", description: "Select your subscription" },
 		{ id: "connect", label: "Connect GitHub", description: "Install the Memoria GitHub App" },
 		{ id: "repos", label: "Select Repositories", description: "Choose which repos to analyze" },
-		{ id: "plan", label: "Choose Plan", description: "Start with free or upgrade" },
 		{ id: "complete", label: "Complete", description: "You're all set!" },
 	];
 
 	const getStepStatus = (stepId: Step) => {
-		const stepOrder: Step[] = ["connect", "repos", "plan", "complete"];
+		const stepOrder: Step[] = ["plan", "connect", "repos", "complete"];
 		const currentIndex = stepOrder.indexOf(currentStep);
 		const stepIndex = stepOrder.indexOf(stepId);
 
 		if (stepIndex < currentIndex) return "complete";
 		if (stepIndex === currentIndex) return "current";
 		return "upcoming";
+	};
+
+	const getPlanRepoLimit = () => {
+		switch (selectedPlan) {
+			case "free": return 1;
+			case "solo": return 5;
+			case "team": return 25;
+			default: return 1;
+		}
 	};
 
 	const handleConnectGitHub = () => {
@@ -178,12 +206,19 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 		} else {
 			// Check plan limits
 			if (selectedPlan === "free" && newSelected.size >= 1) {
-				// Show upgrade prompt
-				alert("Free plan only allows 1 repository. Upgrade to add more.");
+				setLimitDialog({
+					open: true,
+					title: "Repository Limit Reached",
+					description: "The Free plan only allows 1 repository. Upgrade to Solo or Team to add more repositories.",
+				});
 				return;
 			}
 			if (selectedPlan === "solo" && newSelected.size >= 5) {
-				alert("Solo plan allows up to 5 repositories. Upgrade to Team for more.");
+				setLimitDialog({
+					open: true,
+					title: "Repository Limit Reached",
+					description: "The Solo plan allows up to 5 repositories. Upgrade to Team for up to 25 repositories.",
+				});
 				return;
 			}
 			newSelected.add(repoId);
@@ -204,7 +239,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 			});
 
 			if (response.ok) {
-				setCurrentStep("plan");
+				// Onboarding complete, go to dashboard
+				router.push("/dashboard");
 			}
 		} catch (error) {
 			console.error("Failed to save repos:", error);
@@ -217,8 +253,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 		setSelectedPlan(plan);
 
 		if (plan === "free") {
-			// Just proceed to dashboard
-			router.push("/dashboard");
+			// For free plan, just proceed to connect GitHub
+			setCurrentStep("connect");
 			return;
 		}
 
@@ -231,7 +267,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 				body: JSON.stringify({
 					orgId: status.organization?._id,
 					planTier: plan,
-					successUrl: `${window.location.origin}/dashboard?upgraded=true`,
+					// After payment, return to onboarding to continue with GitHub connection
+					successUrl: `${window.location.origin}/onboarding?plan=${plan}`,
 					cancelUrl: `${window.location.origin}/onboarding`,
 				}),
 			});
@@ -363,6 +400,19 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									? "The GitHub app will open in a new tab"
 									: "You can revoke access anytime from your GitHub settings"}
 							</p>
+
+							{!isPolling && (
+								<div className="pt-4 border-t">
+									<Button
+										variant="ghost"
+										onClick={() => setCurrentStep("plan")}
+										className="w-full"
+									>
+										<ChevronLeft className="w-4 h-4 mr-2" />
+										Change Plan
+									</Button>
+								</div>
+							)}
 						</CardContent>
 					</Card>
 				)}
@@ -372,8 +422,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 						<CardHeader className="text-center">
 							<CardTitle>Select Repositories</CardTitle>
 							<CardDescription>
-								Choose which repositories you want Memoria to analyze.
-								{selectedPlan === "free" && " Free plan includes 1 repository."}
+								Choose up to {getPlanRepoLimit()} repositor{getPlanRepoLimit() === 1 ? "y" : "ies"} to analyze.
+								{selectedPlan === "free" && " Upgrade your plan for more."}
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-4">
@@ -423,8 +473,16 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 							)}
 
 							<div className="flex items-center justify-between pt-4 border-t">
+								<Button
+									variant="ghost"
+									onClick={() => setCurrentStep("connect")}
+									disabled={isLoading}
+								>
+									<ChevronLeft className="w-4 h-4 mr-2" />
+									Back
+								</Button>
 								<span className="text-sm text-muted-foreground">
-									{selectedRepos.size} selected
+									{selectedRepos.size} / {getPlanRepoLimit()} selected
 								</span>
 								<Button
 									onClick={handleSaveRepos}
@@ -433,7 +491,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									{isLoading ? (
 										<Loader2 className="w-4 h-4 mr-2 animate-spin" />
 									) : null}
-									Continue
+									Complete Setup
 									<ChevronRight className="w-4 h-4 ml-2" />
 								</Button>
 							</div>
@@ -590,7 +648,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 								) : (
 									<CreditCard className="w-4 h-4 mr-2" />
 								)}
-								{selectedPlan === "free" ? "Start Free" : "Continue to Payment"}
+								{selectedPlan === "free" ? "Continue with Free" : "Continue to Payment"}
+								<ChevronRight className="w-4 h-4 ml-2" />
 							</Button>
 						</div>
 
@@ -602,6 +661,32 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 					</div>
 				)}
 			</div>
+
+			{/* Limit Reached Dialog */}
+			<Dialog open={limitDialog.open} onOpenChange={(open) => setLimitDialog({ ...limitDialog, open })}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>{limitDialog.title}</DialogTitle>
+						<DialogDescription>{limitDialog.description}</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setLimitDialog({ ...limitDialog, open: false })}
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={() => {
+								setLimitDialog({ ...limitDialog, open: false });
+								setCurrentStep("plan");
+							}}
+						>
+							View Plans
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

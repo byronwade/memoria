@@ -392,6 +392,51 @@ export default defineSchema({
 		.index("by_repo_file", ["repoId", "filePath"])
 		.index("by_repo_highRisk", ["repoId", "highRiskCount"]),
 
+	// Repository Scans - tracks full repository scan jobs
+	repository_scans: defineTable({
+		repositoryId: v.id("repositories"),
+		status: literals("pending", "running", "completed", "failed"),
+		triggeredBy: literals("onboarding", "manual", "scheduled"),
+		startedAt: nullableNumber,
+		completedAt: nullableNumber,
+		errorMessage: nullableString,
+		totalFiles: v.number(),
+		processedFiles: v.number(),
+		filesWithRisk: v.number(),
+		createdAt: v.number(),
+		updatedAt: nullableNumber,
+	})
+		.index("by_repository", ["repositoryId"])
+		.index("by_status", ["status"])
+		.index("by_repository_status", ["repositoryId", "status"]),
+
+	// File Analyses - stores per-file analysis results from scans
+	file_analyses: defineTable({
+		scanId: v.id("repository_scans"),
+		repositoryId: v.id("repositories"),
+		filePath: v.string(),
+		riskScore: v.number(), // 0-100
+		riskLevel: literals("low", "medium", "high", "critical"),
+		volatilityScore: v.number(),
+		couplingScore: v.number(),
+		driftScore: v.number(),
+		importerCount: v.number(),
+		coupledFiles: v.array(
+			v.object({
+				file: v.string(),
+				score: v.number(),
+				changeType: v.string(),
+			}),
+		),
+		staticDependents: v.array(v.string()),
+		lastAnalyzedAt: v.number(),
+		createdAt: v.number(),
+	})
+		.index("by_scan", ["scanId"])
+		.index("by_repository", ["repositoryId"])
+		.index("by_repository_file", ["repositoryId", "filePath"])
+		.index("by_repository_risk", ["repositoryId", "riskScore"]),
+
 	inbound_webhooks: defineTable({
 		source: literals("github", "gitlab", "stripe", "bitbucket", "other"),
 		externalEventId: v.string(),

@@ -37,78 +37,87 @@ const staggerContainer = {
 	},
 };
 
-// Clean, minimal file list visualization
+// Clean, simple file analysis visualization
 function DependencyGraph() {
 	const files = [
-		{ name: "UserService.test.ts", status: "warning", label: "stale 8 days" },
-		{ name: "UserService.stories.tsx", status: "critical", label: "needs update" },
+		{ name: "UserService.test.ts", status: "warning", label: "stale 8d" },
+		{ name: "UserService.stories.tsx", status: "critical", label: "outdated" },
 		{ name: "api/users/route.ts", status: "critical", label: "85% coupled" },
-		{ name: "types/user.ts", status: "ok", label: "in sync" },
-		{ name: "docs/user-api.md", status: "warning", label: "outdated" },
+		{ name: "types/user.ts", status: "ok", label: "synced" },
+		{ name: "docs/user-api.md", status: "warning", label: "drift" },
 	];
 
 	return (
-		<div className="w-full h-full flex flex-col items-center justify-center gap-6 p-6">
-			{/* Main file card */}
-			<div className="text-center">
-				<div className="inline-flex items-center gap-3 px-5 py-3 rounded-lg border-2 border-primary bg-primary/5">
-					<div className="text-left">
-						<div className="text-sm font-mono font-medium text-foreground">UserService.ts</div>
-						<div className="text-xs text-muted-foreground">Editing this file</div>
-					</div>
-					<div className="flex flex-col items-center px-3 border-l border-primary/20">
-						<div className="text-2xl font-bold text-primary">72</div>
-						<div className="text-[10px] text-muted-foreground uppercase">risk</div>
-					</div>
+		<div className="w-full h-full flex flex-col items-center justify-center gap-5 p-6">
+			{/* Main file being edited */}
+			<div className="flex items-center gap-4 px-5 py-4 rounded-lg border border-primary/30 bg-primary/5">
+				<div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+					<svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+						<path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+					</svg>
+				</div>
+				<div>
+					<div className="font-mono font-medium">UserService.ts</div>
+					<div className="text-xs text-muted-foreground">You're editing this file</div>
+				</div>
+				<div className="ml-auto text-right pl-4 border-l border-primary/20">
+					<div className="text-3xl font-bold text-primary tabular-nums">72</div>
+					<div className="text-[10px] text-muted-foreground uppercase">risk</div>
 				</div>
 			</div>
 
-			{/* Arrow down */}
-			<div className="flex flex-col items-center gap-1 text-primary/60">
-				<div className="w-px h-6 bg-current" />
-				<svg width="12" height="8" viewBox="0 0 12 8" fill="currentColor">
+			{/* Arrow */}
+			<div className="flex flex-col items-center text-muted-foreground/40">
+				<div className="w-px h-4 bg-current" />
+				<svg className="w-3 h-2" viewBox="0 0 12 8" fill="currentColor">
 					<path d="M6 8L0 0h12L6 8z" />
 				</svg>
 			</div>
 
-			{/* Coupled files list */}
-			<div className="w-full max-w-sm space-y-2">
+			{/* Hidden files list */}
+			<div className="w-full max-w-sm">
 				<div className="text-xs text-muted-foreground text-center mb-3">
-					Hidden files that change together <span className="text-primary">(no imports)</span>
+					Files that break when you change it
 				</div>
-				{files.map((file) => (
-					<div
-						key={file.name}
-						className="flex items-center justify-between px-4 py-2.5 rounded-md border border-border/50 bg-card/50"
-					>
-						<div className="flex items-center gap-3">
-							<div
-								className={cn(
-									"w-2 h-2 rounded-full",
-									file.status === "critical" && "bg-red-500",
-									file.status === "warning" && "bg-yellow-500",
-									file.status === "ok" && "bg-primary"
-								)}
-							/>
-							<span className="text-sm font-mono text-foreground">{file.name}</span>
-						</div>
-						<span
-							className={cn(
-								"text-xs",
-								file.status === "critical" && "text-red-500",
-								file.status === "warning" && "text-yellow-500",
-								file.status === "ok" && "text-muted-foreground"
-							)}
+				<div className="space-y-1.5">
+					{files.map((file) => (
+						<div
+							key={file.name}
+							className="flex items-center justify-between px-3 py-2 rounded-md bg-card/50 border border-border/40"
 						>
-							{file.label}
-						</span>
-					</div>
-				))}
+							<div className="flex items-center gap-2.5">
+								<div
+									className={cn(
+										"w-2 h-2 rounded-full",
+										file.status === "critical" && "bg-red-500",
+										file.status === "warning" && "bg-yellow-500",
+										file.status === "ok" && "bg-green-500"
+									)}
+								/>
+								<span className="text-sm font-mono">{file.name}</span>
+							</div>
+							<span
+								className={cn(
+									"text-xs",
+									file.status === "critical" && "text-red-500",
+									file.status === "warning" && "text-yellow-500",
+									file.status === "ok" && "text-muted-foreground"
+								)}
+							>
+								{file.label}
+							</span>
+						</div>
+					))}
+				</div>
 			</div>
 
-			{/* Bottom note */}
-			<div className="text-xs text-muted-foreground/60 text-center max-w-sm">
-				These files have no import/export relationship — but they always change together. AI can't see this. Memoria can.
+			{/* Key insight */}
+			<div className="text-center max-w-xs">
+				<div className="text-xs text-muted-foreground">
+					<span className="text-foreground font-medium">No imports exist</span> between these files.
+					<br />
+					Your AI can't see them. Memoria can.
+				</div>
 			</div>
 		</div>
 	);
