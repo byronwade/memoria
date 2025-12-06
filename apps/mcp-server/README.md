@@ -357,11 +357,20 @@ Uses `git grep` to find files that import the target - even for brand new files 
 ### History Search (The Archaeologist)
 Search git history to understand *why* code was written. Solves the "Chesterton's Fence" problem before you delete that weird-looking code.
 
+### Documentation Coupling
+Finds markdown files that reference your exported functions/types. Catches README updates needed when output format changes.
+
+### Type Coupling
+Uses git pickaxe (`git log -S`) to find files sharing type definitions - even without direct imports.
+
+### Content Coupling
+Finds files sharing string literals (error messages, constants) that should stay in sync.
+
 ---
 
 ## Example Output
 
-```markdown
+```
 # Forensics: `route.ts`
 
 **RISK: 65/100** — HIGH
@@ -375,10 +384,14 @@ Search git history to understand *why* code was written. Solves the "Chesterton'
 
 **`billing/page.tsx`** — 85% (schema)
 > These files share type definitions. If you modify types in one, update the other to match.
-```diff
-+ interface SubscriptionUpdated
-- oldStatus: string
-```
+  + interface SubscriptionUpdated
+  - oldStatus: string
+
+**`README.md`** — 70% [docs]
+> Documentation references: generateReport, SubscriptionStatus
+
+**`types/billing.ts`** — 65% [type]
+> Shared types: SubscriptionUpdated, PaymentStatus
 
 ---
 
@@ -510,12 +523,25 @@ npx tsx benchmarks/run-benchmarks.ts
 
 ---
 
+## Monorepo Layout (Turbo)
+
+- `apps/mcp-server` — MCP server & npm package (publishes `@byronwade/memoria`)
+- `apps/api` — API backend stub (Node HTTP placeholder)
+- `apps/web` — Web frontend stub
+- `packages` — Shared libraries (future)
+
+---
+
 ## Development
 
 ```bash
 npm install
-npm run build
-npm test        # 294 tests
+npm run build                     # turbo build across workspaces
+npm test                          # turbo test (runs vitest in mcp-server)
+
+# Focus on a single app/package
+npx turbo run build --filter=@byronwade/memoria
+npx turbo run dev --filter=@byronwade/memoria
 ```
 
 ---

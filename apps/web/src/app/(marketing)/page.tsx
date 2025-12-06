@@ -14,6 +14,9 @@ import {
 	Shield,
 	Zap,
 	AlertTriangle,
+	FileText,
+	Code,
+	FileCode,
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
@@ -262,7 +265,7 @@ function FAQItem({ question, answer, isOpen, onClick }: { question: string; answ
 	);
 }
 
-// The 5 engines
+// The 8 engines
 const engines = [
 	{
 		icon: Flame,
@@ -293,6 +296,24 @@ const engines = [
 		title: "History Search",
 		description: "Search git history to understand WHY code was written.",
 		metric: "~7ms",
+	},
+	{
+		icon: FileText,
+		title: "Documentation Coupling",
+		description: "Finds markdown files referencing your exported functions and types.",
+		metric: "~50ms",
+	},
+	{
+		icon: Code,
+		title: "Type Coupling",
+		description: "Discovers files sharing type definitions via git pickaxe search.",
+		metric: "~100ms",
+	},
+	{
+		icon: FileCode,
+		title: "Content Coupling",
+		description: "Detects files sharing string literals like error messages and constants.",
+		metric: "~30ms",
 	},
 ];
 
@@ -667,9 +688,17 @@ export default function Home() {
 								</div>
 
 								<div className="text-primary font-semibold mt-4">COUPLED FILES</div>
-								<div className="text-blue-400 mt-2">`billing/page.tsx` (85% coupled)</div>
+								<div className="text-blue-400 mt-2">`billing/page.tsx` — 85% (schema)</div>
 								<div className="text-background/50 italic pl-4 border-l-2 border-background/20 my-2">
 									These files share type definitions. Update both.
+								</div>
+								<div className="text-cyan-400 mt-2">`README.md` — 70% [docs]</div>
+								<div className="text-background/50 italic pl-4 border-l-2 border-background/20 my-2">
+									Documentation references: generateReport, PaymentStatus
+								</div>
+								<div className="text-purple-400 mt-2">`types/payment.ts` — 65% [type]</div>
+								<div className="text-background/50 italic pl-4 border-l-2 border-background/20 my-2">
+									Shared types: PaymentIntent, SubscriptionStatus
 								</div>
 
 								<div className="text-primary font-semibold mt-4">STATIC DEPENDENTS</div>
@@ -878,7 +907,7 @@ export default function Home() {
 							variants={fadeInUp}
 							className="text-3xl md:text-4xl font-bold tracking-tight"
 						>
-							Five engines working in parallel
+							Eight engines working in parallel
 						</m.h2>
 						<m.p
 							variants={fadeInUp}
@@ -890,19 +919,18 @@ export default function Home() {
 					</m.div>
 
 					{/* Bento grid layout */}
-					<div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-6xl mx-auto">
+					<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-6xl mx-auto">
 						{engines.map((engine, i) => (
 							<m.div
 								key={engine.title}
 								initial={{ opacity: 0, y: 20 }}
 								whileInView={{ opacity: 1, y: 0 }}
 								viewport={{ once: true }}
-								transition={{ delay: i * 0.1 }}
+								transition={{ delay: i * 0.05 }}
 								whileHover={{ y: -4 }}
 								className={cn(
 									"group relative p-6 rounded-2xl border bg-card overflow-hidden transition-all duration-300",
-									"hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5",
-									i === 0 && "lg:col-span-2 lg:row-span-1" // First item spans 2 columns
+									"hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5"
 								)}
 							>
 								{/* Subtle gradient on hover */}
@@ -932,7 +960,7 @@ export default function Home() {
 						viewport={{ once: true }}
 					>
 						<p className="text-sm text-muted-foreground">
-							Total analysis time: <span className="text-primary font-semibold">~70ms</span> — faster than you can blink
+							Total analysis time: <span className="text-primary font-semibold">~100ms</span> — all engines run in parallel
 						</p>
 					</m.div>
 				</Container>

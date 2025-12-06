@@ -67,7 +67,9 @@
       "Bash(chmod:*)",
       "Bash(npm ls:*)",
       "Bash(npm outdated:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(git --version:*)",
+      "Bash(git help:*)"
     ],
     "deny": [],
     "ask": []

@@ -18,13 +18,16 @@ AI assistants are goldfish. They see the file you're editing but have zero aware
 
 ### The Solution
 
-Memoria provides **Senior Developer Intuition** by running 5 analysis engines that pre-compute what AI cannot do efficiently:
+Memoria provides **Senior Developer Intuition** by running 8 analysis engines that pre-compute what AI cannot do efficiently:
 
 1. **Volatility Engine** - Weighted panic keyword analysis with **time-decay** (recent bugs matter more) and **Bus Factor** tracking (who owns the code)
 2. **Entanglement Engine** - Git co-change correlation with structured diff evidence
 3. **Sentinel Engine** - Drift detection with adaptive thresholds
 4. **Static Import Engine** - `git grep` fallback for new files (solves the "Day 1 Problem")
 5. **History Search Engine** - "The Archaeologist" - search git history with **line-range support** (Sherlock Mode)
+6. **Documentation Coupling Engine** - Finds markdown files that reference exported functions/types
+7. **Type Coupling Engine** - Finds files sharing type definitions via `git log -S` (pickaxe)
+8. **Content Coupling Engine** - Finds files sharing string literals (error messages, constants)
 
 ## Critical Setup: Making AI Use Memoria
 
@@ -107,13 +110,21 @@ Before modifying files, call the Memoria MCP tool:
 │  DRIFT ENGINE   │   │ HISTORY SEARCH  │   │SIBLING GUIDANCE │
 │ (adaptive days) │   │(The Archaeologist)│  │ (new files)    │
 └─────────────────┘   └─────────────────┘   └─────────────────┘
+                              ↓
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+┌───────┴───────┐   ┌─────────┴─────────┐   ┌───────┴───────┐
+│     DOCS      │   │      TYPE         │   │    CONTENT    │
+│   COUPLING    │   │    COUPLING       │   │   COUPLING    │
+│  (git grep)   │   │  (git log -S)     │   │ (git grep -F) │
+└───────────────┘   └───────────────────┘   └───────────────┘
 ```
 
 ### Single File Implementation
 
 Everything lives in `src/index.ts`:
 - MCP Server with stdio transport (2 tools: `analyze_file` and `ask_history`)
-- 5 analysis engines running in parallel
+- 8 analysis engines running in parallel
 - LRU cache (100 items, 5-minute TTL)
 - Output formatter generating AI-optimized markdown
 - Optional `.memoria.json` config support
@@ -137,7 +148,7 @@ npm run dev
 # Run the MCP server
 npm start
 
-# Run test suite (258 tests)
+# Run test suite (362 tests)
 npm test
 ```
 
@@ -240,7 +251,7 @@ User highlights lines 100-150 and asks: "Why is this weird if-statement here?"
 - Tool uses `git log -L 100,150:src/api/utils.ts` to find all commits that touched those lines
 - Returns the full history of that specific code block
 
-## The 5 Engines Explained
+## The 8 Engines Explained
 
 ### Engine 1: Volatility (Panic Detection + Time-Decay + Bus Factor)
 
@@ -350,6 +361,68 @@ await searchHistory("", filePath, "diff", 10, 100, 150)
 - Finds context lost in code comments
 - Surfaces past bug fixes that explain "weird" code
 - Line-range search traces the full evolution of a specific code block
+
+### Engine 6: Documentation Coupling (Git Grep)
+
+Finds markdown files that reference exported functions, types, or classes from the source file.
+
+**How It Works:**
+```typescript
+// 1. Extract exports from source file
+const exports = extractExports(sourceCode);
+// Result: ["generateAiInstructions", "formatHistoryResults", "searchHistory"]
+
+// 2. Search markdown files for these exports
+git grep -l -e "generateAiInstructions" -e "formatHistoryResults" -- "*.md"
+// Result: ["README.md", "CLAUDE.md", "docs/api.md"]
+```
+
+**Why This Matters:**
+- Catches README files that need updating when output format changes
+- Finds documentation that references your API
+- Prevents broken code examples in docs
+- Labels coupled files with `[docs]` in output
+
+### Engine 7: Type Coupling (Pickaxe Search)
+
+Finds files sharing type definitions using git's pickaxe feature (`git log -S`).
+
+**How It Works:**
+```typescript
+// 1. Extract type definitions from source file
+const types = extractTypeDefinitions(sourceCode);
+// Result: ["UserData", "AuthState", "CoupledFile"]
+
+// 2. Find commits that added/removed these types
+git log -S "interface UserData" --name-only --format=""
+// Result: Files that have the same type definition
+```
+
+**Why This Matters:**
+- Finds files sharing interfaces/types without direct imports
+- Detects semantic coupling through shared data structures
+- Labels coupled files with `[type]` in output
+
+### Engine 8: Content Coupling (String Literal Search)
+
+Finds files sharing significant string literals like error messages, API endpoints, or constants.
+
+**How It Works:**
+```typescript
+// 1. Extract meaningful strings from source file (>10 chars, not imports)
+const strings = extractStringLiterals(sourceCode);
+// Result: ["Authentication failed", "Invalid request format"]
+
+// 2. Find other files with the same strings
+git grep -l -F "Authentication failed" -- "*.ts" "*.tsx"
+// Result: Files sharing that error message
+```
+
+**Why This Matters:**
+- Finds files coupled through shared constants
+- Catches error message inconsistencies
+- Detects hardcoded strings that should be centralized
+- Labels coupled files with `[content]` in output
 
 ### Sibling Guidance (New File Intelligence)
 
@@ -519,8 +592,9 @@ Plus any patterns from the project's `.gitignore`.
 
 ## Test Coverage
 
-258 tests covering:
-- All 5 engines with edge cases
+362 tests covering:
+- All 8 engines with edge cases
+- Documentation, type, and content coupling engines
 - Time-decay and bus factor tracking
 - History search (message, diff, and line-range modes)
 - Sibling guidance for new files

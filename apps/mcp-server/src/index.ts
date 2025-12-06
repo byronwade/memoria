@@ -154,6 +154,18 @@ export interface RiskAssessment {
 	action: string; // Recommended action
 }
 
+// --- COUPLING SOURCE TYPES (for multi-engine coupling detection) ---
+export type CouplingSource = "git" | "docs" | "type" | "content";
+
+export interface EnhancedCoupledFile {
+	file: string;
+	score: number;
+	source: CouplingSource;
+	reason: string;
+	evidence?: DiffSummary | string;
+	lastHash?: string;
+}
+
 // --- ANALYSIS CONTEXT (Shared across all engines to avoid redundant initialization) ---
 // Note: AnalysisContext uses ProjectMetrics defined below in the "PROJECT METRICS" section
 export interface AnalysisContext {
@@ -1086,7 +1098,400 @@ export async function getImporters(
 	}
 }
 
-// --- ENGINE 4: SIBLING GUIDANCE (Smart New File Guidance) ---
+// --- ENGINE 4: DOCUMENTATION COUPLING (Git-Native) ---
+// Finds markdown files that reference exported identifiers from the source file
+// Solves the "README needs update when output changes" problem
+
+/**
+ * Extract exported identifiers from source code using regex (no AST needed)
+ */
+export function extractExports(sourceCode: string): string[] {
+	const exportPattern =
+		/export\s+(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+(\w+)/g;
+	const identifiers: string[] = [];
+	let match: RegExpExecArray | null;
+	while ((match = exportPattern.exec(sourceCode)) !== null) {
+		identifiers.push(match[1]);
+	}
+	// Also catch `export { name }` and `export default function name`
+	const namedExportPattern = /export\s+\{\s*([^}]+)\s*\}/g;
+	while ((match = namedExportPattern.exec(sourceCode)) !== null) {
+		const names = match[1].split(",").map((n) => n.trim().split(/\s+as\s+/)[0]);
+		identifiers.push(...names.filter((n) => n && !n.includes("*")));
+	}
+	const defaultFnPattern = /export\s+default\s+(?:async\s+)?function\s+(\w+)/g;
+	while ((match = defaultFnPattern.exec(sourceCode)) !== null) {
+		identifiers.push(match[1]);
+	}
+	// Filter out common/meaningless names and dedupe
+	const meaningless = new Set(["default", "module", "exports", "index"]);
+	return [...new Set(identifiers)].filter(
+		(id) => id.length > 2 && !meaningless.has(id.toLowerCase()),
+	);
+}
+
+/**
+ * Find markdown files that mention exported identifiers from the source file
+ */
+export async function getDocsCoupling(
+	filePath: string,
+	ctx?: AnalysisContext,
+): Promise<EnhancedCoupledFile[]> {
+	const cacheKey = `docs-coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = ctx ? ctx.git : getGitForFile(filePath);
+		const repoRoot = ctx
+			? ctx.repoRoot
+			: (await git.revparse(["--show-toplevel"])).trim();
+		const relativePath = path.relative(repoRoot, filePath);
+
+		// Read source file and extract exports
+		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const exports = extractExports(sourceContent);
+
+		if (exports.length === 0) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		// Build grep pattern: search for any of the exported identifiers in markdown
+		// Limit to top 10 exports to avoid overly long grep commands
+		const topExports = exports.slice(0, 10);
+
+		// Use git grep with multiple -e patterns (OR logic)
+		const grepArgs = [
+			"--no-optional-locks",
+			"grep",
+			"-l",
+			"-i", // Case insensitive for docs
+			...topExports.flatMap((id) => ["-e", id]),
+			"--",
+			"*.md",
+			"**/*.md",
+		];
+
+		const grepResult = await git.raw(grepArgs).catch(() => "");
+		const mdFiles = grepResult
+			.split("\n")
+			.map((f) => f.trim())
+			.filter((f) => f && !f.includes(relativePath));
+
+		if (mdFiles.length === 0) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		// For each markdown file, find which exports it mentions
+		const results: EnhancedCoupledFile[] = [];
+
+		await mapConcurrent(mdFiles.slice(0, 10), 5, async (mdFile) => {
+			const mdPath = path.join(repoRoot, mdFile);
+			const mdContent = await fs.readFile(mdPath, "utf8").catch(() => "");
+			const matchedExports = topExports.filter((id) =>
+				new RegExp(`\\b${id}\\b`, "i").test(mdContent),
+			);
+
+			if (matchedExports.length >= 1) {
+				results.push({
+					file: mdFile,
+					score: Math.min(70, 40 + matchedExports.length * 10), // Base 40, +10 per match, max 70
+					source: "docs",
+					reason: `Mentions: ${matchedExports.slice(0, 3).join(", ")}${matchedExports.length > 3 ? ` (+${matchedExports.length - 3} more)` : ""}`,
+				});
+			}
+		});
+
+		// Sort by score descending
+		results.sort((a, b) => b.score - a.score);
+		cache.set(cacheKey, results.slice(0, 5));
+		return results.slice(0, 5);
+	} catch (_e) {
+		return [];
+	}
+}
+
+// --- ENGINE 5: TYPE/SEMANTIC COUPLING (Git Pickaxe) ---
+// Finds files where the same type/interface/enum was added or modified
+// Uses git log -S for "pickaxe" search
+
+/**
+ * Extract type definitions (interface, type, enum) from source code
+ */
+export function extractTypeDefinitions(sourceCode: string): string[] {
+	const typePattern =
+		/(?:export\s+)?(?:interface|type|enum)\s+(\w+)/g;
+	const types: string[] = [];
+	let match: RegExpExecArray | null;
+	while ((match = typePattern.exec(sourceCode)) !== null) {
+		types.push(match[1]);
+	}
+	// Filter out common/generic names
+	const generic = new Set(["Props", "State", "Options", "Config", "Data", "Result", "Response", "Request"]);
+	return [...new Set(types)].filter(
+		(t) => t.length > 2 && !generic.has(t),
+	);
+}
+
+/**
+ * Find files that share type definitions using git grep
+ */
+export async function getTypeCoupling(
+	filePath: string,
+	ctx?: AnalysisContext,
+): Promise<EnhancedCoupledFile[]> {
+	const cacheKey = `type-coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = ctx ? ctx.git : getGitForFile(filePath);
+		const repoRoot = ctx
+			? ctx.repoRoot
+			: (await git.revparse(["--show-toplevel"])).trim();
+		const relativePath = path.relative(repoRoot, filePath);
+
+		// Read source and extract type names
+		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const types = extractTypeDefinitions(sourceContent);
+
+		if (types.length === 0) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		// Build a map of files -> types they reference
+		const fileTypeMap: Map<string, string[]> = new Map();
+		const topTypes = types.slice(0, 5); // Limit to 5 types for performance
+
+		// Search for each type using git grep
+		await mapConcurrent(topTypes, 3, async (typeName) => {
+			// Match type usage patterns: import, extends, implements, type annotation
+			const grepResult = await git
+				.raw([
+					"--no-optional-locks",
+					"grep",
+					"-l",
+					"-E",
+					`(import.*${typeName}|:\\s*${typeName}[^a-zA-Z]|<${typeName}>|extends\\s+${typeName}|implements\\s+${typeName})`,
+					"--",
+					"*.ts",
+					"*.tsx",
+					"*.js",
+					"*.jsx",
+				])
+				.catch(() => "");
+
+			const files = grepResult
+				.split("\n")
+				.map((f) => f.trim())
+				.filter((f) => f && f !== relativePath);
+
+			for (const file of files) {
+				if (!fileTypeMap.has(file)) {
+					fileTypeMap.set(file, []);
+				}
+				fileTypeMap.get(file)!.push(typeName);
+			}
+		});
+
+		// Convert to results
+		const results: EnhancedCoupledFile[] = [];
+		for (const [file, sharedTypes] of fileTypeMap) {
+			results.push({
+				file,
+				score: Math.min(65, 35 + sharedTypes.length * 15), // Base 35, +15 per type, max 65
+				source: "type",
+				reason: `Shares types: ${sharedTypes.join(", ")}`,
+			});
+		}
+
+		// Sort and limit
+		results.sort((a, b) => b.score - a.score);
+		cache.set(cacheKey, results.slice(0, 5));
+		return results.slice(0, 5);
+	} catch (_e) {
+		return [];
+	}
+}
+
+// --- ENGINE 6: CONTENT/STRING COUPLING (Git Grep -F) ---
+// Finds files sharing significant string literals (error messages, API endpoints)
+
+/**
+ * Extract significant string literals from source code
+ */
+export function extractStringLiterals(sourceCode: string): string[] {
+	// Match strings in quotes (single, double, or backtick)
+	const stringPattern = /['"`]([^'"`\n]{15,80})['"`]/g;
+	const strings: string[] = [];
+	let match: RegExpExecArray | null;
+	while ((match = stringPattern.exec(sourceCode)) !== null) {
+		strings.push(match[1]);
+	}
+
+	// Filter to significant strings (error messages, endpoints, format strings)
+	const significant = strings.filter((s) => {
+		// Skip common patterns
+		if (/^https?:\/\/localhost/.test(s)) return false;
+		if (/^\s*$/.test(s)) return false;
+		if (/^[a-z-]+$/.test(s)) return false; // CSS classes, kebab-case
+		if (/^\d+$/.test(s)) return false;
+		if (/^\.?\/?[\w-]+$/.test(s)) return false; // Simple paths
+		// Keep error messages, format strings, endpoints
+		if (/error|failed|invalid|not found|unauthorized/i.test(s)) return true;
+		if (/^\/api\//.test(s)) return true;
+		if (/\$\{|\%[sdf]/.test(s)) return true; // Template/format strings
+		// Keep longer descriptive strings
+		if (s.length > 30 && /\s/.test(s)) return true;
+		return false;
+	});
+
+	return [...new Set(significant)].slice(0, 5); // Limit to 5 strings
+}
+
+/**
+ * Find files sharing significant string literals
+ */
+export async function getContentCoupling(
+	filePath: string,
+	ctx?: AnalysisContext,
+): Promise<EnhancedCoupledFile[]> {
+	const cacheKey = `content-coupling:${filePath}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	try {
+		const git = ctx ? ctx.git : getGitForFile(filePath);
+		const repoRoot = ctx
+			? ctx.repoRoot
+			: (await git.revparse(["--show-toplevel"])).trim();
+		const relativePath = path.relative(repoRoot, filePath);
+
+		// Read source and extract strings
+		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const strings = extractStringLiterals(sourceContent);
+
+		if (strings.length === 0) {
+			cache.set(cacheKey, []);
+			return [];
+		}
+
+		// Build a map of files -> shared strings
+		const fileStringMap: Map<string, string[]> = new Map();
+
+		// Search for each string using git grep -F (fixed string)
+		await mapConcurrent(strings, 3, async (str) => {
+			// Escape for grep and truncate
+			const searchStr = str.slice(0, 50);
+			const grepResult = await git
+				.raw([
+					"--no-optional-locks",
+					"grep",
+					"-l",
+					"-F",
+					searchStr,
+					"--",
+					"*.ts",
+					"*.tsx",
+					"*.js",
+					"*.jsx",
+				])
+				.catch(() => "");
+
+			const files = grepResult
+				.split("\n")
+				.map((f) => f.trim())
+				.filter((f) => f && f !== relativePath);
+
+			for (const file of files) {
+				if (!fileStringMap.has(file)) {
+					fileStringMap.set(file, []);
+				}
+				fileStringMap.get(file)!.push(searchStr.slice(0, 30) + (str.length > 30 ? "..." : ""));
+			}
+		});
+
+		// Convert to results
+		const results: EnhancedCoupledFile[] = [];
+		for (const [file, sharedStrings] of fileStringMap) {
+			// Classify the coupling type
+			const hasError = sharedStrings.some((s) => /error|fail|invalid/i.test(s));
+			const hasEndpoint = sharedStrings.some((s) => /^\/api\//.test(s));
+			const matchType = hasError ? "error" : hasEndpoint ? "endpoint" : "content";
+
+			results.push({
+				file,
+				score: Math.min(50, 25 + sharedStrings.length * 10), // Base 25, +10 per string, max 50
+				source: "content",
+				reason: `Shared ${matchType}: "${sharedStrings[0]}"${sharedStrings.length > 1 ? ` (+${sharedStrings.length - 1})` : ""}`,
+			});
+		}
+
+		// Sort and limit
+		results.sort((a, b) => b.score - a.score);
+		cache.set(cacheKey, results.slice(0, 5));
+		return results.slice(0, 5);
+	} catch (_e) {
+		return [];
+	}
+}
+
+// --- MERGE COUPLING RESULTS ---
+// Combines results from all coupling engines into a unified list
+
+export function mergeCouplingResults(
+	gitCoupled: any[],
+	docsCoupled: EnhancedCoupledFile[],
+	typeCoupled: EnhancedCoupledFile[],
+	contentCoupled: EnhancedCoupledFile[],
+): EnhancedCoupledFile[] {
+	const merged: EnhancedCoupledFile[] = [];
+	const seenFiles = new Set<string>();
+
+	// Add git coupling (highest priority, existing format with source tag)
+	for (const c of gitCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push({
+				file: c.file,
+				score: c.score,
+				source: "git",
+				reason: c.reason,
+				evidence: c.evidence,
+				lastHash: c.lastHash,
+			});
+		}
+	}
+
+	// Add docs coupling (second priority)
+	for (const c of docsCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push(c);
+		}
+	}
+
+	// Add type coupling (third priority)
+	for (const c of typeCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push(c);
+		}
+	}
+
+	// Add content coupling (lowest priority)
+	for (const c of contentCoupled) {
+		if (!seenFiles.has(c.file)) {
+			seenFiles.add(c.file);
+			merged.push(c);
+		}
+	}
+
+	// Sort by score descending and return top 10
+	return merged.sort((a, b) => b.score - a.score).slice(0, 10);
+}
+
+// --- ENGINE 7: SIBLING GUIDANCE (Smart New File Guidance) ---
 // Provides intelligent guidance for new files based on sibling file patterns
 
 export interface SiblingPattern {
@@ -1931,27 +2336,60 @@ export function generateAiInstructions(
 		output += `---\n\n`;
 		output += `## Coupled Files\n\n`;
 
-		coupled.forEach((c) => {
-			const evidence: DiffSummary = c.evidence;
-			const relationship = evidence?.changeType || "unknown";
+		// Source label mapping
+		const SOURCE_LABELS: Record<string, string> = {
+			git: "",      // No label for git (default/historical)
+			docs: "docs",
+			type: "type",
+			content: "content",
+		};
 
-			// File name with coupling percentage
+		// Source-specific instructions
+		const SOURCE_INSTRUCTIONS: Record<string, string> = {
+			docs: "Documentation references this file. Update docs if you change the API.",
+			type: "Shares type definitions. Interface changes may require updates here.",
+			content: "Contains shared literals. Ensure consistency across files.",
+		};
+
+		coupled.forEach((c) => {
+			const evidence: DiffSummary | string | undefined = c.evidence;
+			const source: CouplingSource = c.source || "git";
+			const sourceLabel = SOURCE_LABELS[source];
+
+			// For git coupling, use the existing relationship logic
+			let relationship = "unknown";
+			if (source === "git" && typeof evidence === "object" && evidence?.changeType) {
+				relationship = evidence.changeType;
+			}
+
+			// File name with coupling percentage and source label
 			output += `**\`${c.file}\`** — ${c.score}%`;
-			if (relationship !== "unknown") {
+			if (sourceLabel) {
+				output += ` [${sourceLabel}]`;
+			} else if (relationship !== "unknown") {
 				output += ` (${relationship})`;
 			}
 			output += `\n`;
 
-			// Instruction for this coupling type
-			output += `> ${RELATIONSHIP_INSTRUCTIONS[relationship]}\n`;
+			// Instruction based on source or relationship
+			if (source !== "git" && SOURCE_INSTRUCTIONS[source]) {
+				output += `> ${SOURCE_INSTRUCTIONS[source]}\n`;
+			} else if (source === "git") {
+				output += `> ${RELATIONSHIP_INSTRUCTIONS[relationship as ChangeType] || RELATIONSHIP_INSTRUCTIONS.unknown}\n`;
+			}
 
-			// Breaking change warning
-			if (evidence?.hasBreakingChange) {
+			// Show reason for non-git coupling types
+			if (source !== "git" && c.reason) {
+				output += `> ${c.reason}\n`;
+			}
+
+			// Breaking change warning (git coupling only)
+			if (source === "git" && typeof evidence === "object" && evidence?.hasBreakingChange) {
 				output += `> ⚠ Breaking change detected in last co-commit\n`;
 			}
 
-			// Compact diff evidence
-			if (evidence && (evidence.additions.length > 0 || evidence.removals.length > 0)) {
+			// Compact diff evidence (git coupling only)
+			if (source === "git" && typeof evidence === "object" && evidence && (evidence.additions.length > 0 || evidence.removals.length > 0)) {
 				const diffLines: string[] = [];
 				if (evidence.additions.length > 0) {
 					diffLines.push(`+ ${evidence.additions.slice(0, 2).join(", ")}`);
@@ -1995,10 +2433,21 @@ export function generateAiInstructions(
 
 	// Coupled files
 	coupled.forEach((c) => {
-		const evidence: DiffSummary = c.evidence;
-		const relationship = evidence?.changeType || "unknown";
+		const source: CouplingSource = c.source || "git";
+		const evidence = c.evidence;
+		let relationship = "unknown";
+		if (source === "git" && typeof evidence === "object" && evidence?.changeType) {
+			relationship = evidence.changeType;
+		}
 		const staleInfo = drift.find((d) => d.file === c.file);
-		let suffix = relationship !== "unknown" ? ` (${relationship})` : "";
+
+		// Build suffix based on source type
+		let suffix = "";
+		if (source !== "git") {
+			suffix = ` [${source}]`;
+		} else if (relationship !== "unknown") {
+			suffix = ` (${relationship})`;
+		}
 		if (staleInfo) {
 			suffix += ` — stale ${staleInfo.daysOld}d`;
 		}
@@ -2192,13 +2641,19 @@ function setupServer(server: Server): Server {
 
 				// 4. Run Engines on the Validated Path (all in parallel for speed)
 				// All engines now receive the shared context
-				const [volatility, coupled, importers] = await Promise.all([
+				const [volatility, gitCoupled, importers, docsCoupled, typeCoupled, contentCoupled] = await Promise.all([
 					getVolatility(targetPath, ctx),
 					getCoupledFiles(targetPath, ctx),
 					getImporters(targetPath, ctx),
+					getDocsCoupling(targetPath, ctx),
+					getTypeCoupling(targetPath, ctx),
+					getContentCoupling(targetPath, ctx),
 				]);
 
-				const drift = await checkDrift(targetPath, coupled, ctx);
+				// Merge all coupling sources into unified list
+				const coupled = mergeCouplingResults(gitCoupled, docsCoupled, typeCoupled, contentCoupled);
+
+				const drift = await checkDrift(targetPath, gitCoupled, ctx);
 
 				// 5. Get sibling guidance for new files (no git history)
 				let siblingGuidance: SiblingGuidance | null = null;

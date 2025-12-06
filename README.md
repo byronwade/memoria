@@ -357,6 +357,15 @@ Uses `git grep` to find files that import the target - even for brand new files 
 ### History Search (The Archaeologist)
 Search git history to understand *why* code was written. Solves the "Chesterton's Fence" problem before you delete that weird-looking code.
 
+### Documentation Coupling
+Finds markdown files that reference your exported functions/types. Catches README updates needed when output format changes.
+
+### Type Coupling
+Uses git pickaxe (`git log -S`) to find files sharing type definitions - even without direct imports.
+
+### Content Coupling
+Finds files sharing string literals (error messages, constants) that should stay in sync.
+
 ---
 
 ## Example Output
@@ -377,6 +386,12 @@ Search git history to understand *why* code was written. Solves the "Chesterton'
 > These files share type definitions. If you modify types in one, update the other to match.
   + interface SubscriptionUpdated
   - oldStatus: string
+
+**`README.md`** — 70% [docs]
+> Documentation references: generateReport, SubscriptionStatus
+
+**`types/billing.ts`** — 65% [type]
+> Shared types: SubscriptionUpdated, PaymentStatus
 
 ---
 
