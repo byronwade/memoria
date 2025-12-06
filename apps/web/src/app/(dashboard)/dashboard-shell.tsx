@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+	Brain,
 	Check,
 	ChevronDown,
 	ChevronsUpDown,
@@ -13,6 +14,7 @@ import {
 	Plus,
 	RefreshCw,
 	Settings,
+	Shield,
 	X,
 	CreditCard,
 	Crown,
@@ -33,6 +35,8 @@ import { useDashboard } from "./dashboard-context";
 import { UpgradeModal } from "@/components/billing/upgrade-modal";
 
 const navItems = [
+	{ href: "/dashboard/guardrails", label: "Guardrails", icon: Shield },
+	{ href: "/dashboard/memories", label: "Memories", icon: Brain },
 	{ href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
