@@ -1,7 +1,12 @@
 {
 	"version": 2,
-	"buildCommand": "npm run build --workspace=@memoria/web",
-	"outputDirectory": "apps/web/.next",
-	"framework": "nextjs",
-	"installCommand": "npm install"
+	"builds": [
+		{
+			"src": "apps/web/package.json",
+			"use": "@vercel/next",
+			"config": {
+				"rootDirectory": "apps/web"
+			}
+		}
+	]
 }
