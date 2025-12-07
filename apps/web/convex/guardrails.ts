@@ -1,0 +1,222 @@
+import { mutation, query } from "./_generated/server";
+import { v } from "convex/values";
+
+const now = () => Date.now();
+
+// Helper for creating union of literals
+const literals = <T extends string>(...values: T[]) =>
+	v.union(...values.map((val) => v.literal(val)));
+
+const levelValidator = literals("warn", "block");
+
+const scopeValidator = literals("global", "repository");
+
+/**
+ * Create a new guardrail (rule) for protecting files/paths
+ * - scope: "global" applies to ALL repos, "repository" applies to one repo
+ * - repoId: Required when scope="repository", must be undefined when scope="global"
+ */
+export const createGuardrail = mutation({
+	args: {
+		userId: v.id("users"),
+		scope: scopeValidator,
+		repoId: v.optional(v.id("repositories")),
+		pattern: v.string(),
+		level: levelValidator,
+		message: v.string(),
+		createdBy: v.id("users"),
+	},
+	handler: async (ctx, args) => {
+		// Validate scope/repoId consistency
+		if (args.scope === "global" && args.repoId) {
+			throw new Error("Global guardrails cannot have a repoId");
+		}
+		if (args.scope === "repository" && !args.repoId) {
+			throw new Error("Repository guardrails must have a repoId");
+		}
+
+		const guardrailId = await ctx.db.insert("guardrails", {
+			userId: args.userId,
+			scope: args.scope,
+			repoId: args.repoId,
+			pattern: args.pattern,
+			level: args.level,
+			message: args.message,
+			isEnabled: true,
+			createdBy: args.createdBy,
+			createdAt: now(),
+			updatedAt: null,
+		});
+		return { guardrailId };
+	},
+});
+
+/**
+ * Update an existing guardrail
+ */
+export const updateGuardrail = mutation({
+	args: {
+		guardrailId: v.id("guardrails"),
+		pattern: v.optional(v.string()),
+		level: v.optional(levelValidator),
+		message: v.optional(v.string()),
+		isEnabled: v.optional(v.boolean()),
+	},
+	handler: async (ctx, args) => {
+		const { guardrailId, ...updates } = args;
+
+		const existing = await ctx.db.get(guardrailId);
+		if (!existing) {
+			throw new Error("Guardrail not found");
+		}
+
+		const patch: Record<string, unknown> = { updatedAt: now() };
+		if (updates.pattern !== undefined) patch.pattern = updates.pattern;
+		if (updates.level !== undefined) patch.level = updates.level;
+		if (updates.message !== undefined) patch.message = updates.message;
+		if (updates.isEnabled !== undefined) patch.isEnabled = updates.isEnabled;
+
+		await ctx.db.patch(guardrailId, patch);
+		return { success: true };
+	},
+});
+
+/**
+ * Delete a guardrail
+ */
+export const deleteGuardrail = mutation({
+	args: {
+		guardrailId: v.id("guardrails"),
+	},
+	handler: async (ctx, args) => {
+		await ctx.db.delete(args.guardrailId);
+		return { success: true };
+	},
+});
+
+/**
+ * List guardrails for a user
+ * - scope: "global" = only global guardrails, "repository" = only repo-specific, undefined = all
+ * - repoId: When scope="repository", filter to this specific repo
+ */
+export const listGuardrails = query({
+	args: {
+		userId: v.id("users"),
+		scope: v.optional(scopeValidator),
+		repoId: v.optional(v.id("repositories")),
+		includeDisabled: v.optional(v.boolean()),
+	},
+	handler: async (ctx, args) => {
+		let guardrails = await ctx.db
+			.query("guardrails")
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
+			.collect();
+
+		// Filter by scope if specified
+		if (args.scope !== undefined) {
+			guardrails = guardrails.filter((g) => g.scope === args.scope);
+		}
+
+		// Filter by repo if specified (only applies to repository-scoped guardrails)
+		if (args.repoId !== undefined) {
+			guardrails = guardrails.filter(
+				(g) => g.scope === "global" || g.repoId === args.repoId
+			);
+		}
+
+		// Filter out disabled unless requested
+		if (!args.includeDisabled) {
+			guardrails = guardrails.filter((g) => g.isEnabled);
+		}
+
+		// Fetch creator info for each guardrail
+		const withCreators = await Promise.all(
+			guardrails.map(async (g) => {
+				const creator = await ctx.db.get(g.createdBy);
+				return {
+					...g,
+					creatorName: creator?.name || creator?.email || "Unknown",
+				};
+			})
+		);
+
+		return withCreators;
+	},
+});
+
+/**
+ * Get all guardrails that apply to a specific repository
+ * Returns: Global guardrails + Repository-specific guardrails for this repo
+ * Repository-specific guardrails take precedence (sorted first)
+ */
+export const getGuardrailsForRepo = query({
+	args: {
+		userId: v.id("users"),
+		repoId: v.id("repositories"),
+	},
+	handler: async (ctx, args) => {
+		const guardrails = await ctx.db
+			.query("guardrails")
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
+			.collect();
+
+		// Filter to only enabled guardrails that apply to this repo:
+		// - All global guardrails
+		// - Repository guardrails for this specific repo
+		const applicable = guardrails.filter(
+			(g) => g.isEnabled && (g.scope === "global" || g.repoId === args.repoId)
+		);
+
+		// Sort: repo-specific rules first (they take precedence over globals)
+		applicable.sort((a, b) => {
+			if (a.scope === "repository" && b.scope === "global") return -1;
+			if (a.scope === "global" && b.scope === "repository") return 1;
+			return 0;
+		});
+
+		return applicable;
+	},
+});
+
+/**
+ * Get a single guardrail by ID
+ */
+export const getGuardrail = query({
+	args: {
+		guardrailId: v.id("guardrails"),
+	},
+	handler: async (ctx, args) => {
+		return await ctx.db.get(args.guardrailId);
+	},
+});
+
+/**
+ * Get guardrail stats for a user
+ */
+export const getGuardrailStats = query({
+	args: {
+		userId: v.id("users"),
+	},
+	handler: async (ctx, args) => {
+		const guardrails = await ctx.db
+			.query("guardrails")
+			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
+			.collect();
+
+		const enabled = guardrails.filter((g) => g.isEnabled);
+		const blocking = enabled.filter((g) => g.level === "block");
+		const warning = enabled.filter((g) => g.level === "warn");
+		const global = enabled.filter((g) => g.scope === "global");
+		const repoSpecific = enabled.filter((g) => g.scope === "repository");
+
+		return {
+			total: guardrails.length,
+			enabled: enabled.length,
+			disabled: guardrails.length - enabled.length,
+			blocking: blocking.length,
+			warning: warning.length,
+			global: global.length,
+			repoSpecific: repoSpecific.length,
+		};
+	},
+});
