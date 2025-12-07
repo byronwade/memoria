@@ -6,7 +6,7 @@ const now = () => Date.now();
 
 // Helper for creating union of literals
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val)));
 
 const scanStatusValidator = literals("pending", "running", "completed", "failed");
 const triggerTypeValidator = literals("onboarding", "manual", "scheduled");
@@ -402,6 +402,7 @@ export const batchStoreFileAnalyses = mutation({
 export const updateScanProgress = mutation({
 	args: {
 		scanId: v.id("repository_scans"),
+		repositoryId: v.optional(v.id("repositories")),
 		status: v.optional(scanStatusValidator),
 		totalFiles: v.optional(v.number()),
 		processedFiles: v.optional(v.number()),
@@ -426,6 +427,73 @@ export const updateScanProgress = mutation({
 		if (args.errorMessage !== undefined) patch.errorMessage = args.errorMessage;
 
 		await ctx.db.patch(args.scanId, patch);
+
+		// Update repository lastAnalyzedAt when scan completes
+		if (args.status === "completed" && args.repositoryId) {
+			await ctx.db.patch(args.repositoryId, {
+				lastAnalyzedAt: now(),
+				updatedAt: now(),
+			});
+		}
+	},
+});
+
+/**
+ * Cancel a stuck scan (mark as failed)
+ */
+export const cancelScan = mutation({
+	args: { scanId: v.id("repository_scans") },
+	handler: async (ctx, args) => {
+		const scan = await ctx.db.get(args.scanId);
+		if (!scan) return { success: false, error: "Scan not found" };
+
+		if (scan.status === "completed" || scan.status === "failed") {
+			return { success: false, error: "Scan already finished" };
+		}
+
+		await ctx.db.patch(args.scanId, {
+			status: "failed",
+			errorMessage: "Cancelled by user",
+			completedAt: now(),
+			updatedAt: now(),
+		});
+
+		return { success: true };
+	},
+});
+
+/**
+ * Reset all stuck scans for a repository (cancel running/pending)
+ */
+export const resetStuckScans = mutation({
+	args: { repositoryId: v.id("repositories") },
+	handler: async (ctx, args) => {
+		const runningScans = await ctx.db
+			.query("repository_scans")
+			.withIndex("by_repository_status", (q) =>
+				q.eq("repositoryId", args.repositoryId).eq("status", "running"),
+			)
+			.collect();
+
+		const pendingScans = await ctx.db
+			.query("repository_scans")
+			.withIndex("by_repository_status", (q) =>
+				q.eq("repositoryId", args.repositoryId).eq("status", "pending"),
+			)
+			.collect();
+
+		const stuckScans = [...runningScans, ...pendingScans];
+
+		for (const scan of stuckScans) {
+			await ctx.db.patch(scan._id, {
+				status: "failed",
+				errorMessage: "Reset: scan was stuck",
+				completedAt: now(),
+				updatedAt: now(),
+			});
+		}
+
+		return { resetCount: stuckScans.length };
 	},
 });
 

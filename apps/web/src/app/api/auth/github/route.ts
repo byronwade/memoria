@@ -17,9 +17,13 @@ export async function GET(request: NextRequest) {
 	const response = NextResponse.redirect(githubUrl);
 
 	// Store state in secure cookie for validation in callback
+	// Always use secure when APP_URL is https (including tunnels)
+	const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+	const isSecure = appUrl.startsWith("https://");
+
 	response.cookies.set("github_oauth_state", state, {
 		httpOnly: true,
-		secure: process.env.NODE_ENV === "production",
+		secure: isSecure,
 		sameSite: "lax",
 		maxAge: 600, // 10 minutes
 		path: "/",

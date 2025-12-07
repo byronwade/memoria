@@ -240,9 +240,12 @@ export async function GET(request: NextRequest) {
 		const response = NextResponse.redirect(new URL(redirectUrl, APP_URL));
 
 		// Set session cookie
+		// Always use secure when APP_URL is https (including tunnels)
+		const isSecure = APP_URL.startsWith("https://");
+
 		response.cookies.set("session_token", sessionToken, {
 			httpOnly: true,
-			secure: process.env.NODE_ENV === "production",
+			secure: isSecure,
 			sameSite: "lax",
 			expires: new Date(expiresAt),
 			path: "/",

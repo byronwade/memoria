@@ -51,7 +51,7 @@ export const triggerScan = internalAction({
 
 			// The API will update the scan status when complete
 			// We just need to verify it started successfully
-			const result = await response.json();
+			const result = (await response.json()) as { message?: string };
 			return { success: true, message: result.message || "Scan started" };
 		} catch (error) {
 			// Mark scan as failed

@@ -40,6 +40,27 @@ Memoria gives AI assistants memory of what broke before. Use these MCP tools to 
 
 **Example:** You see `setTimeout(() => resolve(), 0)` and think it's useless. Search for "setTimeout" and find a commit from 2 years ago: "Fix race condition in Safari." Keep the code!
 
+## Memory Extraction Rule
+
+Use `extract_memories` to find important context from code comments:
+
+```json
+{"path": "/absolute/path/to/file.ts"}
+```
+
+This scans for CRITICAL, WARNING, HACK, TODO annotations and extracts them as memories.
+High-confidence (70%+) critical/high importance memories are auto-saved to your cloud account.
+
+## Get Context Rule
+
+Use `get_context` before modifying a file to get relevant memories and code relationships:
+
+```json
+{"path": "/absolute/path/to/file.ts", "query": "what I'm trying to do"}
+```
+
+Returns saved memories, code graph relationships, and recent high-risk commits.
+
 ## Mandatory Rules
 
 1. **ALWAYS call `analyze_file` before modifying any code file**
@@ -48,3 +69,8 @@ Memoria gives AI assistants memory of what broke before. Use these MCP tools to 
 4. **Before removing code:** Call `ask_history` to check if it's a bug fix
 5. **Use ABSOLUTE paths** (e.g., `/Users/name/project/src/file.ts`)
 6. **Use SHORT keywords** in `ask_history` queries (not sentences)
+
+## Cloud Features (Optional)
+
+To save memories to your account, run `npx @byronwade/memoria login` in your terminal.
+This links your device and enables auto-save of important context.

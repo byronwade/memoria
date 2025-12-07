@@ -38,7 +38,7 @@ import { useDashboard } from "../../dashboard-context";
 import type { DashboardGuardrail } from "../../dashboard-data";
 
 type GuardrailLevel = "warn" | "block";
-type FilterScope = "all" | "user" | "repo";
+type FilterScope = "all" | "global" | "repo";
 
 export default function GuardrailsPage() {
 	const { guardrails, guardrailStats, activeRepos } = useDashboard();
@@ -64,7 +64,7 @@ export default function GuardrailsPage() {
 	const filteredGuardrails = useMemo(() => {
 		let result = guardrails;
 
-		if (filterScope === "user") {
+		if (filterScope === "global") {
 			result = result.filter((g) => !g.repoId);
 		} else if (filterScope === "repo") {
 			result = result.filter((g) => g.repoId);
@@ -78,7 +78,7 @@ export default function GuardrailsPage() {
 	}, [guardrails, filterScope, filterRepo]);
 
 	// Group guardrails by scope
-	const userGuardrails = filteredGuardrails.filter((g) => !g.repoId);
+	const globalGuardrails = filteredGuardrails.filter((g) => !g.repoId);
 	const repoGuardrails = filteredGuardrails.filter((g) => g.repoId);
 
 	// Reset form
@@ -339,7 +339,7 @@ export default function GuardrailsPage() {
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<Button variant="outline" size="sm">
-								{filterScope === "all" ? "All Scopes" : filterScope === "user" ? "User-Wide Only" : "Repo-Specific Only"}
+								{filterScope === "all" ? "All Scopes" : filterScope === "global" ? "Global Only" : "Repository Only"}
 								<ChevronDown className="h-3.5 w-3.5 ml-2" />
 							</Button>
 						</DropdownMenuTrigger>
@@ -348,12 +348,12 @@ export default function GuardrailsPage() {
 								All Scopes
 								{filterScope === "all" && <Check className="h-4 w-4 ml-auto" />}
 							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => setFilterScope("user")}>
-								User-Wide Only
-								{filterScope === "user" && <Check className="h-4 w-4 ml-auto" />}
+							<DropdownMenuItem onClick={() => setFilterScope("global")}>
+								Global Only
+								{filterScope === "global" && <Check className="h-4 w-4 ml-auto" />}
 							</DropdownMenuItem>
 							<DropdownMenuItem onClick={() => setFilterScope("repo")}>
-								Repo-Specific Only
+								Repository Only
 								{filterScope === "repo" && <Check className="h-4 w-4 ml-auto" />}
 							</DropdownMenuItem>
 						</DropdownMenuContent>
@@ -400,15 +400,16 @@ export default function GuardrailsPage() {
 
 			{/* Guardrails List */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-6 space-y-8">
-				{/* User-Wide Guardrails */}
-				{userGuardrails.length > 0 && (
+				{/* Global Guardrails */}
+				{globalGuardrails.length > 0 && (
 					<section>
 						<div className="flex items-center gap-2 mb-4">
 							<Shield className="h-4 w-4 text-muted-foreground" />
-							<h2 className="text-sm font-medium">All Repositories ({userGuardrails.length})</h2>
+							<h2 className="text-sm font-medium">Global Guardrails ({globalGuardrails.length})</h2>
+							<span className="text-xs text-muted-foreground">Apply to all repositories</span>
 						</div>
 						<div className="space-y-2">
-							{userGuardrails.map((guardrail) => (
+							{globalGuardrails.map((guardrail) => (
 								<GuardrailRow
 									key={guardrail._id}
 									guardrail={guardrail}
@@ -421,12 +422,13 @@ export default function GuardrailsPage() {
 					</section>
 				)}
 
-				{/* Repo-Specific Guardrails */}
+				{/* Repository Guardrails */}
 				{repoGuardrails.length > 0 && (
 					<section>
 						<div className="flex items-center gap-2 mb-4">
 							<Shield className="h-4 w-4 text-muted-foreground" />
-							<h2 className="text-sm font-medium">Repository-Specific ({repoGuardrails.length})</h2>
+							<h2 className="text-sm font-medium">Repository Guardrails ({repoGuardrails.length})</h2>
+							<span className="text-xs text-muted-foreground">Apply to specific repositories only</span>
 						</div>
 						<div className="space-y-2">
 							{repoGuardrails.map((guardrail) => (
@@ -740,13 +742,13 @@ function GuardrailForm({
 						<Button variant="outline" className="w-full justify-between">
 							{repoId
 								? repos.find((r) => r._id === repoId)?.fullName.split("/")[1] || "Unknown"
-								: "All repositories"}
+								: "Global (all repositories)"}
 							<ChevronDown className="h-4 w-4" />
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
 						<DropdownMenuItem onClick={() => setRepoId(undefined)}>
-							All repositories
+							Global (all repositories)
 						</DropdownMenuItem>
 						{repos.map((repo) => (
 							<DropdownMenuItem key={repo._id} onClick={() => setRepoId(repo._id)}>
@@ -755,6 +757,9 @@ function GuardrailForm({
 						))}
 					</DropdownMenuContent>
 				</DropdownMenu>
+				<p className="text-xs text-muted-foreground">
+					Global guardrails apply to all repositories. Repository guardrails only apply to the selected repository.
+				</p>
 			</div>
 
 			<div className="flex items-center justify-between py-2">

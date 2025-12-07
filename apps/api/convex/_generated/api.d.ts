@@ -11,6 +11,7 @@
 import type * as analyses from "../analyses.js";
 import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
+import type * as codeGraph from "../codeGraph.js";
 import type * as github_analysis from "../github/analysis.js";
 import type * as github_handlers from "../github/handlers.js";
 import type * as github_index from "../github/index.js";
@@ -18,10 +19,11 @@ import type * as github_mutations from "../github/mutations.js";
 import type * as guardrails from "../guardrails.js";
 import type * as interventions from "../interventions.js";
 import type * as memories from "../memories.js";
-import type * as orgs from "../orgs.js";
 import type * as scanWorker from "../scanWorker.js";
 import type * as scans from "../scans.js";
 import type * as scm from "../scm.js";
+import type * as teamTokens from "../teamTokens.js";
+import type * as temporal from "../temporal.js";
 import type * as webhooks from "../webhooks.js";
 
 import type {
@@ -34,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   analyses: typeof analyses;
   auth: typeof auth;
   billing: typeof billing;
+  codeGraph: typeof codeGraph;
   "github/analysis": typeof github_analysis;
   "github/handlers": typeof github_handlers;
   "github/index": typeof github_index;
@@ -41,10 +44,11 @@ declare const fullApi: ApiFromModules<{
   guardrails: typeof guardrails;
   interventions: typeof interventions;
   memories: typeof memories;
-  orgs: typeof orgs;
   scanWorker: typeof scanWorker;
   scans: typeof scans;
   scm: typeof scm;
+  teamTokens: typeof teamTokens;
+  temporal: typeof temporal;
   webhooks: typeof webhooks;
 }>;
 

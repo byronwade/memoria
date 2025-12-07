@@ -17,6 +17,7 @@ import { LRUCache } from "lru-cache";
 import simpleGit from "simple-git";
 import { z } from "zod";
 import { getCloudClient, initializeCloudClient, type Memory } from "./convex-client.js";
+import { ensureAuthenticated } from "./auth.js";
 import { extractFromCode, extractFromCommitMessage, type ExtractedMemory } from "./auto-librarian.js";
 import { searchBM25, extractKeywords, extractFileKeywords, extractCodeKeywords, combineKeywords } from "./bm25.js";
 import { buildRiskAssessment as buildRiskAssessmentHelper } from "./context-response.js";
@@ -3582,7 +3583,7 @@ function setupServer(server: Server): Server {
 			{
 				name: "get_context",
 				description:
-					"Get relevant memories and context before modifying a file. Returns memories, code graph relationships, and recent high-risk commits. Use this for AI-native retrieval of institutional knowledge.",
+					"Get relevant memories and context before modifying a file. Returns memories, code graph relationships, and recent high-risk commits. Auto-saves critical discoveries when cloud is configured.",
 				inputSchema: {
 					type: "object",
 					properties: {
@@ -3611,13 +3612,17 @@ function setupServer(server: Server): Server {
 							type: "boolean",
 							description: "Include recent commit history (default: false)",
 						},
+						autoSave: {
+							type: "boolean",
+							description: "Auto-save critical/high importance memories found in code comments (default: true)",
+						},
 					},
 					required: ["path"],
 				},
 				annotations: {
 					title: "Get Context for File",
-					readOnlyHint: true,
-					idempotentHint: true,
+					readOnlyHint: false,
+					idempotentHint: false,
 					openWorldHint: false,
 				},
 			},
@@ -3677,7 +3682,7 @@ function setupServer(server: Server): Server {
 			{
 				name: "extract_memories",
 				description:
-					"Extract memories from code comments (IMPORTANT, WARNING, HACK, TODO, etc.). FREE feature - works without cloud connection. Use to find implicit knowledge in code.",
+					"Extract memories from code comments (IMPORTANT, WARNING, HACK, TODO, etc.). When cloud is configured, automatically saves high-confidence (>=70%) memories. Use to find and capture implicit knowledge in code.",
 				inputSchema: {
 					type: "object",
 					properties: {
@@ -3689,13 +3694,21 @@ function setupServer(server: Server): Server {
 							type: "number",
 							description: "Minimum confidence threshold (0-100, default: 50)",
 						},
+						autoSave: {
+							type: "boolean",
+							description: "Auto-save high-confidence memories to cloud when configured (default: true)",
+						},
+						autoSaveThreshold: {
+							type: "number",
+							description: "Minimum confidence to auto-save (default: 70). Only critical/high importance memories are saved.",
+						},
 					},
 					required: ["path"],
 				},
 				annotations: {
 					title: "Extract Memories",
-					readOnlyHint: true,
-					idempotentHint: true,
+					readOnlyHint: false,
+					idempotentHint: false,
 					openWorldHint: false,
 				},
 			},
@@ -4000,6 +4013,7 @@ function setupServer(server: Server): Server {
 			const includeCodeGraph = request.params.arguments?.includeCodeGraph !== false;
 			const includeHistory = request.params.arguments?.includeHistory === true;
 			const repoId = request.params.arguments?.repoId as string | undefined;
+			const autoSave = request.params.arguments?.autoSave !== false; // Default: true
 
 			// Validate path
 			const targetPath = path.resolve(rawPath);
@@ -4035,12 +4049,21 @@ function setupServer(server: Server): Server {
 				let memories: Memory[] = [];
 				let localMemories: ExtractedMemory[] = [];
 				let cloudError: string | undefined;
+				let autoSavedCount = 0;
 
 				if (cloudClient.isConfigured()) {
 					const queryKeywords = query ? query.split(/\s+/).filter((w) => w.length > 2) : undefined;
 					const result = await cloudClient.getMemoriesForFile(targetPath, queryKeywords, repoId);
 					memories = result.memories;
 					cloudError = result.error;
+
+					// Also extract from code for auto-save
+					try {
+						const fileContent = await fs.readFile(targetPath, "utf8");
+						localMemories = extractFromCode(fileContent, targetPath);
+					} catch {
+						// Ignore file read errors
+					}
 				} else {
 					// FREE TIER: Extract memories from code comments using auto-librarian
 					try {
@@ -4049,6 +4072,36 @@ function setupServer(server: Server): Server {
 					} catch {
 						// File read error - ignore, will have empty localMemories
 					}
+				}
+
+				// AUTO-SAVE: Save critical/high importance local memories to cloud
+				if (autoSave && cloudClient.isConfigured() && localMemories.length > 0) {
+					const toSave = localMemories.filter(
+						(m) => m.confidence >= 70 &&
+							(m.importance === "critical" || m.importance === "high")
+					);
+
+					// Save in parallel (limit to 10 per file)
+					const savePromises = toSave.slice(0, 10).map(async (memory) => {
+						try {
+							const result = await cloudClient.saveMemory({
+								orgId: "",
+								context: memory.context,
+								summary: memory.summary,
+								tags: [memory.memoryType, memory.source.type],
+								keywords: memory.keywords,
+								linkedFiles: memory.linkedFiles,
+								memoryType: memory.memoryType,
+								importance: memory.importance,
+								userId: "",
+							});
+							if (result.memoryId) autoSavedCount++;
+						} catch {
+							// Ignore save errors, don't block the response
+						}
+					});
+
+					await Promise.all(savePromises);
 				}
 
 				// Count critical memories for risk calculation (cloud OR local)
@@ -4078,6 +4131,11 @@ function setupServer(server: Server): Server {
 					sections.push(`> ${riskAssessment.factors.join(" • ")}`);
 				}
 				sections.push("");
+
+				// Show auto-save status if memories were saved
+				if (autoSavedCount > 0) {
+					sections.push(`✅ **Auto-saved ${autoSavedCount} memories to cloud**\n`);
+				}
 
 				// Memories section (PAID feature)
 				if (memories.length > 0) {
@@ -4249,48 +4307,40 @@ function setupServer(server: Server): Server {
 				};
 			}
 
-			// Check if cloud is configured
+			// Get cloud client and validate auth
 			const cloudClient = getCloudClient();
+			const validation = await cloudClient.validateToken();
 
-			if (!cloudClient.isConfigured()) {
-				// FREE TIER: Cloud not configured, provide draft message
+			if (!validation.valid) {
 				return {
 					content: [
 						{
 							type: "text",
-							text:
-								`**Memory Draft (Cloud Not Configured)**\n\n` +
-								`To save memories to the cloud, configure \`MEMORIA_API_URL\` and provide a team token.\n\n` +
-								`**Draft Memory:**\n` +
-								`- Type: ${memoryType}\n` +
-								`- Importance: ${importance}\n` +
-								`- Context: ${context.slice(0, 200)}${context.length > 200 ? "..." : ""}\n` +
-								`- Files: ${linkedFiles.length > 0 ? linkedFiles.join(", ") : "none"}\n` +
-								`- Tags: ${tags.length > 0 ? tags.join(", ") : "none"}\n\n` +
-								`> Get a team token from https://memoria.dev/dashboard to enable cloud memories.`,
-						},
-					],
-				};
-			}
-
-			if (!userId) {
-				return {
-					content: [
-						{
-							type: "text",
-							text:
-								`ERROR: userId is required to save memories.\n\n` +
-								`**SYSTEM INSTRUCTION:** Provide the userId (typically the current user's ID from your session).`,
+							text: `**Save Failed:** ${validation.error || "Authentication error"}`,
 						},
 					],
 					isError: true,
 				};
 			}
 
-			// PAID TIER: Save to Convex cloud
+			// Use userId from validation if not provided
+			const effectiveUserId = userId || validation.userId;
+			if (!effectiveUserId) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `**Save Failed:** Could not determine user ID from authentication.`,
+						},
+					],
+					isError: true,
+				};
+			}
+
+			// Save to Convex cloud
 			try {
 				const result = await cloudClient.saveMemory({
-					orgId: orgId || "", // Cloud client will use org from token
+					orgId: orgId || validation.orgId || "", // Use org from validation if not provided
 					repoId: request.params.arguments?.repoId as string | undefined,
 					context: context.trim(),
 					summary: request.params.arguments?.summary as string | undefined,
@@ -4299,7 +4349,7 @@ function setupServer(server: Server): Server {
 					linkedFiles,
 					memoryType: memoryType as "lesson" | "context" | "decision" | "pattern" | "warning" | "todo",
 					importance: importance as "critical" | "high" | "normal" | "low",
-					userId,
+					userId: effectiveUserId,
 				});
 
 				if (result.error) {
@@ -4351,10 +4401,12 @@ function setupServer(server: Server): Server {
 			}
 		}
 
-		// --- EXTRACT_MEMORIES TOOL (FREE) ---
+		// --- EXTRACT_MEMORIES TOOL (FREE + Auto-Save) ---
 		if (request.params.name === "extract_memories") {
 			const rawPath = String(request.params.arguments?.path || "");
 			const minConfidence = Number(request.params.arguments?.minConfidence) || 50;
+			const autoSave = request.params.arguments?.autoSave !== false; // Default: true
+			const autoSaveThreshold = Number(request.params.arguments?.autoSaveThreshold) || 70;
 
 			if (!rawPath) {
 				return {
@@ -4399,6 +4451,47 @@ function setupServer(server: Server): Server {
 				// Filter by confidence
 				const filtered = allMemories.filter((m) => m.confidence >= minConfidence);
 
+				// AUTO-SAVE: Save high-confidence critical/high importance memories to cloud
+				let savedCount = 0;
+				let saveErrors: string[] = [];
+				const cloudClient = getCloudClient();
+
+				if (autoSave && cloudClient.isConfigured()) {
+					// Filter for auto-save: high confidence + critical/high importance
+					const toSave = filtered.filter(
+						(m) => m.confidence >= autoSaveThreshold &&
+							(m.importance === "critical" || m.importance === "high")
+					);
+
+					// Save each memory (in parallel, max 5 at a time)
+					const savePromises: Promise<void>[] = [];
+					for (const memory of toSave.slice(0, 20)) { // Limit to 20 saves per extraction
+						const savePromise = cloudClient.saveMemory({
+							orgId: "", // Cloud client uses org from token
+							context: memory.context,
+							summary: memory.summary,
+							tags: [memory.memoryType, memory.source.type],
+							keywords: memory.keywords,
+							linkedFiles: memory.linkedFiles,
+							memoryType: memory.memoryType,
+							importance: memory.importance,
+							userId: "", // Will be filled by API from token
+						}).then((result) => {
+							if (result.memoryId) {
+								savedCount++;
+							} else if (result.error) {
+								saveErrors.push(result.error);
+							}
+						}).catch((err) => {
+							saveErrors.push(err.message || String(err));
+						});
+						savePromises.push(savePromise);
+					}
+
+					// Wait for all saves to complete
+					await Promise.all(savePromises);
+				}
+
 				if (filtered.length === 0) {
 					return {
 						content: [{
@@ -4418,6 +4511,19 @@ function setupServer(server: Server): Server {
 
 				const sections: string[] = [];
 				sections.push(`### Memory Extraction: ${filtered.length} memories found\n`);
+
+				// Show auto-save status
+				if (autoSave && cloudClient.isConfigured()) {
+					if (savedCount > 0) {
+						sections.push(`✅ **Auto-saved ${savedCount} high-confidence memories to cloud**\n`);
+					} else if (saveErrors.length > 0) {
+						sections.push(`⚠️ **Auto-save failed:** ${saveErrors[0]}\n`);
+					} else {
+						sections.push(`ℹ️ No memories met auto-save criteria (confidence >= ${autoSaveThreshold}%, critical/high importance)\n`);
+					}
+				} else if (autoSave && !cloudClient.isConfigured()) {
+					sections.push(`ℹ️ Auto-save disabled: Cloud not configured (set MEMORIA_API_URL)\n`);
+				}
 
 				if (critical.length > 0) {
 					sections.push("**CRITICAL**");
@@ -4696,10 +4802,34 @@ function setupServer(server: Server): Server {
 }
 
 // --- STDIO STARTUP (for CLI usage) ---
-// Only run when executed directly, not when imported by Smithery
-const isDirectExecution = process.argv[1]?.includes("index") || process.argv[1]?.includes("memoria");
+// Only run when executed directly, not when imported by Smithery or during tests
+const isTestEnvironment = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+const isDirectExecution = !isTestEnvironment && (process.argv[1]?.includes("index") || process.argv[1]?.includes("memoria"));
 if (isDirectExecution) {
-	const server = createServer();
-	const transport = new StdioServerTransport();
-	server.connect(transport);
+	(async () => {
+		// Ensure user is authenticated before starting the server
+		const authResult = await ensureAuthenticated({
+			onStatus: (status) => {
+				// Write to stderr so MCP client can see it (stdout is for JSON-RPC)
+				process.stderr.write(`[memoria] ${status}\n`);
+			},
+		});
+
+		if (!authResult.authenticated) {
+			process.stderr.write(`[memoria] Authentication failed: ${authResult.error || "Unknown error"}\n`);
+			process.stderr.write(`[memoria] Please run 'npx @byronwade/memoria login' to authenticate.\n`);
+			process.exit(1);
+		}
+
+		// Reload cloud client with authenticated device
+		const cloudClient = getCloudClient();
+		// The device ID is now loaded from ~/.memoria/device.json
+
+		process.stderr.write(`[memoria] Authenticated as ${authResult.email}\n`);
+
+		// Start the MCP server
+		const server = createServer();
+		const transport = new StdioServerTransport();
+		server.connect(transport);
+	})();
 }

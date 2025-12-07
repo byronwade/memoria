@@ -167,3 +167,39 @@ export async function POST(
 		);
 	}
 }
+
+/**
+ * DELETE /api/repositories/[id]/scan
+ * Reset stuck scans for a repository
+ */
+export async function DELETE(
+	request: NextRequest,
+	{ params }: { params: Promise<{ id: string }> }
+) {
+	try {
+		const session = await getSession();
+		if (!session) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
+
+		const { id: repoId } = await params;
+		const convex = getConvexClient();
+
+		const result = await callMutation<{ resetCount: number }>(
+			convex,
+			"scans:resetStuckScans",
+			{ repositoryId: repoId }
+		);
+
+		return NextResponse.json({
+			message: `Reset ${result.resetCount} stuck scan(s)`,
+			...result,
+		});
+	} catch (error) {
+		console.error("Failed to reset scans:", error);
+		return NextResponse.json(
+			{ error: "Failed to reset scans" },
+			{ status: 500 }
+		);
+	}
+}

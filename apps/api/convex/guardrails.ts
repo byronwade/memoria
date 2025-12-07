@@ -5,25 +5,39 @@ const now = () => Date.now();
 
 // Helper for creating union of literals
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val)));
 
 const levelValidator = literals("warn", "block");
 
+const scopeValidator = literals("global", "repository");
+
 /**
  * Create a new guardrail (rule) for protecting files/paths
+ * - scope: "global" applies to ALL repos, "repository" applies to one repo
+ * - repoId: Required when scope="repository", must be undefined when scope="global"
  */
 export const createGuardrail = mutation({
 	args: {
 		userId: v.id("users"),
-		repoId: v.optional(v.id("repositories")), // null = user-wide
+		scope: scopeValidator,
+		repoId: v.optional(v.id("repositories")),
 		pattern: v.string(),
 		level: levelValidator,
 		message: v.string(),
 		createdBy: v.id("users"),
 	},
 	handler: async (ctx, args) => {
+		// Validate scope/repoId consistency
+		if (args.scope === "global" && args.repoId) {
+			throw new Error("Global guardrails cannot have a repoId");
+		}
+		if (args.scope === "repository" && !args.repoId) {
+			throw new Error("Repository guardrails must have a repoId");
+		}
+
 		const guardrailId = await ctx.db.insert("guardrails", {
 			userId: args.userId,
+			scope: args.scope,
 			repoId: args.repoId,
 			pattern: args.pattern,
 			level: args.level,
@@ -81,11 +95,14 @@ export const deleteGuardrail = mutation({
 });
 
 /**
- * List all guardrails for a user (optionally filtered by repo)
+ * List guardrails for a user
+ * - scope: "global" = only global guardrails, "repository" = only repo-specific, undefined = all
+ * - repoId: When scope="repository", filter to this specific repo
  */
 export const listGuardrails = query({
 	args: {
 		userId: v.id("users"),
+		scope: v.optional(scopeValidator),
 		repoId: v.optional(v.id("repositories")),
 		includeDisabled: v.optional(v.boolean()),
 	},
@@ -95,10 +112,15 @@ export const listGuardrails = query({
 			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
-		// Filter by repo if specified
+		// Filter by scope if specified
+		if (args.scope !== undefined) {
+			guardrails = guardrails.filter((g) => g.scope === args.scope);
+		}
+
+		// Filter by repo if specified (only applies to repository-scoped guardrails)
 		if (args.repoId !== undefined) {
 			guardrails = guardrails.filter(
-				(g) => g.repoId === args.repoId || g.repoId === undefined
+				(g) => g.scope === "global" || g.repoId === args.repoId
 			);
 		}
 
@@ -124,7 +146,8 @@ export const listGuardrails = query({
 
 /**
  * Get all guardrails that apply to a specific repository
- * This merges user-wide defaults with repo-specific rules
+ * Returns: Global guardrails + Repository-specific guardrails for this repo
+ * Repository-specific guardrails take precedence (sorted first)
  */
 export const getGuardrailsForRepo = query({
 	args: {
@@ -137,16 +160,17 @@ export const getGuardrailsForRepo = query({
 			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
-		// Filter to only enabled guardrails that apply to this repo
-		// (user-wide OR repo-specific)
+		// Filter to only enabled guardrails that apply to this repo:
+		// - All global guardrails
+		// - Repository guardrails for this specific repo
 		const applicable = guardrails.filter(
-			(g) => g.isEnabled && (g.repoId === undefined || g.repoId === args.repoId)
+			(g) => g.isEnabled && (g.scope === "global" || g.repoId === args.repoId)
 		);
 
-		// Sort: repo-specific rules first (they take precedence)
+		// Sort: repo-specific rules first (they take precedence over globals)
 		applicable.sort((a, b) => {
-			if (a.repoId && !b.repoId) return -1;
-			if (!a.repoId && b.repoId) return 1;
+			if (a.scope === "repository" && b.scope === "global") return -1;
+			if (a.scope === "global" && b.scope === "repository") return 1;
 			return 0;
 		});
 
@@ -182,8 +206,8 @@ export const getGuardrailStats = query({
 		const enabled = guardrails.filter((g) => g.isEnabled);
 		const blocking = enabled.filter((g) => g.level === "block");
 		const warning = enabled.filter((g) => g.level === "warn");
-		const userWide = enabled.filter((g) => g.repoId === undefined);
-		const repoSpecific = enabled.filter((g) => g.repoId !== undefined);
+		const global = enabled.filter((g) => g.scope === "global");
+		const repoSpecific = enabled.filter((g) => g.scope === "repository");
 
 		return {
 			total: guardrails.length,
@@ -191,7 +215,7 @@ export const getGuardrailStats = query({
 			disabled: guardrails.length - enabled.length,
 			blocking: blocking.length,
 			warning: warning.length,
-			userWide: userWide.length,
+			global: global.length,
 			repoSpecific: repoSpecific.length,
 		};
 	},

@@ -213,3 +213,28 @@ export function generateInstallUrl(state?: string): string {
 	}
 	return url;
 }
+
+/**
+ * List all installations of the GitHub App accessible to the authenticated user
+ * Uses the user's OAuth token to find which installations they can access
+ */
+export async function listUserInstallations(accessToken: string) {
+	const response = await fetch("https://api.github.com/user/installations", {
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+			Accept: "application/vnd.github+json",
+		},
+	});
+
+	if (!response.ok) {
+		throw new Error(`Failed to list installations: ${response.statusText}`);
+	}
+
+	const data = await response.json();
+	return data.installations as Array<{
+		id: number;
+		account: { login: string; id: number; type: string; name?: string };
+		permissions: Record<string, string>;
+		suspended_at: string | null;
+	}>;
+}

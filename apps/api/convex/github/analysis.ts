@@ -319,7 +319,7 @@ export const runPRAnalysis = internalAction({
 		repoFullName: v.string(),
 		prNumber: v.number(),
 	},
-	handler: async (ctx, args) => {
+	handler: async (ctx, args): Promise<{ success: boolean; error?: string; analysisId?: string; riskScore?: number; riskLevel?: string; filesAnalyzed?: number; commentUrl?: string }> => {
 		const startTime = Date.now();
 		let tempDir: string | null = null;
 

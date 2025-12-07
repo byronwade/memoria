@@ -123,6 +123,43 @@ This finds ALL commits that ever touched lines 100-150, showing the full evoluti
 
 ---
 
+## Tool 3: `extract_memories`
+
+**Purpose:** Find important context from code comments (CRITICAL, WARNING, HACK, TODO annotations).
+
+**How to call:**
+```json
+{
+  "tool": "extract_memories",
+  "arguments": {
+    "path": "/absolute/path/to/file.ts"
+  }
+}
+```
+
+High-confidence (70%+) critical/high importance memories are auto-saved to the user's cloud account.
+
+---
+
+## Tool 4: `get_context`
+
+**Purpose:** Get relevant memories and code relationships before modifying a file.
+
+**How to call:**
+```json
+{
+  "tool": "get_context",
+  "arguments": {
+    "path": "/absolute/path/to/file.ts",
+    "query": "what I'm trying to do"
+  }
+}
+```
+
+Returns saved memories, code graph relationships, and recent high-risk commits.
+
+---
+
 ## Quick Reference
 
 | Situation | Tool | Example |
@@ -132,6 +169,15 @@ This finds ALL commits that ever touched lines 100-150, showing the full evoluti
 | User asks "why is X here?" | `ask_history` | `{"query": "X", "searchType": "both"}` |
 | Investigating specific lines | `ask_history` | `{"query": "", "startLine": 50, "endLine": 75}` |
 | Before deleting code | `ask_history` | `{"query": "deleted_function_name"}` |
+| Find important context | `extract_memories` | `{"path": "/abs/path/to/file.ts"}` |
+| Get saved context | `get_context` | `{"path": "/abs/path/to/file.ts"}` |
+
+---
+
+## Cloud Features (Optional)
+
+To save memories to your account, run `npx @byronwade/memoria login` in the terminal.
+This links the device and enables auto-save of important context.
 
 ---
 

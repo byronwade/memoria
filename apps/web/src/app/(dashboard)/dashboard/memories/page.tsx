@@ -35,7 +35,7 @@ import {
 import { useDashboard } from "../../dashboard-context";
 import type { DashboardMemory } from "../../dashboard-data";
 
-type FilterScope = "all" | "org" | "repo";
+type FilterScope = "all" | "global" | "repo";
 
 export default function MemoriesPage() {
 	const { memories, activeRepos } = useDashboard();
@@ -70,7 +70,7 @@ export default function MemoriesPage() {
 	const filteredMemories = useMemo(() => {
 		let result = memories;
 
-		if (filterScope === "org") {
+		if (filterScope === "global") {
 			result = result.filter((m) => !m.repoId);
 		} else if (filterScope === "repo") {
 			result = result.filter((m) => m.repoId);
@@ -88,7 +88,7 @@ export default function MemoriesPage() {
 	}, [memories, filterScope, filterRepo, filterTag]);
 
 	// Group memories by scope
-	const orgMemories = filteredMemories.filter((m) => !m.repoId);
+	const globalMemories = filteredMemories.filter((m) => !m.repoId);
 	const repoMemories = filteredMemories.filter((m) => m.repoId);
 
 	// Reset form
@@ -340,7 +340,7 @@ export default function MemoriesPage() {
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<Button variant="outline" size="sm">
-								{filterScope === "all" ? "All Scopes" : filterScope === "org" ? "Org-Wide Only" : "Repo-Specific Only"}
+								{filterScope === "all" ? "All Scopes" : filterScope === "global" ? "Global Only" : "Repository Only"}
 								<ChevronDown className="h-3.5 w-3.5 ml-2" />
 							</Button>
 						</DropdownMenuTrigger>
@@ -349,12 +349,12 @@ export default function MemoriesPage() {
 								All Scopes
 								{filterScope === "all" && <Check className="h-4 w-4 ml-auto" />}
 							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => setFilterScope("org")}>
-								Org-Wide Only
-								{filterScope === "org" && <Check className="h-4 w-4 ml-auto" />}
+							<DropdownMenuItem onClick={() => setFilterScope("global")}>
+								Global Only
+								{filterScope === "global" && <Check className="h-4 w-4 ml-auto" />}
 							</DropdownMenuItem>
 							<DropdownMenuItem onClick={() => setFilterScope("repo")}>
-								Repo-Specific Only
+								Repository Only
 								{filterScope === "repo" && <Check className="h-4 w-4 ml-auto" />}
 							</DropdownMenuItem>
 						</DropdownMenuContent>
@@ -425,15 +425,16 @@ export default function MemoriesPage() {
 
 			{/* Memories List */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-6 space-y-8">
-				{/* Org-Wide Memories */}
-				{orgMemories.length > 0 && (
+				{/* Global Memories */}
+				{globalMemories.length > 0 && (
 					<section>
 						<div className="flex items-center gap-2 mb-4">
 							<Brain className="h-4 w-4 text-muted-foreground" />
-							<h2 className="text-sm font-medium">Organization-Wide ({orgMemories.length})</h2>
+							<h2 className="text-sm font-medium">Global Memories ({globalMemories.length})</h2>
+							<span className="text-xs text-muted-foreground">Apply to all repositories</span>
 						</div>
 						<div className="space-y-3">
-							{orgMemories.map((memory) => (
+							{globalMemories.map((memory) => (
 								<MemoryCard
 									key={memory._id}
 									memory={memory}
@@ -445,12 +446,13 @@ export default function MemoriesPage() {
 					</section>
 				)}
 
-				{/* Repo-Specific Memories */}
+				{/* Repository Memories */}
 				{repoMemories.length > 0 && (
 					<section>
 						<div className="flex items-center gap-2 mb-4">
 							<Brain className="h-4 w-4 text-muted-foreground" />
-							<h2 className="text-sm font-medium">Repository-Specific ({repoMemories.length})</h2>
+							<h2 className="text-sm font-medium">Repository Memories ({repoMemories.length})</h2>
+							<span className="text-xs text-muted-foreground">Apply to specific repositories only</span>
 						</div>
 						<div className="space-y-3">
 							{repoMemories.map((memory) => (
@@ -820,13 +822,13 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 						<Button variant="outline" className="w-full justify-between">
 							{repoId
 								? repos.find((r) => r._id === repoId)?.fullName.split("/")[1] || "Unknown"
-								: "Organization-wide (all repos)"}
+								: "Global (all repositories)"}
 							<ChevronDown className="h-4 w-4" />
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
 						<DropdownMenuItem onClick={() => setRepoId(undefined)}>
-							Organization-wide (all repos)
+							Global (all repositories)
 						</DropdownMenuItem>
 						{repos.map((repo) => (
 							<DropdownMenuItem key={repo._id} onClick={() => setRepoId(repo._id)}>
@@ -835,6 +837,9 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 						))}
 					</DropdownMenuContent>
 				</DropdownMenu>
+				<p className="text-xs text-muted-foreground">
+					Global memories apply to all repositories. Repository memories only apply to the selected repository.
+				</p>
 			</div>
 		</div>
 	);

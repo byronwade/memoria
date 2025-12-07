@@ -10,7 +10,7 @@ import { internal, api } from "../_generated/api";
  */
 export const processWebhook = action({
 	args: { webhookId: v.id("inbound_webhooks") },
-	handler: async (ctx, args) => {
+	handler: async (ctx, args): Promise<{ success: boolean; error?: string; eventType?: string }> => {
 		// Get webhook from database
 		const webhook = await ctx.runQuery(api.webhooks.getWebhook, {
 			webhookId: args.webhookId,
@@ -49,8 +49,9 @@ export const processWebhook = action({
 					break;
 
 				case "push":
-					// Optional: Could trigger analysis on push to default branch
-					console.log("Push event received, skipping for now");
+					await ctx.runAction(internal.github.handlers.handlePush, {
+						payload,
+					});
 					break;
 
 				case "ping":

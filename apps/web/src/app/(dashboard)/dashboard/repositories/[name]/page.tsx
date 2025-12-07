@@ -123,25 +123,13 @@ type LoadingState = "loading" | "loaded" | "error";
 // SKELETON COMPONENTS
 // ============================================================================
 
-function HealthScoreSkeleton() {
+function HeroStatsSkeleton() {
 	return (
-		<div className="flex items-center gap-6">
-			<Skeleton className="w-24 h-24 rounded-full" />
-			<div>
-				<Skeleton className="h-6 w-40 mb-2" />
-				<Skeleton className="h-4 w-56" />
-			</div>
-		</div>
-	);
-}
-
-function QuickStatsSkeleton() {
-	return (
-		<div className="flex flex-wrap gap-8">
-			{[1, 2, 3].map((i) => (
-				<div key={i} className="p-3 -m-3">
-					<Skeleton className="h-9 w-16 mb-2" />
-					<Skeleton className="h-4 w-28" />
+		<div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12">
+			{[1, 2, 3, 4].map((i) => (
+				<div key={i} className="text-center">
+					<Skeleton className="h-12 w-20 mx-auto mb-2" />
+					<Skeleton className="h-4 w-24 mx-auto" />
 				</div>
 			))}
 		</div>
@@ -150,13 +138,9 @@ function QuickStatsSkeleton() {
 
 function RiskDistributionSkeleton() {
 	return (
-		<div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-			<Skeleton className="flex-1 h-3 rounded-sm" />
-			<div className="flex items-center gap-3 sm:gap-4">
-				{[1, 2, 3, 4].map((i) => (
-					<Skeleton key={i} className="h-5 w-16" />
-				))}
-			</div>
+		<div className="flex items-center gap-6">
+			<Skeleton className="flex-1 h-2 rounded-full" />
+			<Skeleton className="h-4 w-40" />
 		</div>
 	);
 }
@@ -246,21 +230,6 @@ function CouplingPairSkeleton() {
 	);
 }
 
-function ContributorsSkeleton() {
-	return (
-		<div className="flex flex-wrap gap-4">
-			{[1, 2, 3].map((i) => (
-				<div key={i} className="flex items-center gap-3 p-3 rounded-sm border border-border/50 bg-secondary/30">
-					<Skeleton className="w-10 h-10 rounded-sm" />
-					<div>
-						<Skeleton className="h-4 w-24 mb-1" />
-						<Skeleton className="h-3 w-32" />
-					</div>
-				</div>
-			))}
-		</div>
-	);
-}
 
 // Full page skeleton
 function PageSkeleton() {
@@ -277,21 +246,37 @@ function PageSkeleton() {
 				</div>
 			</div>
 
-			{/* Health Score + Stats */}
-			<div className="max-w-6xl mx-auto px-4 md:px-6 pt-8">
-				<div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
-					<HealthScoreSkeleton />
-					<QuickStatsSkeleton />
-				</div>
+			{/* Hero Stats */}
+			<div className="max-w-6xl mx-auto px-4 md:px-6 pt-12 pb-4">
+				<HeroStatsSkeleton />
 			</div>
 
 			{/* Risk Distribution */}
-			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-8">
+			<div className="max-w-6xl mx-auto px-4 md:px-6 py-6">
 				<RiskDistributionSkeleton />
 			</div>
 
 			{/* Chart */}
 			<ChartSkeleton />
+
+			{/* Quick Insights Grid */}
+			<div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
+				<div className="grid md:grid-cols-3 gap-6">
+					{[1, 2, 3].map((i) => (
+						<div key={i} className="p-5 rounded-lg border border-border/30 bg-secondary/20">
+							<div className="flex items-center justify-between mb-4">
+								<Skeleton className="h-4 w-24" />
+								<Skeleton className="h-3 w-12" />
+							</div>
+							<div className="space-y-3">
+								{[1, 2, 3].map((j) => (
+									<Skeleton key={j} className="h-4 w-full" />
+								))}
+							</div>
+						</div>
+					))}
+				</div>
+			</div>
 
 			{/* Tabs */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-10">
@@ -307,12 +292,6 @@ function PageSkeleton() {
 				{[1, 2, 3].map((i) => (
 					<FileCardSkeleton key={i} />
 				))}
-			</div>
-
-			{/* Contributors */}
-			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-12">
-				<Skeleton className="h-5 w-32 mb-5" />
-				<ContributorsSkeleton />
 			</div>
 		</div>
 	);
@@ -373,7 +352,15 @@ function EmptyCouplingState() {
 	);
 }
 
-function EmptyRepositoryState({ repoName }: { repoName: string }) {
+function EmptyRepositoryState({
+	repoName,
+	onStartAnalysis,
+	isStarting = false
+}: {
+	repoName: string;
+	onStartAnalysis?: () => void;
+	isStarting?: boolean;
+}) {
 	return (
 		<div className="max-w-6xl mx-auto px-4 md:px-6 py-24">
 			<Empty className="py-16 border border-border/50 rounded-sm bg-secondary/10">
@@ -384,13 +371,32 @@ function EmptyRepositoryState({ repoName }: { repoName: string }) {
 					<EmptyTitle>Repository not analyzed yet</EmptyTitle>
 					<EmptyDescription>
 						<strong>{repoName}</strong> hasn't been analyzed by Memoria yet.
-						Run your first analysis to start tracking file risks and coupling.
+						Click the button below to scan your repository and start tracking file risks and coupling patterns.
 					</EmptyDescription>
 				</EmptyHeader>
-				<Button variant="default" className="mt-4">
-					<RefreshCw className="h-4 w-4 mr-2" />
-					Start Analysis
-				</Button>
+				<div className="mt-6 space-y-4">
+					<Button
+						variant="default"
+						onClick={onStartAnalysis}
+						disabled={isStarting}
+						size="lg"
+					>
+						{isStarting ? (
+							<>
+								<RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+								Starting Analysis...
+							</>
+						) : (
+							<>
+								<RefreshCw className="h-4 w-4 mr-2" />
+								Start Analysis
+							</>
+						)}
+					</Button>
+					<p className="text-xs text-muted-foreground max-w-md mx-auto">
+						Memoria will clone your repository, analyze file history, detect coupling patterns, and calculate risk scores. This usually takes 1-5 minutes depending on repository size.
+					</p>
+				</div>
 			</Empty>
 		</div>
 	);
@@ -400,7 +406,7 @@ function EmptyRepositoryState({ repoName }: { repoName: string }) {
 // SYNCING STATE COMPONENT
 // ============================================================================
 
-function SyncingBanner({ progress, filesAnalyzed, totalFiles }: { progress: number; filesAnalyzed: number; totalFiles: number }) {
+function SyncingBanner({ progress, filesAnalyzed, totalFiles, onCancel }: { progress: number; filesAnalyzed: number; totalFiles: number; onCancel?: () => void }) {
 	return (
 		<div className="bg-primary/10 border-b border-primary/20">
 			<div className="max-w-6xl mx-auto px-4 md:px-6 py-3">
@@ -420,6 +426,11 @@ function SyncingBanner({ progress, filesAnalyzed, totalFiles }: { progress: numb
 							/>
 						</div>
 						<span className="text-sm font-medium tabular-nums w-12 text-right">{Math.round(progress)}%</span>
+						{onCancel && (
+							<Button variant="ghost" size="sm" onClick={onCancel} className="text-xs h-7">
+								Cancel
+							</Button>
+						)}
 					</div>
 				</div>
 			</div>
@@ -1258,10 +1269,8 @@ export default function RepositoryDetailPage() {
 	// Get real repository data from dashboard context
 	const { repositories, guardrails, memories } = useDashboard();
 
-	// Tab and hover states
+	// Tab state
 	const [selectedTab, setSelectedTab] = useState<"guardrails" | "memories" | "files" | "activity" | "coupling">("guardrails");
-	const [hoveredRiskSegment, setHoveredRiskSegment] = useState<string | null>(null);
-	const [hoveredStat, setHoveredStat] = useState<string | null>(null);
 
 	// Pagination state for each tab
 	const [filesPage, setFilesPage] = useState(1);
@@ -1433,6 +1442,61 @@ export default function RepositoryDetailPage() {
 		processedFiles: number;
 		totalFiles: number;
 	} | null>(null);
+	const [isStartingAnalysis, setIsStartingAnalysis] = useState(false);
+
+	// Function to trigger analysis
+	const handleStartAnalysis = useCallback(async () => {
+		if (!contextRepo?._id || isStartingAnalysis) return;
+
+		setIsStartingAnalysis(true);
+		try {
+			const response = await fetch(`/api/repositories/${contextRepo._id}/scan`, {
+				method: "POST",
+			});
+
+			if (response.ok) {
+				// Update scan status to trigger polling
+				setScanStatus({
+					status: "pending",
+					progress: 0,
+					processedFiles: 0,
+					totalFiles: 0,
+				});
+			} else {
+				console.error("Failed to start analysis");
+			}
+		} catch (error) {
+			console.error("Failed to start analysis:", error);
+		} finally {
+			setIsStartingAnalysis(false);
+		}
+	}, [contextRepo?._id, isStartingAnalysis]);
+
+	// Function to reset stuck scans
+	const handleResetScan = useCallback(async () => {
+		if (!contextRepo?._id) return;
+
+		try {
+			const response = await fetch(`/api/repositories/${contextRepo._id}/scan`, {
+				method: "DELETE",
+			});
+
+			if (response.ok) {
+				// Reset local state
+				setScanStatus({
+					status: "none",
+					progress: 0,
+					processedFiles: 0,
+					totalFiles: 0,
+				});
+			}
+		} catch (error) {
+			console.error("Failed to reset scan:", error);
+		}
+	}, [contextRepo?._id]);
+
+	// Track previous scan status to detect completion
+	const prevScanStatusRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		if (!contextRepo?._id) return;
@@ -1442,8 +1506,22 @@ export default function RepositoryDetailPage() {
 				const response = await fetch(`/api/repositories/${contextRepo._id}/scan`);
 				if (response.ok) {
 					const data = await response.json();
+					const newStatus = data.status || "none";
+
+					// Detect when scan just completed - reload page to get fresh data
+					if (
+						(prevScanStatusRef.current === "running" || prevScanStatusRef.current === "pending") &&
+						newStatus === "completed"
+					) {
+						// Short delay to ensure database is updated, then reload
+						setTimeout(() => {
+							window.location.reload();
+						}, 500);
+					}
+
+					prevScanStatusRef.current = newStatus;
 					setScanStatus({
-						status: data.status || "none",
+						status: newStatus,
 						progress: data.progress || 0,
 						processedFiles: data.processedFiles || 0,
 						totalFiles: data.totalFiles || 0,
@@ -1473,9 +1551,54 @@ export default function RepositoryDetailPage() {
 		return <PageSkeleton />;
 	}
 
-	// Show empty state if repository not found
+	// Show empty state if repository not found in context
+	if (!contextRepo) {
+		return (
+			<EmptyRepositoryState
+				repoName={repoName}
+				onStartAnalysis={handleStartAnalysis}
+				isStarting={isStartingAnalysis}
+			/>
+		);
+	}
+
+	// Check if repository has never been analyzed and no scan is running
+	const needsFirstScan = !contextRepo.lastAnalyzedAt && scanStatus?.status !== "pending" && scanStatus?.status !== "running";
+
+	// Show "needs first scan" state
+	if (needsFirstScan && !isScanning) {
+		return (
+			<div className="pt-2 pb-40">
+				<div className="max-w-6xl mx-auto px-4 md:px-6 pt-6">
+					<div className="flex items-center gap-4 mb-8">
+						<div className="w-12 h-12 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
+							<GitBranch className="h-6 w-6 text-muted-foreground" />
+						</div>
+						<div>
+							<div className="flex items-center gap-3">
+								<h1 className="text-2xl font-semibold">{contextRepo.fullName.split('/')[1]}</h1>
+								{contextRepo.isPrivate && (
+									<span className="text-xs px-2 py-0.5 bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">Private</span>
+								)}
+							</div>
+							<div className="text-sm text-muted-foreground mt-0.5">
+								{contextRepo.fullName}
+							</div>
+						</div>
+					</div>
+				</div>
+				<EmptyRepositoryState
+					repoName={contextRepo.fullName}
+					onStartAnalysis={handleStartAnalysis}
+					isStarting={isStartingAnalysis}
+				/>
+			</div>
+		);
+	}
+
+	// Build repo data (will have data if scanned, or empty defaults if scanning)
 	if (!repo) {
-		return <EmptyRepositoryState repoName={repoName} />;
+		return <PageSkeleton />;
 	}
 
 	return (
@@ -1486,6 +1609,7 @@ export default function RepositoryDetailPage() {
 					progress={scanStatus.progress}
 					filesAnalyzed={scanStatus.processedFiles}
 					totalFiles={scanStatus.totalFiles}
+					onCancel={handleResetScan}
 				/>
 			)}
 
@@ -1513,328 +1637,177 @@ export default function RepositoryDetailPage() {
 				</div>
 			</div>
 
-			{/* Health Score + Key Metrics */}
-			<div className="max-w-6xl mx-auto px-4 md:px-6 pt-8">
-				<div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
-					{/* Health Score */}
+			{/* Hero Stats - visitors.now inspired */}
+			<div className="max-w-6xl mx-auto px-4 md:px-6 pt-12 pb-4">
+				<div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12">
+					<div className="text-center">
+						<div className="text-4xl md:text-5xl font-light tabular-nums text-foreground">
+							{repo.stats.totalAnalyses}
+						</div>
+						<div className="text-sm text-muted-foreground mt-2">Files Analyzed</div>
+					</div>
+					<div className="text-center">
+						<div className="text-4xl md:text-5xl font-light tabular-nums text-foreground">
+							{repo.couplingPairs.length}
+						</div>
+						<div className="text-sm text-muted-foreground mt-2">Coupled Files</div>
+					</div>
+					<div className="text-center">
+						<div className="text-4xl md:text-5xl font-light tabular-nums text-foreground">
+							{repoMemories.length}
+						</div>
+						<div className="text-sm text-muted-foreground mt-2">Memories Active</div>
+					</div>
+					<div className="text-center">
+						<div className="text-4xl md:text-5xl font-light tabular-nums text-foreground">
+							{repoGuardrails.length}
+						</div>
+						<div className="text-sm text-muted-foreground mt-2">Guardrails</div>
+					</div>
+				</div>
+			</div>
+
+			{/* Risk Distribution Bar - Simple */}
+			{totalRiskFiles > 0 && (
+				<div className="max-w-6xl mx-auto px-4 md:px-6 py-6">
 					<div className="flex items-center gap-6">
-						<div className="relative">
-							<svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
-								<circle
-									cx="50"
-									cy="50"
-									r="40"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="8"
-									className="text-muted/20"
-								/>
-								<circle
-									cx="50"
-									cy="50"
-									r="40"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="8"
-									strokeLinecap="round"
-									strokeDasharray={`${repo.health * 2.51} 251`}
-									className={getHealthColor(repo.health)}
-								/>
-							</svg>
-							<div className="absolute inset-0 flex items-center justify-center">
-								<span className={cn("text-2xl font-bold", getHealthColor(repo.health))}>
-									{repo.health}
-								</span>
-							</div>
+						<div className="flex-1 h-2 bg-muted rounded-full overflow-hidden flex">
+							<div
+								className="bg-green-500/70 transition-all"
+								style={{ width: `${getRiskPercent(repo.riskDistribution.low)}%` }}
+							/>
+							<div
+								className="bg-yellow-500/70 transition-all"
+								style={{ width: `${getRiskPercent(repo.riskDistribution.medium)}%` }}
+							/>
+							<div
+								className="bg-red-500/70 transition-all"
+								style={{ width: `${getRiskPercent(repo.riskDistribution.high)}%` }}
+							/>
 						</div>
-						<div>
-							<div className="flex items-center gap-2">
-								<span className="text-lg font-medium">Repository Health</span>
-								{repo.trend === "up" && (
-									<div className="flex items-center gap-1 text-green-500 text-sm">
-										<TrendingUp className="h-3.5 w-3.5" />
-										<span>Improving</span>
-									</div>
-								)}
-								{repo.trend === "down" && (
-									<div className="flex items-center gap-1 text-red-500 text-sm">
-										<TrendingDown className="h-3.5 w-3.5" />
-										<span>Declining</span>
-									</div>
-								)}
-							</div>
-							<p className="text-sm text-muted-foreground mt-1">
-								{repo.health >= 80 && "Your codebase is in great shape"}
-								{repo.health >= 60 && repo.health < 80 && "Some areas need attention"}
-								{repo.health < 60 && "Multiple high-risk files detected"}
-							</p>
-						</div>
-					</div>
-
-					{/* Quick Stats - Interactive (no layout shift) */}
-					<div className="flex flex-wrap gap-8">
-						<div
-							className={cn(
-								"p-3 -m-3 rounded-sm transition-colors cursor-default",
-								hoveredStat === "prevented" && "bg-green-500/10"
-							)}
-							onMouseEnter={() => setHoveredStat("prevented")}
-							onMouseLeave={() => setHoveredStat(null)}
-						>
-							<div className="flex items-baseline gap-2">
-								<span className={cn("text-3xl font-semibold tabular-nums transition-colors", hoveredStat === "prevented" && "text-green-500")}>
-									{repo.stats.issuesPrevented}
-								</span>
-								<TrendIndicator change={repo.stats.issuesPreventedChange} />
-							</div>
-							<div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
-								<ShieldCheck className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "prevented" && "text-green-500")} aria-hidden="true" />
-								Issues Prevented
-							</div>
-						</div>
-						<div
-							className={cn(
-								"p-3 -m-3 rounded-sm transition-colors cursor-default",
-								hoveredStat === "risk" && "bg-primary/10"
-							)}
-							onMouseEnter={() => setHoveredStat("risk")}
-							onMouseLeave={() => setHoveredStat(null)}
-						>
-							<div className="flex items-baseline gap-2">
-								<span className={cn("text-3xl font-semibold tabular-nums transition-colors", hoveredStat === "risk" && "text-primary")}>
-									{repo.stats.avgRiskScore}
-								</span>
-								<TrendIndicator change={repo.stats.avgRiskScoreChange} inverted />
-							</div>
-							<div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
-								<Shield className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "risk" && "text-primary")} aria-hidden="true" />
-								Avg Risk Score
-							</div>
-						</div>
-						<div
-							className={cn(
-								"p-3 -m-3 rounded-sm transition-colors cursor-default",
-								hoveredStat === "analyses" && "bg-primary/10"
-							)}
-							onMouseEnter={() => setHoveredStat("analyses")}
-							onMouseLeave={() => setHoveredStat(null)}
-						>
-							<div className="flex items-baseline gap-2">
-								<span className={cn("text-3xl font-semibold tabular-nums transition-colors", hoveredStat === "analyses" && "text-primary")}>
-									{repo.stats.totalAnalyses}
-								</span>
-								<TrendIndicator change={repo.stats.totalAnalysesChange} />
-							</div>
-							<div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
-								<Zap className={cn("h-3.5 w-3.5 transition-colors", hoveredStat === "analyses" && "text-primary")} aria-hidden="true" />
-								Total Analyses
-							</div>
+						<div className="text-sm text-muted-foreground whitespace-nowrap">
+							{repo.riskDistribution.low} low · {repo.riskDistribution.medium} med · {repo.riskDistribution.high} high
 						</div>
 					</div>
 				</div>
-			</div>
-
-			{/* Actionable Insights */}
-			{(() => {
-				const insights: { type: "warning" | "success" | "info"; message: string; action?: string }[] = [];
-
-				// Generate insights based on repository data
-				if (repo.riskDistribution.high > 5) {
-					insights.push({
-						type: "warning",
-						message: `${repo.riskDistribution.high} high-risk files need attention`,
-						action: "Review files →",
-					});
-				}
-				if (repo.trend === "down" && repo.health < 70) {
-					insights.push({
-						type: "warning",
-						message: "Repository health is declining. Consider reviewing recent changes.",
-					});
-				}
-				if (repo.stats.issuesPrevented > 0 && repo.stats.issuesPreventedChange && repo.stats.issuesPreventedChange > 20) {
-					insights.push({
-						type: "success",
-						message: `Great work! ${repo.stats.issuesPreventedChange}% more issues prevented this period.`,
-					});
-				}
-				if (repo.health >= 90) {
-					insights.push({
-						type: "success",
-						message: "Excellent repository health! Keep up the good practices.",
-					});
-				}
-				if (repo.stats.totalAnalyses === 0) {
-					insights.push({
-						type: "info",
-						message: "No analyses yet. Create a pull request to see Memoria in action.",
-					});
-				}
-
-				if (insights.length === 0) return null;
-
-				return (
-					<div className="max-w-6xl mx-auto px-4 md:px-6 mt-6">
-						<div className="flex flex-wrap gap-3">
-							{insights.slice(0, 3).map((insight, index) => (
-								<div
-									key={index}
-									className={cn(
-										"flex items-center gap-2 px-3 py-2 rounded-sm text-sm border",
-										insight.type === "warning" && "bg-orange-500/10 border-orange-500/20 text-orange-700 dark:text-orange-400",
-										insight.type === "success" && "bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-400",
-										insight.type === "info" && "bg-blue-500/10 border-blue-500/20 text-blue-700 dark:text-blue-400"
-									)}
-								>
-									{insight.type === "warning" && <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />}
-									{insight.type === "success" && <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />}
-									{insight.type === "info" && <Zap className="h-4 w-4 shrink-0" aria-hidden="true" />}
-									<span>{insight.message}</span>
-									{insight.action && (
-										<button
-											className="font-medium hover:underline shrink-0"
-											onClick={() => setSelectedTab("files")}
-										>
-											{insight.action}
-										</button>
-									)}
-								</div>
-							))}
-						</div>
-					</div>
-				);
-			})()}
-
-			{/* Risk Distribution Bar - Interactive (no layout shift) */}
-			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-8">
-				<div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-					<div className="flex-1 h-3 rounded-sm overflow-visible flex bg-muted/30 relative">
-						<div
-							className={cn(
-								"bg-red-500 transition-all cursor-pointer relative",
-								hoveredRiskSegment === "critical" && "brightness-110 z-10"
-							)}
-							style={{ width: `${getRiskPercent(repo.riskDistribution.critical)}%` }}
-							onMouseEnter={() => setHoveredRiskSegment("critical")}
-							onMouseLeave={() => setHoveredRiskSegment(null)}
-						>
-							<div className={cn(
-								"absolute -top-10 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-2 py-1 rounded-sm whitespace-nowrap shadow-lg transition-opacity pointer-events-none",
-								hoveredRiskSegment === "critical" ? "opacity-100" : "opacity-0"
-							)}>
-								{repo.riskDistribution.critical} critical ({Math.round(getRiskPercent(repo.riskDistribution.critical))}%)
-							</div>
-						</div>
-						<div
-							className={cn(
-								"bg-orange-500 transition-all cursor-pointer relative",
-								hoveredRiskSegment === "high" && "brightness-110 z-10"
-							)}
-							style={{ width: `${getRiskPercent(repo.riskDistribution.high)}%` }}
-							onMouseEnter={() => setHoveredRiskSegment("high")}
-							onMouseLeave={() => setHoveredRiskSegment(null)}
-						>
-							<div className={cn(
-								"absolute -top-10 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-xs px-2 py-1 rounded-sm whitespace-nowrap shadow-lg transition-opacity pointer-events-none",
-								hoveredRiskSegment === "high" ? "opacity-100" : "opacity-0"
-							)}>
-								{repo.riskDistribution.high} high ({Math.round(getRiskPercent(repo.riskDistribution.high))}%)
-							</div>
-						</div>
-						<div
-							className={cn(
-								"bg-yellow-500 transition-all cursor-pointer relative",
-								hoveredRiskSegment === "medium" && "brightness-110 z-10"
-							)}
-							style={{ width: `${getRiskPercent(repo.riskDistribution.medium)}%` }}
-							onMouseEnter={() => setHoveredRiskSegment("medium")}
-							onMouseLeave={() => setHoveredRiskSegment(null)}
-						>
-							<div className={cn(
-								"absolute -top-10 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-xs px-2 py-1 rounded-sm whitespace-nowrap shadow-lg transition-opacity pointer-events-none",
-								hoveredRiskSegment === "medium" ? "opacity-100" : "opacity-0"
-							)}>
-								{repo.riskDistribution.medium} medium ({Math.round(getRiskPercent(repo.riskDistribution.medium))}%)
-							</div>
-						</div>
-						<div
-							className={cn(
-								"bg-primary transition-all cursor-pointer relative",
-								hoveredRiskSegment === "low" && "brightness-110 z-10"
-							)}
-							style={{ width: `${getRiskPercent(repo.riskDistribution.low)}%` }}
-							onMouseEnter={() => setHoveredRiskSegment("low")}
-							onMouseLeave={() => setHoveredRiskSegment(null)}
-						>
-							<div className={cn(
-								"absolute -top-10 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs px-2 py-1 rounded-sm whitespace-nowrap shadow-lg transition-opacity pointer-events-none",
-								hoveredRiskSegment === "low" ? "opacity-100" : "opacity-0"
-							)}>
-								{repo.riskDistribution.low} low ({Math.round(getRiskPercent(repo.riskDistribution.low))}%)
-							</div>
-						</div>
-					</div>
-					<div className="flex items-center gap-3 sm:gap-4 text-xs shrink-0 flex-wrap">
-						<div
-							className={cn(
-								"flex items-center gap-1.5 px-2 py-1 -mx-2 -my-1 rounded-sm transition-colors cursor-pointer",
-								hoveredRiskSegment === "critical" && "bg-red-500/10"
-							)}
-							onMouseEnter={() => setHoveredRiskSegment("critical")}
-							onMouseLeave={() => setHoveredRiskSegment(null)}
-						>
-							<div className="w-2 h-2 rounded-sm bg-red-500" />
-							<span className="text-muted-foreground hidden sm:inline">Critical</span>
-							<span className={cn("font-medium", hoveredRiskSegment === "critical" && "text-red-500")}>{repo.riskDistribution.critical}</span>
-						</div>
-						<div
-							className={cn(
-								"flex items-center gap-1.5 px-2 py-1 -mx-2 -my-1 rounded-sm transition-colors cursor-pointer",
-								hoveredRiskSegment === "high" && "bg-orange-500/10"
-							)}
-							onMouseEnter={() => setHoveredRiskSegment("high")}
-							onMouseLeave={() => setHoveredRiskSegment(null)}
-						>
-							<div className="w-2 h-2 rounded-sm bg-orange-500" />
-							<span className="text-muted-foreground hidden sm:inline">High</span>
-							<span className={cn("font-medium", hoveredRiskSegment === "high" && "text-orange-500")}>{repo.riskDistribution.high}</span>
-						</div>
-						<div
-							className={cn(
-								"flex items-center gap-1.5 px-2 py-1 -mx-2 -my-1 rounded-sm transition-colors cursor-pointer",
-								hoveredRiskSegment === "medium" && "bg-yellow-500/10"
-							)}
-							onMouseEnter={() => setHoveredRiskSegment("medium")}
-							onMouseLeave={() => setHoveredRiskSegment(null)}
-						>
-							<div className="w-2 h-2 rounded-sm bg-yellow-500" />
-							<span className="text-muted-foreground hidden sm:inline">Medium</span>
-							<span className={cn("font-medium", hoveredRiskSegment === "medium" && "text-yellow-500")}>{repo.riskDistribution.medium}</span>
-						</div>
-						<div
-							className={cn(
-								"flex items-center gap-1.5 px-2 py-1 -mx-2 -my-1 rounded-sm transition-colors cursor-pointer",
-								hoveredRiskSegment === "low" && "bg-primary/10"
-							)}
-							onMouseEnter={() => setHoveredRiskSegment("low")}
-							onMouseLeave={() => setHoveredRiskSegment(null)}
-						>
-							<div className="w-2 h-2 rounded-sm bg-primary" />
-							<span className="text-muted-foreground hidden sm:inline">Low</span>
-							<span className={cn("font-medium", hoveredRiskSegment === "low" && "text-primary")}>{repo.riskDistribution.low}</span>
-						</div>
-					</div>
-				</div>
-			</div>
+			)}
 
 			{/* Full Width Interactive Analysis Chart */}
 			<InteractiveChart chartData={repo.chartData} />
+
+			{/* Quick Insights Grid */}
+			<div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
+				<div className="grid md:grid-cols-3 gap-6">
+					{/* High Risk Files */}
+					<div className="p-5 rounded-lg border border-border/30 bg-secondary/20">
+						<div className="flex items-center justify-between mb-4">
+							<h3 className="text-sm font-medium text-muted-foreground">High Risk Files</h3>
+							<button
+								onClick={() => handleTabChange("files")}
+								className="text-xs text-primary hover:underline"
+							>
+								View all
+							</button>
+						</div>
+						<div className="space-y-3">
+							{repo.riskyFiles.slice(0, 3).map((file, i) => (
+								<div key={i} className="flex items-center justify-between">
+									<code className="text-sm truncate max-w-[180px]">{file.file.split('/').pop()}</code>
+									<span className={cn("text-sm tabular-nums", getRiskColor(file.risk))}>{file.risk}</span>
+								</div>
+							))}
+							{repo.riskyFiles.length === 0 && (
+								<p className="text-sm text-muted-foreground/60">No high risk files</p>
+							)}
+						</div>
+					</div>
+
+					{/* Active Memories */}
+					<div className="p-5 rounded-lg border border-border/30 bg-secondary/20">
+						<div className="flex items-center justify-between mb-4">
+							<h3 className="text-sm font-medium text-muted-foreground">Active Memories</h3>
+							<button
+								onClick={() => handleTabChange("memories")}
+								className="text-xs text-primary hover:underline"
+							>
+								View all
+							</button>
+						</div>
+						<div className="space-y-3">
+							{repoMemories.slice(0, 3).map((memory) => (
+								<div key={memory._id} className="text-sm truncate text-foreground/80">
+									{memory.context.length > 45 ? `${memory.context.slice(0, 45)}...` : memory.context}
+								</div>
+							))}
+							{repoMemories.length === 0 && (
+								<p className="text-sm text-muted-foreground/60">No memories yet</p>
+							)}
+						</div>
+					</div>
+
+					{/* Guardrails */}
+					<div className="p-5 rounded-lg border border-border/30 bg-secondary/20">
+						<div className="flex items-center justify-between mb-4">
+							<h3 className="text-sm font-medium text-muted-foreground">Active Guardrails</h3>
+							<button
+								onClick={() => handleTabChange("guardrails")}
+								className="text-xs text-primary hover:underline"
+							>
+								View all
+							</button>
+						</div>
+						<div className="space-y-3">
+							{repoGuardrails.slice(0, 3).map((g) => (
+								<div key={g._id} className="flex items-center gap-2">
+									<code className="text-sm truncate text-foreground/80">{g.pattern}</code>
+									<span className={cn(
+										"text-xs px-1.5 py-0.5 rounded-sm shrink-0",
+										g.level === "block" ? "bg-red-500/10 text-red-500" : "bg-yellow-500/10 text-yellow-600"
+									)}>
+										{g.level}
+									</span>
+								</div>
+							))}
+							{repoGuardrails.length === 0 && (
+								<p className="text-sm text-muted-foreground/60">No guardrails set</p>
+							)}
+						</div>
+					</div>
+				</div>
+			</div>
+
+			{/* Coupled Files Preview */}
+			{repo.couplingPairs.length > 0 && (
+				<div className="max-w-6xl mx-auto px-4 md:px-6 pb-6">
+					<div className="flex items-center justify-between mb-4">
+						<h3 className="text-sm font-medium text-muted-foreground">File Coupling</h3>
+						<button
+							onClick={() => handleTabChange("coupling")}
+							className="text-xs text-primary hover:underline"
+						>
+							View all
+						</button>
+					</div>
+					<div className="space-y-2">
+						{repo.couplingPairs.slice(0, 5).map((pair, i) => (
+							<div key={i} className="flex items-center justify-between py-2 border-b border-border/20 last:border-0">
+								<div className="flex items-center gap-2 text-sm min-w-0">
+									<code className="truncate max-w-[160px]">{pair.primary.split('/').pop()}</code>
+									<span className="text-muted-foreground shrink-0">↔</span>
+									<code className="truncate max-w-[160px]">{pair.coupled.split('/').pop()}</code>
+								</div>
+								<span className="text-sm text-muted-foreground tabular-nums shrink-0">{pair.strength}%</span>
+							</div>
+						))}
+					</div>
+				</div>
+			)}
 
 			{/* Tab Navigation */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-10">
 				<div className="flex gap-1 border-b border-border/50 overflow-x-auto">
 					{[
-						{ id: "guardrails", label: "Danger Zones", count: repoGuardrails.length, icon: Shield },
+						{ id: "guardrails", label: "Guardrails", count: repoGuardrails.length, icon: Shield },
 						{ id: "memories", label: "Memories", count: repoMemories.length, icon: Brain },
 						{ id: "files", label: "High Risk Files", count: totalFilesCount },
 						{ id: "activity", label: "Recent Activity", count: totalActivityCount },
@@ -1869,7 +1842,7 @@ export default function RepositoryDetailPage() {
 
 			{/* Tab Content */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-6">
-				{/* Guardrails / Danger Zones Tab */}
+				{/* Guardrails Tab */}
 				{selectedTab === "guardrails" && (
 					<div className="space-y-4">
 						{repoGuardrails.length === 0 ? (
@@ -1885,7 +1858,7 @@ export default function RepositoryDetailPage() {
 									</EmptyDescription>
 								</EmptyHeader>
 								<Button variant="default" className="mt-4" asChild>
-									<a href="/dashboard/guardrails/new">
+									<a href="/dashboard/guardrails">
 										<Plus className="h-4 w-4 mr-2" />
 										Add Guardrail
 									</a>
@@ -1952,7 +1925,7 @@ export default function RepositoryDetailPage() {
 								</div>
 								<div className="pt-4 border-t border-border/50 mt-6">
 									<Button variant="outline" size="sm" asChild>
-										<a href="/dashboard/guardrails/new">
+										<a href="/dashboard/guardrails">
 											<Plus className="h-4 w-4 mr-1.5" />
 											Add Guardrail
 										</a>
@@ -2266,36 +2239,6 @@ export default function RepositoryDetailPage() {
 				)}
 			</div>
 
-			{/* Contributors */}
-			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-12">
-				<h2 className="font-medium mb-5">Top Contributors</h2>
-				<div className="flex flex-wrap gap-4">
-					{repo.topContributors.map((contributor, i) => (
-						<div
-							key={i}
-							className="flex items-center gap-3 p-3 rounded-sm border border-border/50 bg-secondary/30 hover:bg-secondary/50 transition-all"
-						>
-							{contributor.avatar ? (
-								<img
-									src={contributor.avatar}
-									alt={contributor.name}
-									className="w-10 h-10 rounded-sm"
-								/>
-							) : (
-								<div className="w-10 h-10 rounded-sm bg-secondary/50 border border-border/50 flex items-center justify-center">
-									<span className="text-sm font-medium">{contributor.name[0].toUpperCase()}</span>
-								</div>
-							)}
-							<div>
-								<div className="font-medium text-sm">{contributor.name}</div>
-								<div className="text-xs text-muted-foreground">
-									{contributor.commits} commits · {contributor.filesOwned} files
-								</div>
-							</div>
-						</div>
-					))}
-				</div>
-			</div>
 		</div>
 	);
 }

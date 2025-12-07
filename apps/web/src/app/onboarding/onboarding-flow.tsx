@@ -12,7 +12,9 @@ import {
 	Lock,
 	Loader2,
 	ExternalLink,
+	Search,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -56,13 +58,16 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 
 	// Determine initial step based on status
 	const getInitialStep = (): Step => {
-		// If user has billing setup (already chose a plan), skip to connect/repos
+		// If user already has installation and repos, go to repos step (regardless of billing)
+		if (status.hasInstallation && status.repositories.length > 0) {
+			return status.hasRepositories ? "complete" : "repos";
+		}
+		// If user already has installation but no repos synced yet, go to repos
+		if (status.hasInstallation) {
+			return "repos";
+		}
+		// If user has billing setup (already chose a plan), go to connect
 		if (status.hasBillingSetup) {
-			// If user has installation and repos, go to repos step
-			if (status.hasInstallation && status.repositories.length > 0) {
-				return status.hasRepositories ? "complete" : "repos";
-			}
-			// Has billing but no installation, go to connect
 			return "connect";
 		}
 		// No billing setup yet, start with plan selection
@@ -77,6 +82,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 		new Set(status.repositories.filter(r => r.isActive).map(r => r._id))
 	);
 	const [selectedPlan, setSelectedPlan] = useState<"free" | "pro" | "team">("free");
+	const [repoSearch, setRepoSearch] = useState("");
 	const [limitDialog, setLimitDialog] = useState<{
 		open: boolean;
 		title: string;
@@ -426,8 +432,25 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									</p>
 								</div>
 							) : (
-								<div className="space-y-2 max-h-80 overflow-y-auto">
-									{repositories.map((repo) => (
+								<>
+									<div className="relative">
+										<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+										<Input
+											placeholder="Search repositories..."
+											value={repoSearch}
+											onChange={(e) => setRepoSearch(e.target.value)}
+											className="pl-9"
+										/>
+									</div>
+									{repoSearch && (
+										<p className="text-xs text-muted-foreground">
+											Showing {repositories.filter((r) => r.fullName.toLowerCase().includes(repoSearch.toLowerCase())).length} of {repositories.length} repositories
+										</p>
+									)}
+									<div className="space-y-2 max-h-72 overflow-y-auto">
+									{repositories
+										.filter((repo) => repo.fullName.toLowerCase().includes(repoSearch.toLowerCase()))
+										.map((repo) => (
 										<div
 											key={repo._id}
 											onClick={() => handleToggleRepo(repo._id)}
@@ -460,7 +483,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 											</div>
 										</div>
 									))}
-								</div>
+									</div>
+								</>
 							)}
 
 							<div className="flex items-center justify-between pt-4 border-t">

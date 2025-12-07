@@ -8,6 +8,19 @@ import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
 import chalk from "chalk";
 
+// Import shared auth utilities
+import {
+	getOrCreateDevice,
+	getDeviceInfo,
+	updateDeviceInfo,
+	clearDeviceInfo,
+	openBrowser,
+	registerAndPollDevice,
+	MEMORIA_WEB_URL,
+	MEMORIA_API_URL,
+	type DeviceInfo,
+} from "./auth.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -116,6 +129,11 @@ ${chalk.dim("Usage:")}
   memoria init [options]         Install AI tool rules in your project
   memoria serve                  Start MCP server
 
+${chalk.bold.cyan("Account Commands:")}
+  memoria login                  Link this device to your Memoria account
+  memoria logout                 Unlink this device from your account
+  memoria status                 Show current device/account status
+
 ${chalk.bold.cyan("Analysis Commands:")}
   memoria analyze <file>         Full forensic analysis of a file
   memoria risk <file>            Show risk score breakdown
@@ -149,6 +167,7 @@ ${chalk.dim("History Search Options:")}
   --commit-type=<t>  Filter: bugfix,feature,refactor,docs,test,chore
 
 ${chalk.dim("Examples:")}
+  memoria login                               Link device to your account
   memoria analyze src/index.ts                Full analysis with risk score
   memoria risk src/api/route.ts               Quick risk assessment
   memoria coupled src/auth.ts                 See what files change together
@@ -743,6 +762,163 @@ function getCommitTypeColor(type: CommitType): (text: string) => string {
 	}
 }
 
+// ============================================================================
+// Account Commands - Login, Logout, Status
+// ============================================================================
+
+async function runLogin(): Promise<void> {
+	console.log();
+	console.log(chalk.bold("Memoria Device Linking"));
+	console.log();
+
+	// Check if already linked
+	const existingDevice = getDeviceInfo();
+	if (existingDevice?.linkedAt && existingDevice?.userEmail) {
+		console.log(chalk.green(`Already linked to ${existingDevice.userEmail}`));
+		console.log(chalk.dim(`Device ID: ${existingDevice.deviceId.substring(0, 8)}...`));
+		console.log();
+
+		const relink = await p.confirm({
+			message: "Do you want to re-link to a different account?",
+			initialValue: false,
+		});
+
+		if (p.isCancel(relink) || !relink) {
+			console.log(chalk.dim("Keeping existing connection."));
+			return;
+		}
+	}
+
+	// Get or create device
+	const device = getOrCreateDevice();
+	console.log(chalk.dim(`Device ID: ${device.deviceId.substring(0, 8)}...`));
+	console.log();
+
+	// Build the linking URL
+	const linkUrl = `${MEMORIA_WEB_URL}/link?device=${device.deviceId}`;
+
+	console.log(chalk.cyan("Opening browser for authentication..."));
+	console.log();
+	console.log(chalk.dim("If browser doesn't open, visit:"));
+	console.log(chalk.underline(linkUrl));
+	console.log();
+
+	// Open browser
+	openBrowser(linkUrl);
+
+	// Start polling
+	const s = p.spinner();
+	s.start("Waiting for you to sign in...");
+
+	const result = await registerAndPollDevice(device);
+
+	if (result.linked) {
+		s.stop(chalk.green(`Linked to ${result.email}`));
+		console.log();
+		console.log(chalk.green("Device linked successfully!"));
+		console.log(chalk.dim("Your AI tools can now save memories to your account."));
+	} else {
+		s.stop(chalk.yellow("Linking timed out"));
+		console.log();
+		console.log(chalk.yellow("Device registration timed out."));
+		console.log(chalk.dim("You can try again with: memoria login"));
+	}
+	console.log();
+}
+
+async function runLogout(): Promise<void> {
+	console.log();
+
+	const device = getDeviceInfo();
+	if (!device?.linkedAt) {
+		console.log(chalk.dim("No linked account found."));
+		console.log();
+		return;
+	}
+
+	const confirm = await p.confirm({
+		message: `Unlink from ${device.userEmail || "your account"}?`,
+		initialValue: false,
+	});
+
+	if (p.isCancel(confirm) || !confirm) {
+		console.log(chalk.dim("Cancelled."));
+		return;
+	}
+
+	// Remove linked info but keep device ID
+	updateDeviceInfo({
+		linkedAt: undefined,
+		userId: undefined,
+		userEmail: undefined,
+	});
+
+	// Notify server (best effort)
+	try {
+		await fetch(`${MEMORIA_API_URL}/devices/unlink`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ deviceId: device.deviceId }),
+		});
+	} catch {
+		// Ignore - local unlink is sufficient
+	}
+
+	console.log(chalk.green("Device unlinked successfully."));
+	console.log();
+}
+
+async function runStatus(): Promise<void> {
+	console.log();
+	console.log(chalk.bold("Memoria Status"));
+	console.log();
+
+	const device = getDeviceInfo();
+
+	if (!device) {
+		console.log(chalk.dim("No device configured."));
+		console.log(chalk.dim("Run 'memoria login' to connect to your account."));
+		console.log();
+		return;
+	}
+
+	console.log(chalk.cyan("Device:"));
+	console.log(`  ID:       ${device.deviceId.substring(0, 8)}...${device.deviceId.substring(device.deviceId.length - 4)}`);
+	console.log(`  Hostname: ${device.hostname}`);
+	console.log(`  Platform: ${device.platform}`);
+	console.log(`  Created:  ${new Date(device.createdAt).toLocaleDateString()}`);
+	console.log();
+
+	if (device.linkedAt && device.userEmail) {
+		console.log(chalk.green("Account: Connected"));
+		console.log(`  Email:   ${device.userEmail}`);
+		console.log(`  Linked:  ${new Date(device.linkedAt).toLocaleDateString()}`);
+
+		// Check cloud status
+		try {
+			const statusUrl = `${MEMORIA_API_URL}/devices/status?deviceId=${device.deviceId}`;
+			const response = await fetch(statusUrl, { signal: AbortSignal.timeout(5000) });
+
+			if (response.ok) {
+				const data = await response.json() as { status: string };
+				if (data.status === "linked") {
+					console.log(chalk.green("  Cloud:   Active"));
+				} else if (data.status === "revoked") {
+					console.log(chalk.red("  Cloud:   Revoked (run 'memoria login' to re-link)"));
+				} else {
+					console.log(chalk.yellow("  Cloud:   Pending"));
+				}
+			}
+		} catch {
+			console.log(chalk.dim("  Cloud:   Unable to verify (offline?)"));
+		}
+	} else {
+		console.log(chalk.yellow("Account: Not connected"));
+		console.log(chalk.dim("Run 'memoria login' to connect to your account."));
+	}
+	console.log();
+}
+
 async function runHistory(query: string, filePath: string | undefined, options: CliOptions): Promise<void> {
 	const absolutePath = filePath ? resolveFilePath(filePath) : undefined;
 
@@ -1002,6 +1178,26 @@ async function main() {
 	if (args.includes("--help") || args.includes("-h")) {
 		printHelp();
 		process.exit(0);
+	}
+
+	// ========== Account Commands ==========
+
+	// memoria login
+	if (args[0] === "login") {
+		await runLogin();
+		return;
+	}
+
+	// memoria logout
+	if (args[0] === "logout") {
+		await runLogout();
+		return;
+	}
+
+	// memoria status
+	if (args[0] === "status") {
+		await runStatus();
+		return;
 	}
 
 	// ========== Analysis Commands ==========

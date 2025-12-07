@@ -1,23 +1,29 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import crypto from "crypto";
 
 const now = () => Date.now();
 
 /**
- * Generate a secure random token
+ * Generate a secure random token (browser-compatible)
  */
 function generateToken(): string {
-	// Generate 32 random bytes and encode as base64url
-	const bytes = crypto.randomBytes(32);
-	return bytes.toString("base64url");
+	// Generate 32 random bytes using Web Crypto API
+	const bytes = new Uint8Array(32);
+	crypto.getRandomValues(bytes);
+	// Convert to base64url
+	const base64 = btoa(String.fromCharCode(...bytes));
+	return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 /**
- * Hash a token for storage
+ * Hash a token for storage (browser-compatible)
  */
-function hashToken(token: string): string {
-	return crypto.createHash("sha256").update(token).digest("hex");
+async function hashToken(token: string): Promise<string> {
+	const encoder = new TextEncoder();
+	const data = encoder.encode(token);
+	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+	const hashArray = Array.from(new Uint8Array(hashBuffer));
+	return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -33,15 +39,17 @@ export const createToken = mutation({
 	handler: async (ctx, args) => {
 		// Generate the token
 		const rawToken = generateToken();
-		const tokenHash = hashToken(rawToken);
 
 		// Prefix with "mem_" to make it identifiable
 		const token = `mem_${rawToken}`;
 
+		// Hash the full token including prefix
+		const tokenHashValue = await hashToken(token);
+
 		const tokenId = await ctx.db.insert("team_tokens", {
 			userId: args.userId,
 			name: args.name,
-			tokenHash: hashToken(token), // Hash the full token including prefix
+			tokenHash: tokenHashValue,
 			lastUsedAt: null,
 			createdBy: args.createdBy,
 			createdAt: now(),
@@ -134,12 +142,12 @@ export const validateToken = query({
 	},
 	handler: async (ctx, args) => {
 		// Hash the provided token
-		const tokenHash = hashToken(args.token);
+		const tokenHashValue = await hashToken(args.token);
 
 		// Look up by hash
 		const tokenRecord = await ctx.db
 			.query("team_tokens")
-			.withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash))
+			.withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHashValue))
 			.first();
 
 		if (!tokenRecord) {

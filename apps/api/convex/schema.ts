@@ -486,6 +486,21 @@ export default defineSchema({
 		.index("by_userId", ["userId"])
 		.index("by_tokenHash", ["tokenHash"]),
 
+	// Devices - CLI/MCP device authentication for free tier
+	devices: defineTable({
+		deviceId: v.string(), // unique device identifier (UUID)
+		userId: v.optional(v.id("users")), // linked user (null until linked)
+		deviceName: v.optional(v.string()), // e.g., "Byron's MacBook"
+		hostname: v.optional(v.string()), // machine hostname
+		platform: v.optional(v.string()), // darwin, linux, win32
+		status: literals("pending", "linked", "revoked"),
+		lastSeenAt: v.optional(v.number()),
+		createdAt: v.number(),
+	})
+		.index("by_deviceId", ["deviceId"])
+		.index("by_userId", ["userId"])
+		.index("by_status", ["status"]),
+
 	// ===========================================
 	// TRI-LAYER BRAIN: CODE GRAPH
 	// ===========================================

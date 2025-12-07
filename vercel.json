@@ -1,6 +1,15 @@
 {
-	"$schema": "https://openapi.vercel.sh/vercel.json",
-	"buildCommand": "cd ../.. && turbo run build --filter=@memoria/web",
-	"installCommand": "npm install --prefix=../..",
-	"outputDirectory": ".next"
+	"version": 2,
+	"builds": [
+		{
+			"src": "apps/web/next.config.ts",
+			"use": "@vercel/next"
+		}
+	],
+	"routes": [
+		{
+			"src": "/(.*)",
+			"dest": "/apps/web/$1"
+		}
+	]
 }

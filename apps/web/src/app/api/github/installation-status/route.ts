@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
-import { listInstallationRepos } from "@/lib/github/auth";
+import { listInstallationRepos, listUserInstallations } from "@/lib/github/auth";
 
 /**
  * GET /api/github/installation-status
  * Check if the user has a GitHub installation
+ * Also discovers new installations from GitHub API if none found in database
  */
 export async function GET(request: NextRequest) {
 	try {
@@ -33,10 +34,10 @@ export async function GET(request: NextRequest) {
 
 		const userId = session.user._id;
 
-		// Get installations for the user
+		// Get installations for the user from database
 		console.log("[installation-status] Checking user:", userId);
 
-		const allInstallations = await callQuery<
+		let allInstallations = await callQuery<
 			Array<{
 				_id: string;
 				accountLogin: string;
@@ -46,9 +47,90 @@ export async function GET(request: NextRequest) {
 		>(convex, "scm:getInstallations", { userId });
 
 		// Filter to only active installations (exclude deleted/suspended)
-		const installations = allInstallations?.filter(i => i.status === "active") || [];
+		let installations = allInstallations?.filter(i => i.status === "active") || [];
 
-		console.log("[installation-status] Installations found:", allInstallations?.length || 0, "active:", installations.length);
+		console.log("[installation-status] Installations in DB:", allInstallations?.length || 0, "active:", installations.length);
+
+		// If no installations found, try to discover them from GitHub API
+		if (installations.length === 0) {
+			console.log("[installation-status] No installations in DB, checking GitHub API...");
+
+			// Get user's GitHub access token from identity
+			const identity = await callQuery<{
+				accessToken: string | null;
+			} | null>(convex, "auth:getUserGitHubIdentity", { userId });
+
+			if (identity?.accessToken) {
+				try {
+					// Query GitHub for installations accessible to this user
+					const githubInstallations = await listUserInstallations(identity.accessToken);
+					console.log("[installation-status] Found", githubInstallations.length, "installations from GitHub API");
+
+					// Create installations in database
+					for (const inst of githubInstallations) {
+						const accountType = inst.account.type === "Organization" ? "org" : "user";
+						const status = inst.suspended_at ? "suspended" : "active";
+
+						await callMutation(convex, "scm:upsertInstallation", {
+							providerType: "github",
+							providerInstallationId: String(inst.id),
+							userId,
+							accountType: accountType as "user" | "org",
+							accountLogin: inst.account.login,
+							accountName: inst.account.name || null,
+							permissions: inst.permissions,
+							status,
+						});
+
+						console.log("[installation-status] Created installation:", inst.id, inst.account.login);
+
+						// Sync repositories for this installation
+						if (status === "active") {
+							try {
+								const repos = await listInstallationRepos(inst.id);
+								console.log("[installation-status] Syncing", repos.length, "repos for installation", inst.id);
+
+								// Get the installation record we just created
+								const dbInst = await callQuery<{ _id: string } | null>(
+									convex,
+									"scm:getInstallationByProviderId",
+									{ providerType: "github", providerInstallationId: String(inst.id) }
+								);
+
+								if (dbInst) {
+									for (const repo of repos) {
+										await callMutation(convex, "scm:upsertRepository", {
+											userId,
+											scmInstallationId: dbInst._id,
+											providerType: "github",
+											providerRepoId: String(repo.id),
+											fullName: repo.full_name,
+											defaultBranch: repo.default_branch || "main",
+											isPrivate: repo.private,
+											isActive: false,
+											languageHint: repo.language || null,
+											settings: null,
+										});
+									}
+								}
+							} catch (repoError) {
+								console.error("[installation-status] Failed to sync repos:", repoError);
+							}
+						}
+					}
+
+					// Re-fetch installations from database
+					allInstallations = await callQuery<typeof allInstallations>(
+						convex, "scm:getInstallations", { userId }
+					);
+					installations = allInstallations?.filter(i => i.status === "active") || [];
+				} catch (githubError) {
+					console.error("[installation-status] Failed to query GitHub:", githubError);
+				}
+			} else {
+				console.log("[installation-status] No GitHub access token available");
+			}
+		}
 
 		// Get repositories if there are installations
 		let repositories: Array<{

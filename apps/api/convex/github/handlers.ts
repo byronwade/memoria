@@ -246,3 +246,84 @@ export const handlePullRequest = internalAction({
 		}
 	},
 });
+
+/**
+ * Handle push events (default branch only)
+ */
+export const handlePush = internalAction({
+	args: { payload: v.any() },
+	handler: async (ctx, args) => {
+		const { ref, repository, installation, commits, pusher } = args.payload;
+
+		// Only process pushes to default branch
+		const defaultBranch = repository.default_branch || "main";
+		const branchName = ref.replace("refs/heads/", "");
+
+		if (branchName !== defaultBranch) {
+			console.log(`Ignoring push to non-default branch: ${branchName}`);
+			return;
+		}
+
+		console.log(`Push to ${repository.full_name}:${branchName} - ${commits?.length || 0} commits`);
+
+		// Get installation
+		const inst = await ctx.runQuery(api.scm.getInstallationByProviderId, {
+			providerType: "github",
+			providerInstallationId: String(installation.id),
+		});
+
+		if (!inst) {
+			console.error("Installation not found:", installation.id);
+			return;
+		}
+
+		// Get repository
+		const repo = await ctx.runQuery(api.scm.getRepositoryByProviderId, {
+			providerType: "github",
+			providerRepoId: String(repository.id),
+		});
+
+		if (!repo) {
+			console.log("Repository not tracked, skipping");
+			return;
+		}
+
+		// Index commits in temporal graph
+		if (commits && Array.isArray(commits) && commits.length > 0) {
+			const commitData = commits.map((c: {
+				id: string;
+				message: string;
+				timestamp: string;
+				author?: { email?: string; name?: string };
+				added?: string[];
+				modified?: string[];
+				removed?: string[];
+			}) => ({
+				repoId: repo._id,
+				commitHash: c.id,
+				message: c.message,
+				authorEmail: c.author?.email || pusher.email || "unknown",
+				authorName: c.author?.name || pusher.name || "unknown",
+				committedAt: new Date(c.timestamp).getTime(),
+				filesChanged: [
+					...(c.added || []),
+					...(c.modified || []),
+					...(c.removed || []),
+				],
+			}));
+
+			const { indexed, skipped } = await ctx.runMutation(api.temporal.batchIndexCommits, {
+				commits: commitData,
+			});
+
+			console.log(`Indexed ${indexed} commits (${skipped} already indexed)`);
+		}
+
+		// Update repo lastAnalyzedAt
+		await ctx.runMutation(api.scm.updateRepoLastAnalyzed, {
+			repoId: repo._id,
+		});
+
+		console.log(`Push processing complete for ${repository.full_name}`);
+	},
+});

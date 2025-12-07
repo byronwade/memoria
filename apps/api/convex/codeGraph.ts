@@ -5,7 +5,7 @@ const now = () => Date.now();
 
 // Helper for creating union of literals (matches schema.ts)
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val)));
 
 // ============================================
 // CODE FILE MUTATIONS

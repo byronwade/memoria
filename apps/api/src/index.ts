@@ -1,16 +1,20 @@
-import { createServer, start as startServer } from "./server.js";
-import { loadConfig } from "./config.js";
+import http from "node:http";
 
-export { createServer };
+export function createServer() {
+	return http.createServer((req, res) => {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ status: "ok", service: "memoria-api" }));
+	});
+}
 
-export async function start(port = Number(process.env.PORT) || 3000) {
-	const config = loadConfig();
-	return startServer(port, config);
+export function start(port = Number(process.env.PORT) || 3000) {
+	const server = createServer();
+	server.listen(port, () => {
+		console.log(`Memoria API listening on http://localhost:${port}`);
+	});
+	return server;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-	start().catch((error) => {
-		console.error("Failed to start Memoria API", error);
-		process.exitCode = 1;
-	});
+	start();
 }

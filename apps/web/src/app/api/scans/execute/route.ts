@@ -137,7 +137,9 @@ export async function POST(request: NextRequest) {
 		const git = simpleGit(tempDir);
 
 		const cloneUrl = `https://x-access-token:${token}@github.com/${fullName}.git`;
-		await git.clone(cloneUrl, tempDir, ["--depth", "1"]);
+		// Need enough history for coupling analysis (200 commits)
+		// but not full clone which would be slow
+		await git.clone(cloneUrl, tempDir, ["--depth", "200", "--single-branch"]);
 
 		// Get list of source files
 		const files = await getSourceFiles(tempDir);
@@ -148,8 +150,15 @@ export async function POST(request: NextRequest) {
 			totalFiles: files.length,
 		});
 
-		// Analyze files in batches
-		const BATCH_SIZE = 10;
+		// Pre-compute ALL analysis data in just 2 git commands total
+		// This replaces hundreds of per-file git commands
+		const [couplingCache, volatilityCache] = await Promise.all([
+			preComputeCoupling(git),
+			preComputeVolatility(git),
+		]);
+
+		// Analyze files in batches (much faster now - no git commands per file)
+		const BATCH_SIZE = 50; // Can handle much larger batches now
 		let processedFiles = 0;
 		let filesWithRisk = 0;
 		const allAnalyses: FileAnalysisResult[] = [];
@@ -157,9 +166,9 @@ export async function POST(request: NextRequest) {
 		for (let i = 0; i < files.length; i += BATCH_SIZE) {
 			const batch = files.slice(i, i + BATCH_SIZE);
 
-			// Analyze each file in the batch
-			const batchResults = await Promise.all(
-				batch.map((file) => analyzeFile(tempDir, file, git))
+			// Analyze each file in the batch (now synchronous - no git commands)
+			const batchResults = batch.map((file) =>
+				analyzeFileFromCache(file, couplingCache, volatilityCache)
 			);
 
 			// Filter out nulls and collect results
@@ -190,9 +199,10 @@ export async function POST(request: NextRequest) {
 			});
 		}
 
-		// Mark scan as completed
+		// Mark scan as completed and update repository lastAnalyzedAt
 		await callMutation(convex, "scans:updateScanProgress", {
 			scanId,
+			repositoryId,
 			status: "completed",
 		});
 
@@ -208,6 +218,7 @@ export async function POST(request: NextRequest) {
 		// Mark scan as failed
 		await callMutation(convex, "scans:updateScanProgress", {
 			scanId,
+			repositoryId,
 			status: "failed",
 			errorMessage: error instanceof Error ? error.message : "Unknown error",
 		});
@@ -270,24 +281,22 @@ async function getSourceFiles(repoPath: string): Promise<string[]> {
 }
 
 /**
- * Analyze a single file
+ * Analyze a single file from pre-computed caches (NO git commands)
  */
-async function analyzeFile(
-	repoPath: string,
+function analyzeFileFromCache(
 	relativePath: string,
-	git: ReturnType<typeof simpleGit>
-): Promise<FileAnalysisResult | null> {
+	couplingCache: Map<string, Map<string, number>>,
+	volatilityCache: Map<string, { panicScore: number; commitCount: number }>
+): FileAnalysisResult | null {
 	try {
-		const fullPath = path.join(repoPath, relativePath);
+		// Get volatility from pre-computed cache (instant)
+		const volatility = getVolatilityFromCache(relativePath, volatilityCache);
 
-		// Get volatility (commit history analysis)
-		const volatility = await getFileVolatility(fullPath, git);
+		// Get coupled files from pre-computed cache (instant)
+		const coupled = getCoupledFilesFromCache(relativePath, couplingCache);
 
-		// Get coupled files (co-change analysis)
-		const coupled = await getCoupledFiles(relativePath, git, repoPath);
-
-		// Get static importers
-		const importers = await getFileImporters(relativePath, git, repoPath);
+		// Skip importers for now - too slow. Can add back with pre-computation later
+		const importers: string[] = [];
 
 		// Calculate compound risk score
 		const riskScore = calculateRiskScore(
@@ -328,94 +337,169 @@ async function analyzeFile(
 }
 
 /**
- * Get file volatility from commit history
+ * Pre-compute volatility data for all files in ONE git command
  */
-async function getFileVolatility(
-	filePath: string,
+async function preComputeVolatility(
 	git: ReturnType<typeof simpleGit>
-): Promise<{ panicScore: number; commitCount: number }> {
+): Promise<Map<string, { panicScore: number; commitCount: number }>> {
+	const fileVolatility = new Map<string, { panicScore: number; commitCount: number }>();
+	const fileScores = new Map<string, { weightedScore: number; commitCount: number }>();
+
 	try {
-		const log = await git.log({ file: filePath, maxCount: 20 });
+		// Get last 200 commits with files and messages in ONE command
+		const log = await git.raw([
+			"log",
+			"--name-only",
+			"--format=%H|%aI|%s",
+			"-n",
+			"200",
+		]);
 
-		if (log.total === 0) {
-			return { panicScore: 0, commitCount: 0 };
-		}
+		let currentCommit: { date: Date; message: string } | null = null;
 
-		let weightedScore = 0;
-		const maxScore = 20 * 3; // 20 commits * max weight
+		for (const line of log.split("\n")) {
+			const trimmed = line.trim();
+			if (!trimmed) continue;
 
-		for (const commit of log.all) {
-			const msg = commit.message.toLowerCase();
-			let commitWeight = 0;
-
-			for (const [keyword, weight] of Object.entries(PANIC_KEYWORDS)) {
-				if (msg.includes(keyword)) {
-					commitWeight = Math.max(commitWeight, weight);
-				}
+			// Check if it's a commit line (hash|date|message)
+			if (trimmed.includes("|") && /^[a-f0-9]{40}\|/.test(trimmed)) {
+				const parts = trimmed.split("|");
+				currentCommit = {
+					date: new Date(parts[1]),
+					message: parts.slice(2).join("|").toLowerCase(),
+				};
+				continue;
 			}
 
-			// Apply time decay (risk drops by 50% every 30 days)
-			const commitDate = new Date(commit.date);
-			const daysAgo = (Date.now() - commitDate.getTime()) / (1000 * 60 * 60 * 24);
-			const decay = Math.pow(0.5, daysAgo / 30);
+			// It's a file path
+			if (currentCommit) {
+				const file = trimmed;
+				let commitWeight = 0;
 
-			weightedScore += commitWeight * decay;
+				for (const [keyword, weight] of Object.entries(PANIC_KEYWORDS)) {
+					if (currentCommit.message.includes(keyword)) {
+						commitWeight = Math.max(commitWeight, weight);
+					}
+				}
+
+				// Apply time decay
+				const daysAgo = (Date.now() - currentCommit.date.getTime()) / (1000 * 60 * 60 * 24);
+				const decay = Math.pow(0.5, daysAgo / 30);
+
+				const existing = fileScores.get(file) || { weightedScore: 0, commitCount: 0 };
+				fileScores.set(file, {
+					weightedScore: existing.weightedScore + commitWeight * decay,
+					commitCount: existing.commitCount + 1,
+				});
+			}
 		}
 
-		return {
-			panicScore: Math.min(100, Math.round((weightedScore / maxScore) * 100)),
-			commitCount: log.total,
-		};
-	} catch {
-		return { panicScore: 0, commitCount: 0 };
+		// Convert to panic scores
+		const maxScore = 20 * 3;
+		for (const [file, data] of fileScores) {
+			fileVolatility.set(file, {
+				panicScore: Math.min(100, Math.round((data.weightedScore / maxScore) * 100)),
+				commitCount: Math.min(data.commitCount, 20),
+			});
+		}
+	} catch (error) {
+		console.error("Failed to pre-compute volatility:", error);
 	}
+
+	return fileVolatility;
 }
 
 /**
- * Get files that frequently change together with this file
+ * Get volatility from pre-computed cache
  */
-async function getCoupledFiles(
+function getVolatilityFromCache(
 	relativePath: string,
-	git: ReturnType<typeof simpleGit>,
-	repoPath: string
-): Promise<Array<{ file: string; score: number }>> {
-	try {
-		const log = await git.log({ file: relativePath, maxCount: 50 });
+	volatilityCache: Map<string, { panicScore: number; commitCount: number }>
+): { panicScore: number; commitCount: number } {
+	return volatilityCache.get(relativePath) || { panicScore: 0, commitCount: 0 };
+}
 
-		if (log.total < 3) {
-			return []; // Not enough history for meaningful coupling
+/**
+ * Pre-compute coupling data for all files in one pass.
+ * This is MUCH faster than per-file git log + git show.
+ */
+async function preComputeCoupling(
+	git: ReturnType<typeof simpleGit>
+): Promise<Map<string, Map<string, number>>> {
+	const fileCouplingMap = new Map<string, Map<string, number>>();
+	const fileCommitCounts = new Map<string, number>();
+
+	try {
+		// Get last 200 commits with their files in ONE command
+		const log = await git.raw([
+			"log",
+			"--name-only",
+			"--format=%H",
+			"-n",
+			"200",
+		]);
+
+		let currentFiles: string[] = [];
+
+		for (const line of log.split("\n")) {
+			const trimmed = line.trim();
+			if (!trimmed) {
+				// End of commit block - process files
+				if (currentFiles.length > 1 && currentFiles.length <= 15) {
+					for (const file of currentFiles) {
+						fileCommitCounts.set(file, (fileCommitCounts.get(file) || 0) + 1);
+						if (!fileCouplingMap.has(file)) {
+							fileCouplingMap.set(file, new Map());
+						}
+						const coupling = fileCouplingMap.get(file)!;
+						for (const other of currentFiles) {
+							if (other !== file) {
+								coupling.set(other, (coupling.get(other) || 0) + 1);
+							}
+						}
+					}
+				}
+				currentFiles = [];
+				continue;
+			}
+
+			// Skip commit hashes (40 hex chars)
+			if (/^[a-f0-9]{40}$/i.test(trimmed)) {
+				continue;
+			}
+			currentFiles.push(trimmed);
 		}
 
-		const couplingMap: Record<string, number> = {};
-
-		for (const commit of log.all) {
-			const show = await git.show([commit.hash, "--name-only", "--format="]);
-			const files = show
-				.split("\n")
-				.map((f) => f.trim())
-				.filter((f) => f && f !== relativePath);
-
-			// Skip large commits (likely refactors)
-			if (files.length > 15) continue;
-
-			for (const file of files) {
-				couplingMap[file] = (couplingMap[file] || 0) + 1;
+		// Convert counts to percentages
+		for (const [file, coupling] of fileCouplingMap) {
+			const totalCommits = fileCommitCounts.get(file) || 1;
+			for (const [other, count] of coupling) {
+				coupling.set(other, Math.round((count / totalCommits) * 100));
 			}
 		}
-
-		// Calculate coupling scores and filter
-		const threshold = 15; // Minimum coupling percentage
-		return Object.entries(couplingMap)
-			.map(([file, count]) => ({
-				file,
-				score: Math.round((count / log.total) * 100),
-			}))
-			.filter((c) => c.score >= threshold)
-			.sort((a, b) => b.score - a.score)
-			.slice(0, 5);
-	} catch {
-		return [];
+	} catch (error) {
+		console.error("Failed to pre-compute coupling:", error);
 	}
+
+	return fileCouplingMap;
+}
+
+/**
+ * Get coupled files from pre-computed data
+ */
+function getCoupledFilesFromCache(
+	relativePath: string,
+	couplingCache: Map<string, Map<string, number>>
+): Array<{ file: string; score: number }> {
+	const coupling = couplingCache.get(relativePath);
+	if (!coupling) return [];
+
+	const threshold = 15;
+	return Array.from(coupling.entries())
+		.map(([file, score]) => ({ file, score }))
+		.filter((c) => c.score >= threshold)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, 5);
 }
 
 /**

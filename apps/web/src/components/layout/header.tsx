@@ -7,9 +7,11 @@ import { HeaderAuth } from "@/components/auth/header-auth";
 import { HeaderClient } from "./header-client";
 
 const navLinks = [
+	{ href: "/", label: "Product" },
+	{ href: "/tour", label: "Tour" },
 	{ href: "/pricing", label: "Pricing" },
-	{ href: "/docs", label: "Docs" },
 	{ href: "/faq", label: "FAQ" },
+	{ href: "/docs", label: "Docs" },
 ];
 
 export async function Header() {

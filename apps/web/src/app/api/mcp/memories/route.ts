@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
 			"memories:createMemory",
 			{
 				userId: auth.userId!,
+				scope: repoId ? "repository" : "global",
 				repoId: repoId || undefined,
 				context: context.trim(),
 				summary: summary || undefined,

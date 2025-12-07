@@ -38,6 +38,24 @@ Parameters:
 - searchType - "message", "diff", or "both" (default)
 - startLine/endLine - For line-range search (Sherlock Mode)
 
+## Memory Extraction Rule
+
+Use `extract_memories` to find important context from code comments:
+
+```json
+{"path": "/absolute/path/to/file.ts"}
+```
+
+Scans for CRITICAL, WARNING, HACK, TODO annotations and auto-saves high-confidence ones.
+
+## Get Context Rule
+
+Use `get_context` before modifying a file to get relevant memories:
+
+```json
+{"path": "/absolute/path/to/file.ts", "query": "what I'm trying to do"}
+```
+
 ## Mandatory Rules
 
 1. ALWAYS call `analyze_file` before modifying any code file
@@ -46,3 +64,7 @@ Parameters:
 4. Before removing code: Call `ask_history` to check if it's a bug fix
 5. Use ABSOLUTE paths (e.g., /Users/name/project/src/file.ts)
 6. Use SHORT keywords in `ask_history` queries (not sentences)
+
+## Cloud Features (Optional)
+
+To save memories to your account, run `npx @byronwade/memoria login` in your terminal.

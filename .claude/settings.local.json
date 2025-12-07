@@ -77,7 +77,19 @@
       "Bash(git rm:*)",
       "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx vitest run:*)",
       "Bash(timeout 3 node:*)",
-      "Bash(gtimeout 3 node:*)"
+      "Bash(gtimeout 3 node:*)",
+      "Bash(npx convex codegen:*)",
+      "Bash(xxd:*)",
+      "Bash(npx convex deploy:*)",
+      "Bash(npx convex:*)",
+      "Bash(CONVEX_URL=https://dusty-shark-64.convex.cloud npx convex deploy:*)",
+      "Bash(CONVEX_DEPLOYMENT=dusty-shark-64 npx convex data:*)",
+      "Bash(for f in /Users/byronwade/memoria/apps/web/convex/*.ts)",
+      "Bash(do sed -i '' 's/ as ReturnType<typeof v.literal<T>>//g' \"$f\")",
+      "Bash(done)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npm test:*)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" npx vitest:*)",
+      "Bash(git diff:*)"
     ],
     "deny": [],
     "ask": []

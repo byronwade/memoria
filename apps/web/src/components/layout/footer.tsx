@@ -5,19 +5,19 @@ import { siteConfig } from "@/lib/seo/constants";
 
 export function Footer() {
 	return (
-		<footer className="border-t border-border bg-background py-12">
+		<footer className="border-t border-card-border py-8">
 			<Container>
-				<div className="flex flex-col gap-8 text-sm text-muted-foreground">
+				<div className="flex flex-col gap-6 text-sm text-muted-foreground">
 					<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 						<div className="flex items-center gap-3 text-foreground">
 							<Link
 								href="/"
-								className="flex items-center gap-2 font-semibold tracking-tight hover:text-primary transition-colors"
+								className="flex items-center gap-2 font-medium hover:text-accent transition-colors"
 							>
 								<img
 									src="/memoria.svg"
 									alt=""
-									className="w-5 h-5 dark:invert"
+									className="w-4 h-4 dark:invert"
 									aria-hidden="true"
 								/>
 								Memoria
@@ -27,12 +27,18 @@ export function Footer() {
 								The memory your AI lacks.
 							</span>
 						</div>
-						<div className="flex items-center gap-6">
+						<div className="flex items-center gap-4">
 							<Link
 								href="/pricing"
 								className="hover:text-foreground transition-colors"
 							>
 								Pricing
+							</Link>
+							<Link
+								href="/tour"
+								className="hover:text-foreground transition-colors"
+							>
+								Tour
 							</Link>
 							<Link
 								href="/faq"
@@ -54,7 +60,7 @@ export function Footer() {
 								href="https://x.com/byron_c_wade"
 								target="_blank"
 								rel="noopener noreferrer"
-								className="hover:text-foreground transition-colors p-1"
+								className="hover:text-foreground transition-colors"
 								aria-label="Follow on X (Twitter)"
 							>
 								<Twitter className="w-4 h-4" />
@@ -63,7 +69,7 @@ export function Footer() {
 								href={siteConfig.github}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="hover:text-foreground transition-colors p-1"
+								className="hover:text-foreground transition-colors"
 								aria-label="View on GitHub"
 							>
 								<Github className="w-4 h-4" />
@@ -75,7 +81,7 @@ export function Footer() {
 								href="https://github.com/byronwade"
 								target="_blank"
 								rel="noopener noreferrer"
-								className="text-foreground hover:text-primary transition-colors"
+								className="underline hover:text-foreground transition-colors"
 							>
 								Byron Wade
 							</a>

@@ -38,14 +38,14 @@ import { UpgradeModal } from "@/components/billing/upgrade-modal";
 
 // Desktop header buttons (visible on md+)
 const headerNavItems = [
-	{ href: "/dashboard/guardrails", label: "Guardrails", icon: Shield },
-	{ href: "/dashboard/memories", label: "Memories", icon: Brain },
+	{ href: "/dashboard/guardrails", label: "Global Guardrails", icon: Shield },
+	{ href: "/dashboard/memories", label: "Global Memories", icon: Brain },
 ];
 
 // All nav items for dropdown (mobile shows all, desktop shows settings only)
 const dropdownNavItems = [
-	{ href: "/dashboard/guardrails", label: "Guardrails", icon: Shield, mobileOnly: true },
-	{ href: "/dashboard/memories", label: "Memories", icon: Brain, mobileOnly: true },
+	{ href: "/dashboard/guardrails", label: "Global Guardrails", icon: Shield, mobileOnly: true },
+	{ href: "/dashboard/memories", label: "Global Memories", icon: Brain, mobileOnly: true },
 	{ href: "/dashboard/settings", label: "Settings", icon: Settings, mobileOnly: false },
 ];
 
@@ -95,7 +95,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 		toast.loading("Syncing repository...", { id: "sync" });
 
 		try {
-			const response = await fetch(`/api/repositories/${currentRepo._id}/sync`, {
+			const response = await fetch(`/api/repositories/${currentRepo._id}/scan`, {
 				method: "POST",
 			});
 

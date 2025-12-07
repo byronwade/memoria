@@ -5,7 +5,7 @@ const now = () => Date.now();
 
 // Helper for creating union of literals (matches schema.ts)
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val)));
 
 // ============================================
 // PANIC KEYWORDS (for commit classification)
@@ -251,7 +251,7 @@ export const getCommitsForFile = query({
 			.collect();
 
 		const matching = allCommits
-			.filter((c) => c.filesChanged.some((f) => f.includes(args.filePath) || args.filePath.includes(f)))
+			.filter((c) => c.filesChanged.some((f: string) => f.includes(args.filePath) || args.filePath.includes(f)))
 			.slice(0, limit);
 
 		return matching;
@@ -318,7 +318,7 @@ export const searchCommits = query({
 			for (const queryKeyword of args.queryKeywords) {
 				const lowerQuery = queryKeyword.toLowerCase();
 				// Check keywords array
-				if (commit.keywords.some((k) => k.includes(lowerQuery) || lowerQuery.includes(k))) {
+				if (commit.keywords.some((k: string) => k.includes(lowerQuery) || lowerQuery.includes(k))) {
 					score += 2;
 					matchedKeywords.push(queryKeyword);
 				}

@@ -1,14 +1,37 @@
 /**
  * Convex Client for MCP Server
  *
- * Handles communication with the Convex backend for paid features:
- * - Team token validation
+ * Handles communication with the Convex backend for cloud features:
+ * - Team token validation (paid teams)
+ * - Device authentication (free tier)
  * - Memory retrieval and storage
  * - Guardrails checking
  *
- * FREE TIER: Works without this (local git analysis only)
- * PAID TIER: Requires MEMORIA_API_URL environment variable
+ * AUTHENTICATION METHODS:
+ * 1. Team Token: mem_xxx (for paid teams)
+ * 2. Device ID: UUID from ~/.memoria/device.json (for free tier)
+ *
+ * FREE TIER: Works locally without this, OR with device linking for cloud memories
+ * PAID TIER: Requires team token
  */
+
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+const MEMORIA_DIR = path.join(os.homedir(), ".memoria");
+const DEVICE_FILE = path.join(MEMORIA_DIR, "device.json");
+
+interface DeviceInfo {
+	deviceId: string;
+	deviceName?: string;
+	hostname: string;
+	platform: string;
+	createdAt: number;
+	linkedAt?: number;
+	userId?: string;
+	userEmail?: string;
+}
 
 export interface TokenValidationResult {
 	valid: boolean;
@@ -16,6 +39,9 @@ export interface TokenValidationResult {
 	orgName?: string;
 	orgSlug?: string;
 	tokenId?: string;
+	userId?: string;
+	userEmail?: string;
+	authMethod?: "token" | "device";
 	error?: string;
 }
 
@@ -53,18 +79,46 @@ export interface Guardrail {
 }
 
 /**
+ * Load device info from ~/.memoria/device.json
+ */
+function loadDeviceInfo(): DeviceInfo | null {
+	if (!fs.existsSync(DEVICE_FILE)) {
+		return null;
+	}
+	try {
+		const content = fs.readFileSync(DEVICE_FILE, "utf8");
+		return JSON.parse(content) as DeviceInfo;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Memoria Cloud Client
  * Connects MCP server to the Convex backend
+ * Supports both token authentication (teams) and device authentication (free tier)
  */
 export class MemoriaCloudClient {
 	private apiUrl: string;
 	private token: string | null = null;
+	private deviceId: string | null = null;
 	private cachedValidation: TokenValidationResult | null = null;
 	private validationExpiry = 0;
 
 	constructor(apiUrl?: string) {
-		// Use environment variable or default to production
-		this.apiUrl = apiUrl || process.env.MEMORIA_API_URL || "";
+		// Use provided apiUrl, environment variable, or default to production
+		// Note: Empty string means explicitly not configured
+		if (apiUrl !== undefined) {
+			this.apiUrl = apiUrl;
+		} else {
+			this.apiUrl = process.env.MEMORIA_API_URL || "https://memoria.byronwade.com";
+		}
+
+		// Auto-load device ID from ~/.memoria/device.json
+		const deviceInfo = loadDeviceInfo();
+		if (deviceInfo?.linkedAt && deviceInfo?.deviceId) {
+			this.deviceId = deviceInfo.deviceId;
+		}
 	}
 
 	/**
@@ -72,6 +126,13 @@ export class MemoriaCloudClient {
 	 */
 	isConfigured(): boolean {
 		return !!this.apiUrl;
+	}
+
+	/**
+	 * Check if we have any auth method available
+	 */
+	hasAuth(): boolean {
+		return !!(this.token || this.deviceId);
 	}
 
 	/**
@@ -84,10 +145,36 @@ export class MemoriaCloudClient {
 	}
 
 	/**
-	 * Validate the current token
+	 * Set the device ID for authentication
+	 */
+	setDeviceId(deviceId: string): void {
+		this.deviceId = deviceId;
+		this.cachedValidation = null;
+		this.validationExpiry = 0;
+	}
+
+	/**
+	 * Validate credentials (token or device)
 	 * Caches result for 5 minutes
 	 */
 	async validateToken(): Promise<TokenValidationResult> {
+		// Prefer token auth if available
+		if (this.token) {
+			return this.validateTeamToken();
+		}
+
+		// Fall back to device auth
+		if (this.deviceId) {
+			return this.validateDevice();
+		}
+
+		return { valid: false, error: "No authentication configured. Run 'memoria login' or set a team token." };
+	}
+
+	/**
+	 * Validate team token
+	 */
+	private async validateTeamToken(): Promise<TokenValidationResult> {
 		if (!this.token) {
 			return { valid: false, error: "No token set" };
 		}
@@ -97,7 +184,7 @@ export class MemoriaCloudClient {
 		}
 
 		// Return cached result if still valid
-		if (this.cachedValidation && Date.now() < this.validationExpiry) {
+		if (this.cachedValidation && this.cachedValidation.authMethod === "token" && Date.now() < this.validationExpiry) {
 			return this.cachedValidation;
 		}
 
@@ -117,6 +204,7 @@ export class MemoriaCloudClient {
 			}
 
 			const result = (await response.json()) as TokenValidationResult;
+			result.authMethod = "token";
 
 			// Cache for 5 minutes
 			this.cachedValidation = result;
@@ -126,6 +214,81 @@ export class MemoriaCloudClient {
 		} catch (error: any) {
 			return { valid: false, error: `Network error: ${error.message}` };
 		}
+	}
+
+	/**
+	 * Validate device authentication
+	 */
+	private async validateDevice(): Promise<TokenValidationResult> {
+		if (!this.deviceId) {
+			return { valid: false, error: "No device ID set" };
+		}
+
+		if (!this.isConfigured()) {
+			return { valid: false, error: "Cloud features not configured." };
+		}
+
+		// Return cached result if still valid
+		if (this.cachedValidation && this.cachedValidation.authMethod === "device" && Date.now() < this.validationExpiry) {
+			return this.cachedValidation;
+		}
+
+		try {
+			const response = await fetch(`${this.apiUrl}/api/devices/validate`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ deviceId: this.deviceId }),
+			});
+
+			const data = await response.json() as {
+				valid: boolean;
+				error?: string;
+				status?: string;
+				userId?: string;
+				userEmail?: string;
+			};
+
+			if (!data.valid) {
+				if (data.status === "pending") {
+					return { valid: false, error: "Device not linked. Run 'memoria login' to connect your account." };
+				}
+				return { valid: false, error: data.error || "Device validation failed" };
+			}
+
+			const result: TokenValidationResult = {
+				valid: true,
+				userId: data.userId,
+				userEmail: data.userEmail,
+				authMethod: "device",
+			};
+
+			// Cache for 5 minutes
+			this.cachedValidation = result;
+			this.validationExpiry = Date.now() + 5 * 60 * 1000;
+
+			return result;
+		} catch (error: any) {
+			return { valid: false, error: `Network error: ${error.message}` };
+		}
+	}
+
+	/**
+	 * Get auth headers for requests
+	 */
+	private getAuthHeaders(): Record<string, string> {
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+		};
+
+		if (this.token) {
+			headers["Authorization"] = `Bearer ${this.token}`;
+		} else if (this.deviceId) {
+			headers["X-Device-Id"] = this.deviceId;
+		}
+
+		return headers;
 	}
 
 	/**
@@ -142,10 +305,15 @@ export class MemoriaCloudClient {
 		}
 
 		try {
-			const params = new URLSearchParams({
-				filePath,
-				orgId: validation.orgId!,
-			});
+			const params = new URLSearchParams({ filePath });
+
+			// Use orgId for token auth, userId for device auth
+			if (validation.orgId) {
+				params.append("orgId", validation.orgId);
+			} else if (validation.userId) {
+				params.append("userId", validation.userId);
+			}
+
 			if (repoId) params.append("repoId", repoId);
 			if (queryKeywords?.length) params.append("keywords", queryKeywords.join(","));
 
@@ -153,9 +321,7 @@ export class MemoriaCloudClient {
 				`${this.apiUrl}/api/mcp/memories?${params.toString()}`,
 				{
 					method: "GET",
-					headers: {
-						Authorization: `Bearer ${this.token}`,
-					},
+					headers: this.getAuthHeaders(),
 				},
 			);
 
@@ -181,16 +347,17 @@ export class MemoriaCloudClient {
 		}
 
 		try {
+			// For device auth, we use the userId from validation
+			const payload = {
+				...input,
+				orgId: validation.orgId || input.orgId,
+				userId: validation.userId || input.userId,
+			};
+
 			const response = await fetch(`${this.apiUrl}/api/mcp/memories`, {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${this.token}`,
-				},
-				body: JSON.stringify({
-					...input,
-					orgId: validation.orgId, // Use org from token
-				}),
+				headers: this.getAuthHeaders(),
+				body: JSON.stringify(payload),
 			});
 
 			if (!response.ok) {
@@ -218,19 +385,22 @@ export class MemoriaCloudClient {
 		}
 
 		try {
-			const params = new URLSearchParams({
-				filePath,
-				orgId: validation.orgId!,
-			});
+			const params = new URLSearchParams({ filePath });
+
+			// Use orgId for token auth, userId for device auth
+			if (validation.orgId) {
+				params.append("orgId", validation.orgId);
+			} else if (validation.userId) {
+				params.append("userId", validation.userId);
+			}
+
 			if (repoId) params.append("repoId", repoId);
 
 			const response = await fetch(
 				`${this.apiUrl}/api/mcp/guardrails?${params.toString()}`,
 				{
 					method: "GET",
-					headers: {
-						Authorization: `Bearer ${this.token}`,
-					},
+					headers: this.getAuthHeaders(),
 				},
 			);
 

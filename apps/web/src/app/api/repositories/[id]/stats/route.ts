@@ -31,6 +31,43 @@ interface RiskyFile {
 	lastAnalyzedAt: number;
 }
 
+// Scan-based types
+interface ScanSummary {
+	totalScans: number;
+	lastScan: {
+		_id: string;
+		status: string;
+		completedAt: number | null;
+		totalFiles: number;
+		filesWithRisk: number;
+	} | null;
+	totalFilesAnalyzed: number;
+	filesWithRisk: number;
+	averageRiskScore: number;
+}
+
+interface ScanRiskyFile {
+	filePath: string;
+	riskScore: number;
+	riskLevel: "low" | "medium" | "high" | "critical";
+	volatilityScore: number;
+	couplingScore: number;
+	importerCount: number;
+	lastAnalyzedAt: number;
+}
+
+interface FileAnalysis {
+	_id: string;
+	filePath: string;
+	riskScore: number;
+	riskLevel: "low" | "medium" | "high" | "critical";
+	volatilityScore: number;
+	couplingScore: number;
+	importerCount: number;
+	coupledFiles: Array<{ file: string; score: number; changeType: string }>;
+	lastAnalyzedAt: number;
+}
+
 interface Activity {
 	_id: string;
 	type: "analysis" | "pr" | "coupling" | "drift";
@@ -99,98 +136,158 @@ export async function GET(
 
 		// Fetch data based on type
 		if (dataType === "stats" || dataType === "all") {
-			const stats = await callQuery<RepositoryStats | null>(
-				convex,
-				"scm:getRepositoryStats",
-				{ repoId }
-			);
+			// Fetch scan-based data (from file_analyses table)
+			const [scanSummary, scanRiskyFiles, allFileAnalyses] = await Promise.all([
+				callQuery<ScanSummary>(
+					convex,
+					"scans:getScanSummary",
+					{ repositoryId: repoId }
+				),
+				callQuery<ScanRiskyFile[]>(
+					convex,
+					"scans:getRiskyFiles",
+					{ repositoryId: repoId, limit: 100 }
+				),
+				callQuery<FileAnalysis[]>(
+					convex,
+					"scans:getFileAnalyses",
+					{ repositoryId: repoId, limit: 1000 }
+				),
+			]);
+
+			// Calculate risk distribution from file analyses
+			const highRiskFiles = allFileAnalyses.filter(f => f.riskScore >= 50).length;
+			const mediumRiskFiles = allFileAnalyses.filter(f => f.riskScore >= 25 && f.riskScore < 50).length;
+			const lowRiskFiles = allFileAnalyses.filter(f => f.riskScore < 25).length;
+
+			// Calculate health score (inverse of risk)
+			const avgRisk = scanSummary.averageRiskScore;
+			const healthScore = Math.max(0, Math.min(100, 100 - avgRisk));
+
+			// Build stats from scan data
+			const stats: RepositoryStats = {
+				totalAnalyses: scanSummary.totalFilesAnalyzed,
+				issuesPrevented: 0, // This would come from PR analyses
+				avgRiskScore: scanSummary.averageRiskScore,
+				healthScore,
+				trend: "stable" as const,
+				riskDistribution: {
+					high: highRiskFiles,
+					medium: mediumRiskFiles,
+					low: lowRiskFiles,
+				},
+				analysisBreakdown: {
+					prAnalyses: 0,
+					fileAnalyses: scanSummary.totalFilesAnalyzed,
+					couplingDetections: allFileAnalyses.filter(f => f.coupledFiles.length > 0).length,
+				},
+			};
 
 			if (dataType === "stats") {
 				return NextResponse.json({ stats });
 			}
 
-			// For "all", fetch everything
-			const [riskyFiles, activity, coupling, chartData, contributors] = await Promise.all([
-				callQuery<{ files: RiskyFile[]; total: number }>(
-					convex,
-					"scm:getRepositoryRiskyFiles",
-					{ repoId, limit, offset }
-				),
-				callQuery<{ activities: Activity[]; total: number }>(
-					convex,
-					"scm:getRepositoryActivity",
-					{ repoId, limit, offset }
-				),
-				callQuery<{ pairs: CouplingPair[]; total: number }>(
-					convex,
-					"scm:getRepositoryCoupling",
-					{ repoId, limit, offset }
-				),
-				callQuery<ChartDataPoint[]>(
-					convex,
-					"scm:getRepositoryChartData",
-					{ repoId }
-				),
-				callQuery<Contributor[]>(
-					convex,
-					"scm:getRepositoryContributors",
-					{ repoId, limit: 10 }
-				),
-			]);
+			// Build risky files from scan data
+			const riskyFilesFormatted = scanRiskyFiles.slice(offset, offset + limit).map(f => ({
+				_id: f.filePath, // Use filePath as ID since we don't have the actual ID
+				filePath: f.filePath,
+				riskScore: f.riskScore,
+				riskLevel: f.riskLevel === "critical" ? "high" : f.riskLevel as "high" | "medium" | "low",
+				volatilityScore: f.volatilityScore,
+				coupledFilesCount: f.couplingScore, // Approximation
+				importersCount: f.importerCount,
+				lastAnalyzedAt: f.lastAnalyzedAt,
+			}));
 
+			// Build coupling pairs from file analyses
+			const couplingPairs: CouplingPair[] = [];
+			for (const file of allFileAnalyses.slice(0, 50)) {
+				for (const coupled of file.coupledFiles.slice(0, 3)) {
+					couplingPairs.push({
+						file1: file.filePath,
+						file2: coupled.file,
+						couplingScore: coupled.score,
+						coChangeCount: Math.round(coupled.score / 10), // Approximation
+						relationship: coupled.changeType || "co-change",
+					});
+				}
+			}
+
+			// For "all", return everything
 			return NextResponse.json({
 				stats,
-				riskyFiles,
-				activity,
-				coupling,
-				chartData,
-				contributors,
+				riskyFiles: {
+					files: riskyFilesFormatted,
+					total: scanRiskyFiles.length,
+				},
+				activity: { activities: [], total: 0 }, // No activity data from scans yet
+				coupling: {
+					pairs: couplingPairs.slice(offset, offset + limit),
+					total: couplingPairs.length,
+				},
+				chartData: [], // Would need to aggregate by date
+				contributors: [], // Would need to extract from git history
 			});
 		}
 
 		if (dataType === "riskyFiles") {
-			const riskyFiles = await callQuery<{ files: RiskyFile[]; total: number }>(
+			const scanRiskyFiles = await callQuery<ScanRiskyFile[]>(
 				convex,
-				"scm:getRepositoryRiskyFiles",
-				{ repoId, limit, offset }
+				"scans:getRiskyFiles",
+				{ repositoryId: repoId, limit: 100 }
 			);
-			return NextResponse.json({ riskyFiles });
+			const riskyFilesFormatted = scanRiskyFiles.slice(offset, offset + limit).map(f => ({
+				_id: f.filePath,
+				filePath: f.filePath,
+				riskScore: f.riskScore,
+				riskLevel: f.riskLevel === "critical" ? "high" : f.riskLevel as "high" | "medium" | "low",
+				volatilityScore: f.volatilityScore,
+				coupledFilesCount: f.couplingScore,
+				importersCount: f.importerCount,
+				lastAnalyzedAt: f.lastAnalyzedAt,
+			}));
+			return NextResponse.json({ riskyFiles: { files: riskyFilesFormatted, total: scanRiskyFiles.length } });
 		}
 
 		if (dataType === "activity") {
-			const activity = await callQuery<{ activities: Activity[]; total: number }>(
-				convex,
-				"scm:getRepositoryActivity",
-				{ repoId, limit, offset }
-			);
-			return NextResponse.json({ activity });
+			// Activity would come from PR analyses - return empty for now
+			return NextResponse.json({ activity: { activities: [], total: 0 } });
 		}
 
 		if (dataType === "coupling") {
-			const coupling = await callQuery<{ pairs: CouplingPair[]; total: number }>(
+			const allFileAnalyses = await callQuery<FileAnalysis[]>(
 				convex,
-				"scm:getRepositoryCoupling",
-				{ repoId, limit, offset }
+				"scans:getFileAnalyses",
+				{ repositoryId: repoId, limit: 1000 }
 			);
-			return NextResponse.json({ coupling });
+			const couplingPairs: CouplingPair[] = [];
+			for (const file of allFileAnalyses) {
+				for (const coupled of file.coupledFiles.slice(0, 3)) {
+					couplingPairs.push({
+						file1: file.filePath,
+						file2: coupled.file,
+						couplingScore: coupled.score,
+						coChangeCount: Math.round(coupled.score / 10),
+						relationship: coupled.changeType || "co-change",
+					});
+				}
+			}
+			return NextResponse.json({
+				coupling: {
+					pairs: couplingPairs.slice(offset, offset + limit),
+					total: couplingPairs.length,
+				}
+			});
 		}
 
 		if (dataType === "chart") {
-			const chartData = await callQuery<ChartDataPoint[]>(
-				convex,
-				"scm:getRepositoryChartData",
-				{ repoId }
-			);
-			return NextResponse.json({ chartData });
+			// Chart data would need aggregation by date - return empty for now
+			return NextResponse.json({ chartData: [] });
 		}
 
 		if (dataType === "contributors") {
-			const contributors = await callQuery<Contributor[]>(
-				convex,
-				"scm:getRepositoryContributors",
-				{ repoId, limit }
-			);
-			return NextResponse.json({ contributors });
+			// Contributors would need git history extraction - return empty for now
+			return NextResponse.json({ contributors: [] });
 		}
 
 		return NextResponse.json({ error: "Invalid data type" }, { status: 400 });

@@ -5,16 +5,20 @@ const now = () => Date.now();
 
 // Helper for creating union of literals (matches schema.ts)
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val)));
+
+const scopeValidator = literals("global", "repository");
 
 /**
  * Create a new memory (human context for AI)
- * Enhanced with Tri-Layer Brain fields
+ * - scope: "global" applies across ALL repos, "repository" applies to one repo
+ * - repoId: Required when scope="repository", must be undefined when scope="global"
  */
 export const createMemory = mutation({
 	args: {
 		userId: v.id("users"),
-		repoId: v.optional(v.id("repositories")), // null = user-wide
+		scope: scopeValidator,
+		repoId: v.optional(v.id("repositories")),
 		context: v.string(),
 		summary: v.optional(v.string()),
 		tags: v.array(v.string()),
@@ -33,6 +37,14 @@ export const createMemory = mutation({
 		createdBy: v.id("users"),
 	},
 	handler: async (ctx, args) => {
+		// Validate scope/repoId consistency
+		if (args.scope === "global" && args.repoId) {
+			throw new Error("Global memories cannot have a repoId");
+		}
+		if (args.scope === "repository" && !args.repoId) {
+			throw new Error("Repository memories must have a repoId");
+		}
+
 		// Auto-extract keywords if not provided
 		const keywords = args.keywords || extractKeywordsFromText(args.context);
 		// Auto-generate summary if not provided (first 100 chars)
@@ -40,6 +52,7 @@ export const createMemory = mutation({
 
 		const memoryId = await ctx.db.insert("memories", {
 			userId: args.userId,
+			scope: args.scope,
 			repoId: args.repoId,
 			context: args.context,
 			summary,
@@ -120,11 +133,14 @@ export const deleteMemory = mutation({
 });
 
 /**
- * List all memories for a user (optionally filtered by repo)
+ * List memories for a user
+ * - scope: "global" = only global memories, "repository" = only repo-specific, undefined = all
+ * - repoId: When scope="repository", filter to this specific repo
  */
 export const listMemories = query({
 	args: {
 		userId: v.id("users"),
+		scope: v.optional(scopeValidator),
 		repoId: v.optional(v.id("repositories")),
 		tag: v.optional(v.string()), // filter by tag
 	},
@@ -134,10 +150,15 @@ export const listMemories = query({
 			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
-		// Filter by repo if specified
+		// Filter by scope if specified
+		if (args.scope !== undefined) {
+			memories = memories.filter((m) => m.scope === args.scope);
+		}
+
+		// Filter by repo if specified (only applies to repository-scoped memories)
 		if (args.repoId !== undefined) {
 			memories = memories.filter(
-				(m) => m.repoId === args.repoId || m.repoId === undefined
+				(m) => m.scope === "global" || m.repoId === args.repoId
 			);
 		}
 
@@ -166,7 +187,8 @@ export const listMemories = query({
 
 /**
  * Get all memories that apply to a specific repository
- * This merges user-wide memories with repo-specific ones
+ * Returns: Global memories + Repository-specific memories for this repo
+ * Repository-specific memories are sorted first
  */
 export const getMemoriesForRepo = query({
 	args: {
@@ -179,16 +201,17 @@ export const getMemoriesForRepo = query({
 			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
-		// Filter to only memories that apply to this repo
-		// (user-wide OR repo-specific)
+		// Filter to only memories that apply to this repo:
+		// - All global memories
+		// - Repository memories for this specific repo
 		const applicable = memories.filter(
-			(m) => m.repoId === undefined || m.repoId === args.repoId
+			(m) => m.scope === "global" || m.repoId === args.repoId
 		);
 
 		// Sort: repo-specific first, then by creation date
 		applicable.sort((a, b) => {
-			if (a.repoId && !b.repoId) return -1;
-			if (!a.repoId && b.repoId) return 1;
+			if (a.scope === "repository" && b.scope === "global") return -1;
+			if (a.scope === "global" && b.scope === "repository") return 1;
 			return b.createdAt - a.createdAt;
 		});
 
@@ -245,8 +268,8 @@ export const getMemoryStats = query({
 			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
-		const userWide = memories.filter((m) => m.repoId === undefined);
-		const repoSpecific = memories.filter((m) => m.repoId !== undefined);
+		const global = memories.filter((m) => m.scope === "global");
+		const repoSpecific = memories.filter((m) => m.scope === "repository");
 
 		// Count unique tags
 		const tagSet = new Set<string>();
@@ -284,7 +307,7 @@ export const getMemoryStats = query({
 
 		return {
 			total: memories.length,
-			userWide: userWide.length,
+			global: global.length,
 			repoSpecific: repoSpecific.length,
 			uniqueTags: tagSet.size,
 			linkedFiles: fileSet.size,
@@ -363,16 +386,16 @@ export const searchMemories = query({
 			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
-		// Filter by repo if specified
+		// Filter by repo if specified (include global + repo-specific)
 		if (args.repoId !== undefined) {
 			memories = memories.filter(
-				(m) => m.repoId === args.repoId || m.repoId === undefined
+				(m) => m.scope === "global" || m.repoId === args.repoId
 			);
 		}
 
 		// Filter by minimum importance
 		if (args.minImportance) {
-			const importanceOrder = { critical: 4, high: 3, normal: 2, low: 1 };
+			const importanceOrder: Record<string, number> = { critical: 4, high: 3, normal: 2, low: 1 };
 			const minLevel = importanceOrder[args.minImportance];
 			memories = memories.filter((m) => {
 				const memLevel = importanceOrder[m.importance || "normal"];
@@ -384,7 +407,7 @@ export const searchMemories = query({
 			// No keywords - return by importance/recency
 			return memories
 				.sort((a, b) => {
-					const importanceOrder = { critical: 4, high: 3, normal: 2, low: 1 };
+					const importanceOrder: Record<string, number> = { critical: 4, high: 3, normal: 2, low: 1 };
 					const aImport = importanceOrder[a.importance || "normal"];
 					const bImport = importanceOrder[b.importance || "normal"];
 					if (aImport !== bImport) return bImport - aImport;
@@ -428,10 +451,10 @@ export const getMemoriesForFile = query({
 			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
-		// Filter by repo if specified
+		// Filter by repo if specified (include global + repo-specific)
 		if (args.repoId !== undefined) {
 			memories = memories.filter(
-				(m) => m.repoId === args.repoId || m.repoId === undefined
+				(m) => m.scope === "global" || m.repoId === args.repoId
 			);
 		}
 
@@ -446,7 +469,7 @@ export const getMemoriesForFile = query({
 			let matchReason = "";
 
 			// Direct file link (highest priority)
-			if (memory.linkedFiles.some((f) => args.filePath.includes(f) || f.includes(args.filePath))) {
+			if (memory.linkedFiles.some((f: string) => args.filePath.includes(f) || f.includes(args.filePath))) {
 				score += 100;
 				matchReason = "linked";
 			}
@@ -460,7 +483,7 @@ export const getMemoriesForFile = query({
 			}
 
 			// Importance boost
-			const importanceBoost = { critical: 50, high: 25, normal: 0, low: -10 };
+			const importanceBoost: Record<string, number> = { critical: 50, high: 25, normal: 0, low: -10 };
 			score += importanceBoost[memory.importance || "normal"];
 
 			if (score > 0) {
@@ -506,10 +529,10 @@ export const getCriticalMemories = query({
 			.withIndex("by_userId", (q) => q.eq("userId", args.userId))
 			.collect();
 
-		// Filter by repo
+		// Filter by repo (include global + repo-specific)
 		if (args.repoId !== undefined) {
 			memories = memories.filter(
-				(m) => m.repoId === args.repoId || m.repoId === undefined
+				(m) => m.scope === "global" || m.repoId === args.repoId
 			);
 		}
 
