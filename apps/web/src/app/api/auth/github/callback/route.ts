@@ -172,8 +172,29 @@ export async function GET(request: NextRequest) {
 			{ userId }
 		);
 
-		// Redirect to onboarding if no installations, otherwise dashboard
-		let redirectUrl = (!installations || installations.length === 0) ? "/onboarding" : "/dashboard";
+		// Check if there's a pending Memoria OAuth flow (from MCP client)
+		const memoriaOAuthState = request.cookies.get("memoria_oauth_state")?.value;
+		const memoriaClientId = request.cookies.get("memoria_oauth_client_id")?.value;
+		const memoriaRedirectUri = request.cookies.get("memoria_oauth_redirect_uri")?.value;
+		const memoriaScope = request.cookies.get("memoria_oauth_scope")?.value;
+
+		// Determine redirect URL
+		let redirectUrl: string;
+
+		if (memoriaOAuthState && memoriaClientId && memoriaRedirectUri) {
+			// User was authorizing MCP client - redirect to Memoria OAuth callback
+			const callbackUrl = new URL("/api/auth/memoria/callback", APP_URL);
+			callbackUrl.searchParams.set("state", memoriaOAuthState);
+			callbackUrl.searchParams.set("client_id", memoriaClientId);
+			callbackUrl.searchParams.set("redirect_uri", memoriaRedirectUri);
+			if (memoriaScope) {
+				callbackUrl.searchParams.set("scope", memoriaScope);
+			}
+			redirectUrl = callbackUrl.toString();
+		} else {
+			// Normal flow: Redirect to onboarding if no installations, otherwise dashboard
+			redirectUrl = (!installations || installations.length === 0) ? "/onboarding" : "/dashboard";
+		}
 
 		// Handle GitHub App installation if installation_id is present
 		if (installationId) {
@@ -253,6 +274,15 @@ export async function GET(request: NextRequest) {
 
 		// Clear OAuth state cookie
 		response.cookies.delete("github_oauth_state");
+
+		// Clear Memoria OAuth cookies if they exist (user was authorizing MCP client)
+		if (memoriaOAuthState) {
+			response.cookies.delete("memoria_oauth_state");
+			response.cookies.delete("memoria_oauth_client_id");
+			response.cookies.delete("memoria_oauth_redirect_uri");
+			response.cookies.delete("memoria_oauth_scope");
+			response.cookies.delete("memoria_oauth_client_state");
+		}
 
 		return response;
 	} catch (error) {
