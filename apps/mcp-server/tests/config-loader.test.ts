@@ -1,7 +1,7 @@
 import { mkdir, rmdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Get project root for test fixtures
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +18,12 @@ describe("Config Loader (.memoria.json)", () => {
 		importers: number;
 	};
 	let getAdaptiveThresholds: (metrics: any, config?: any) => any;
+	let getEffectiveThresholds: (config: any) => any;
+	let loadConfigResult: (repoRoot: string) => Promise<any>;
+	let getConfigWarnings: (config: any) => string[];
+	let DEFAULT_THRESHOLDS: any;
+	let DEFAULT_RISK_WEIGHTS: any;
+	let DEFAULT_CONFIG: any;
 	let PANIC_KEYWORDS: Record<string, number>;
 	let cache: any;
 
@@ -31,6 +37,12 @@ describe("Config Loader (.memoria.json)", () => {
 		getEffectivePanicKeywords = module.getEffectivePanicKeywords;
 		getEffectiveRiskWeights = module.getEffectiveRiskWeights;
 		getAdaptiveThresholds = module.getAdaptiveThresholds;
+		getEffectiveThresholds = module.getEffectiveThresholds;
+		loadConfigResult = module.loadConfigResult;
+		getConfigWarnings = module.getConfigWarnings;
+		DEFAULT_THRESHOLDS = module.DEFAULT_THRESHOLDS;
+		DEFAULT_RISK_WEIGHTS = module.DEFAULT_RISK_WEIGHTS;
+		DEFAULT_CONFIG = module.DEFAULT_CONFIG;
 		PANIC_KEYWORDS = module.PANIC_KEYWORDS;
 		cache = module.cache;
 		cache.clear();
@@ -83,7 +95,7 @@ describe("Config Loader (.memoria.json)", () => {
 			const result1 = await loadConfig(tempDir);
 
 			// Verify it's in cache
-			const cacheKey = `config:${tempDir}`;
+			const cacheKey = `config-result:${tempDir}`;
 			expect(cache.has(cacheKey)).toBe(true);
 
 			// Second call should return cached result
@@ -278,6 +290,168 @@ describe("Config Loader (.memoria.json)", () => {
 			};
 			const result = getAdaptiveThresholds(highVelocityMetrics, config);
 			expect(result.couplingThreshold).toBe(20); // Config wins
+		});
+	});
+
+	describe("default constants (single source of truth)", () => {
+		it("should expose threshold defaults", () => {
+			expect(DEFAULT_THRESHOLDS.couplingPercent).toBe(15);
+			expect(DEFAULT_THRESHOLDS.driftDays).toBe(7);
+			expect(DEFAULT_THRESHOLDS.analysisWindow).toBe(50);
+			expect(DEFAULT_THRESHOLDS.maxFilesPerCommit).toBe(15);
+		});
+
+		it("should expose risk weight defaults that sum to 1.0", () => {
+			const sum =
+				DEFAULT_RISK_WEIGHTS.volatility +
+				DEFAULT_RISK_WEIGHTS.coupling +
+				DEFAULT_RISK_WEIGHTS.drift +
+				DEFAULT_RISK_WEIGHTS.importers;
+			expect(sum).toBeCloseTo(1.0, 5);
+		});
+
+		it("getEffectiveRiskWeights(null) should equal DEFAULT_RISK_WEIGHTS", () => {
+			expect(getEffectiveRiskWeights(null)).toEqual({ ...DEFAULT_RISK_WEIGHTS });
+		});
+
+		it("getAdaptiveThresholds base case should match DEFAULT_THRESHOLDS", () => {
+			const result = getAdaptiveThresholds({
+				totalCommits: 100,
+				commitsPerWeek: 10,
+				avgFilesPerCommit: 3,
+			});
+			expect(result.couplingThreshold).toBe(DEFAULT_THRESHOLDS.couplingPercent);
+			expect(result.driftDays).toBe(DEFAULT_THRESHOLDS.driftDays);
+			expect(result.analysisWindow).toBe(DEFAULT_THRESHOLDS.analysisWindow);
+		});
+
+		it("DEFAULT_CONFIG should embed the default thresholds and weights", () => {
+			expect(DEFAULT_CONFIG.thresholds).toEqual({ ...DEFAULT_THRESHOLDS });
+			expect(DEFAULT_CONFIG.riskWeights).toEqual({ ...DEFAULT_RISK_WEIGHTS });
+		});
+	});
+
+	describe("getEffectiveThresholds", () => {
+		it("should return defaults when config is null", () => {
+			expect(getEffectiveThresholds(null)).toEqual({ ...DEFAULT_THRESHOLDS });
+		});
+
+		it("should merge partial overrides with defaults", () => {
+			const result = getEffectiveThresholds({
+				thresholds: { couplingPercent: 30 },
+			});
+			expect(result.couplingPercent).toBe(30);
+			expect(result.driftDays).toBe(DEFAULT_THRESHOLDS.driftDays);
+			expect(result.maxFilesPerCommit).toBe(DEFAULT_THRESHOLDS.maxFilesPerCommit);
+		});
+	});
+
+	describe("loadConfigResult (status-aware loading)", () => {
+		it("should report 'missing' when no file exists", async () => {
+			const result = await loadConfigResult(projectRoot);
+			expect(result.status).toBe("missing");
+			expect(result.config).toBeNull();
+		});
+
+		it("should report 'ok' with warnings array for valid config", async () => {
+			await writeFile(
+				configPath,
+				JSON.stringify({ thresholds: { couplingPercent: 20 } }),
+			);
+			const result = await loadConfigResult(tempDir);
+			expect(result.status).toBe("ok");
+			expect(result.config?.thresholds?.couplingPercent).toBe(20);
+			expect(Array.isArray(result.warnings)).toBe(true);
+		});
+
+		it("should report 'invalid' with JSON parse error", async () => {
+			await writeFile(configPath, "{ not json }");
+			const result = await loadConfigResult(tempDir);
+			expect(result.status).toBe("invalid");
+			expect(result.errors.length).toBeGreaterThan(0);
+			expect(result.errors[0]).toMatch(/JSON/i);
+		});
+
+		it("should report 'invalid' with helpful message for unknown option", async () => {
+			await writeFile(configPath, JSON.stringify({ thresholdz: {} }));
+			const result = await loadConfigResult(tempDir);
+			expect(result.status).toBe("invalid");
+			expect(result.errors.join(" ")).toMatch(/Unknown option/);
+			expect(result.errors.join(" ")).toContain("thresholdz");
+		});
+
+		it("should report 'invalid' with type info for wrong types", async () => {
+			await writeFile(
+				configPath,
+				JSON.stringify({ thresholds: { couplingPercent: "nope" } }),
+			);
+			const result = await loadConfigResult(tempDir);
+			expect(result.status).toBe("invalid");
+			expect(result.errors.join(" ")).toMatch(/couplingPercent/);
+		});
+
+		it("should catch unknown nested keys (strict nested objects)", async () => {
+			await writeFile(
+				configPath,
+				JSON.stringify({ thresholds: { couplingPct: 20 } }),
+			);
+			const result = await loadConfigResult(tempDir);
+			expect(result.status).toBe("invalid");
+			expect(result.errors.join(" ")).toContain("couplingPct");
+		});
+	});
+
+	describe("getConfigWarnings", () => {
+		it("should warn when risk weights do not sum to 1.0", () => {
+			const warnings = getConfigWarnings({
+				riskWeights: { volatility: 0.5, coupling: 0.5, drift: 0.5, importers: 0.5 },
+			});
+			expect(warnings.some((w) => w.includes("riskWeights sum"))).toBe(true);
+		});
+
+		it("should not warn when risk weights sum to ~1.0", () => {
+			const warnings = getConfigWarnings({
+				riskWeights: { volatility: 0.35, coupling: 0.3, drift: 0.2, importers: 0.15 },
+			});
+			expect(warnings.some((w) => w.includes("riskWeights sum"))).toBe(false);
+		});
+
+		it("should warn about negative panic keyword weights", () => {
+			const warnings = getConfigWarnings({ panicKeywords: { foo: -1 } });
+			expect(warnings.some((w) => w.includes("negative weight"))).toBe(true);
+		});
+
+		it("should return no warnings for a clean config", () => {
+			expect(getConfigWarnings({ thresholds: { couplingPercent: 20 } })).toEqual([]);
+		});
+	});
+
+	describe("loadConfig surfaces invalid config (no silent swallow)", () => {
+		it("should warn to stderr when config is invalid, then return null", async () => {
+			await writeFile(configPath, JSON.stringify({ bogusKey: true }));
+			const errors: string[] = [];
+			const spy = vi.spyOn(console, "error").mockImplementation((...a) => {
+				errors.push(a.join(" "));
+			});
+			try {
+				const result = await loadConfig(tempDir);
+				expect(result).toBeNull();
+				expect(errors.join("\n")).toMatch(/invalid \.memoria\.json/i);
+				expect(errors.join("\n")).toContain("bogusKey");
+			} finally {
+				spy.mockRestore();
+			}
+		});
+
+		it("should NOT warn when config file is simply missing", async () => {
+			const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+			try {
+				const result = await loadConfig(projectRoot);
+				expect(result).toBeNull();
+				expect(spy).not.toHaveBeenCalled();
+			} finally {
+				spy.mockRestore();
+			}
 		});
 	});
 });

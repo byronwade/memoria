@@ -287,6 +287,26 @@ Create a `.memoria.json` in your project root:
 }
 ```
 
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `thresholds.couplingPercent` | 15 | 0–100 | Minimum coupling % to report |
+| `thresholds.driftDays` | 7 | 1–365 | Days before a file is "stale" |
+| `thresholds.analysisWindow` | 50 | 10–500 | Number of commits to analyze |
+| `thresholds.maxFilesPerCommit` | 15 | 5–100 | Skip commits touching more files |
+| `ignore` | `[]` | — | Additional `.gitignore`-style glob patterns |
+| `panicKeywords` | `{}` | — | Custom commit keywords → severity weights |
+| `riskWeights.{volatility,coupling,drift,importers}` | 0.35 / 0.30 / 0.20 / 0.15 | 0–1 | Risk score weights (should sum to ~1.0) |
+
+The CLI and MCP server share one config loader. Invalid options (including
+typos in nested keys) are reported clearly instead of being silently ignored;
+a broken file falls back to defaults with a warning on `stderr`.
+
+```bash
+memoria config            # Show effective config (defaults + .memoria.json)
+memoria config validate   # Validate .memoria.json (exits non-zero on error)
+memoria config init       # Scaffold a .memoria.json with defaults
+```
+
 ---
 
 ## Private & Local

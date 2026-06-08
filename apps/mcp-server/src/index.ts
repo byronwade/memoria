@@ -29,76 +29,250 @@ export const cache = new LRUCache<string, any>({
 	ttl: 1000 * 60 * 5,
 });
 
+// --- CONFIGURATION DEFAULTS (single source of truth) ---
+// Every default Memoria uses lives here. Both the CLI and the MCP server read
+// from these constants so the two can never drift apart. Do NOT hardcode these
+// numbers anywhere else — reference these objects instead.
+export const DEFAULT_THRESHOLDS = {
+	couplingPercent: 15,
+	driftDays: 7,
+	analysisWindow: 50,
+	maxFilesPerCommit: 15,
+} as const;
+
+export const DEFAULT_RISK_WEIGHTS = {
+	volatility: 0.35,
+	coupling: 0.3,
+	drift: 0.2,
+	importers: 0.15,
+} as const;
+
+// The complete default configuration, used when no .memoria.json is present.
+// Exposed via the `memoria://defaults` MCP resource and `memoria config` CLI.
+export const DEFAULT_CONFIG = {
+	thresholds: { ...DEFAULT_THRESHOLDS },
+	riskWeights: { ...DEFAULT_RISK_WEIGHTS },
+} as const;
+
 // --- CONFIGURATION SCHEMA (.memoria.json) ---
+// `.strict()` everywhere so typos in option names are reported instead of
+// silently ignored. `.describe()` powers the generated docs in `memoria config`.
 const MemoriaConfigSchema = z
 	.object({
 		thresholds: z
 			.object({
-				couplingPercent: z.number().min(0).max(100).optional(),
-				driftDays: z.number().min(1).max(365).optional(),
-				analysisWindow: z.number().min(10).max(500).optional(),
-				maxFilesPerCommit: z.number().min(5).max(100).optional(),
+				couplingPercent: z
+					.number()
+					.min(0)
+					.max(100)
+					.optional()
+					.describe("Minimum coupling % required to report a coupled file (0-100)"),
+				driftDays: z
+					.number()
+					.min(1)
+					.max(365)
+					.optional()
+					.describe("Days before a coupled file is considered stale (1-365)"),
+				analysisWindow: z
+					.number()
+					.int()
+					.min(10)
+					.max(500)
+					.optional()
+					.describe("Number of recent commits to analyze for coupling (10-500)"),
+				maxFilesPerCommit: z
+					.number()
+					.int()
+					.min(5)
+					.max(100)
+					.optional()
+					.describe("Skip commits touching more files than this to filter bulk refactors (5-100)"),
 			})
-			.optional(),
-		ignore: z.array(z.string()).optional(),
-		panicKeywords: z.record(z.string(), z.number()).optional(),
+			.strict()
+			.optional()
+			.describe("Tuning knobs for coupling, drift, and analysis depth"),
+		ignore: z
+			.array(z.string())
+			.optional()
+			.describe("Additional .gitignore-style glob patterns to exclude from analysis"),
+		panicKeywords: z
+			.record(z.string(), z.number())
+			.optional()
+			.describe("Custom commit-message keywords mapped to volatility weights"),
 		riskWeights: z
 			.object({
-				volatility: z.number().min(0).max(1).optional(),
-				coupling: z.number().min(0).max(1).optional(),
-				drift: z.number().min(0).max(1).optional(),
-				importers: z.number().min(0).max(1).optional(),
+				volatility: z.number().min(0).max(1).optional().describe("Weight of volatility in the compound risk score (0-1)"),
+				coupling: z.number().min(0).max(1).optional().describe("Weight of coupling in the compound risk score (0-1)"),
+				drift: z.number().min(0).max(1).optional().describe("Weight of drift in the compound risk score (0-1)"),
+				importers: z.number().min(0).max(1).optional().describe("Weight of static importers in the compound risk score (0-1)"),
 			})
-			.optional(),
+			.strict()
+			.optional()
+			.describe("How much each engine contributes to the 0-100 risk score (should sum to ~1.0)"),
 	})
 	.strict();
 
 export type MemoriaConfig = z.infer<typeof MemoriaConfigSchema>;
 
-// Export configSchema for Smithery
+// Export configSchema for Smithery (flat shape, with defaults baked in)
 export const configSchema = z.object({
 	couplingPercent: z
 		.number()
 		.min(0)
 		.max(100)
 		.optional()
-		.default(15)
+		.default(DEFAULT_THRESHOLDS.couplingPercent)
 		.describe("Minimum coupling percentage to report (0-100)"),
 	driftDays: z
 		.number()
 		.min(1)
 		.max(365)
 		.optional()
-		.default(7)
+		.default(DEFAULT_THRESHOLDS.driftDays)
 		.describe("Days before a coupled file is considered stale"),
 	analysisWindow: z
 		.number()
 		.min(10)
 		.max(500)
 		.optional()
-		.default(50)
+		.default(DEFAULT_THRESHOLDS.analysisWindow)
 		.describe("Number of commits to analyze for coupling"),
 });
 
-// Load and validate .memoria.json config file (cached)
+// Outcome of attempting to load .memoria.json. Distinguishes "no config file"
+// (perfectly fine — use defaults silently) from "config file is broken" (the
+// user almost certainly made a mistake and deserves a clear message).
+export type ConfigLoadResult =
+	| { status: "missing"; config: null; configPath: string }
+	| { status: "ok"; config: MemoriaConfig; configPath: string; warnings: string[] }
+	| { status: "invalid"; config: null; configPath: string; errors: string[]; warnings: string[] };
+
+// Turn a ZodError into clear, actionable, human-readable lines.
+export function formatConfigIssues(error: z.ZodError): string[] {
+	return error.issues.map((issue) => {
+		const where = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+		if (issue.code === "unrecognized_keys") {
+			const keys = (issue as { keys?: string[] }).keys ?? [];
+			const label = keys.length === 1 ? "Unknown option" : "Unknown options";
+			return `${label} at "${where === "(root)" ? "top level" : where}": ${keys
+				.map((k) => `"${k}"`)
+				.join(", ")} — check for typos.`;
+		}
+		if (issue.code === "invalid_type") {
+			const it = issue as { expected?: string; received?: string };
+			return `"${where}" must be a ${it.expected} (got ${it.received}).`;
+		}
+		return `"${where}": ${issue.message}`;
+	});
+}
+
+// Non-fatal sanity checks that don't fail validation but are worth surfacing.
+export function getConfigWarnings(config: MemoriaConfig): string[] {
+	const warnings: string[] = [];
+	if (config.riskWeights) {
+		const w = getEffectiveRiskWeights(config);
+		const sum = w.volatility + w.coupling + w.drift + w.importers;
+		if (Math.abs(sum - 1) > 0.01) {
+			warnings.push(
+				`riskWeights sum to ${sum.toFixed(2)}, not 1.0. ` +
+					"Risk scores stay relative but won't map cleanly to the 0-100 scale.",
+			);
+		}
+	}
+	if (config.panicKeywords) {
+		for (const [kw, weight] of Object.entries(config.panicKeywords)) {
+			if (weight < 0) {
+				warnings.push(`panicKeyword "${kw}" has a negative weight (${weight}); it will reduce volatility.`);
+			}
+		}
+	}
+	return warnings;
+}
+
+// Load .memoria.json and report exactly what happened (cached).
+// This is the single code path both the CLI and MCP server use, so they can
+// never disagree about what a config file means.
+export async function loadConfigResult(
+	repoRoot: string,
+): Promise<ConfigLoadResult> {
+	const cacheKey = `config-result:${repoRoot}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	const configPath = path.join(repoRoot, ".memoria.json");
+	let content: string;
+	try {
+		content = await fs.readFile(configPath, "utf8");
+	} catch {
+		// No config file at all — this is the normal, supported case.
+		const result: ConfigLoadResult = { status: "missing", config: null, configPath };
+		cache.set(cacheKey, result);
+		return result;
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch (e) {
+		const result: ConfigLoadResult = {
+			status: "invalid",
+			config: null,
+			configPath,
+			errors: [`Not valid JSON: ${(e as Error).message}`],
+			warnings: [],
+		};
+		cache.set(cacheKey, result);
+		return result;
+	}
+
+	const validation = MemoriaConfigSchema.safeParse(parsed);
+	if (!validation.success) {
+		const result: ConfigLoadResult = {
+			status: "invalid",
+			config: null,
+			configPath,
+			errors: formatConfigIssues(validation.error),
+			warnings: [],
+		};
+		cache.set(cacheKey, result);
+		return result;
+	}
+
+	const result: ConfigLoadResult = {
+		status: "ok",
+		config: validation.data,
+		configPath,
+		warnings: getConfigWarnings(validation.data),
+	};
+	cache.set(cacheKey, result);
+	return result;
+}
+
+// Load and validate .memoria.json config file (cached).
+// Returns null when there's no usable config (missing OR invalid) so existing
+// callers keep working. When a config file IS present but broken, we emit a
+// loud warning to stderr instead of failing silently — stderr is safe even in
+// MCP stdio mode where stdout carries the protocol.
 export async function loadConfig(
 	repoRoot: string,
 ): Promise<MemoriaConfig | null> {
-	const cacheKey = `config:${repoRoot}`;
-	if (cache.has(cacheKey)) return cache.get(cacheKey);
+	const result = await loadConfigResult(repoRoot);
 
-	try {
-		const configPath = path.join(repoRoot, ".memoria.json");
-		const content = await fs.readFile(configPath, "utf8");
-		const parsed = JSON.parse(content);
-		const validated = MemoriaConfigSchema.parse(parsed);
-		cache.set(cacheKey, validated);
-		return validated;
-	} catch (_e) {
-		// Config doesn't exist or is invalid - use defaults
-		cache.set(cacheKey, null);
+	if (result.status === "invalid") {
+		console.error(
+			`[memoria] Ignoring invalid .memoria.json (${result.configPath}). Using defaults.\n` +
+				result.errors.map((e) => `  • ${e}`).join("\n"),
+		);
 		return null;
 	}
+
+	if (result.status === "ok" && result.warnings.length > 0) {
+		console.error(
+			`[memoria] .memoria.json loaded with warnings:\n` +
+				result.warnings.map((w) => `  • ${w}`).join("\n"),
+		);
+	}
+
+	return result.config;
 }
 
 // Get effective panic keywords (base + config overrides)
@@ -118,18 +292,31 @@ export function getEffectiveRiskWeights(
 	drift: number;
 	importers: number;
 } {
-	const defaults = {
-		volatility: 0.35,
-		coupling: 0.3,
-		drift: 0.2,
-		importers: 0.15,
-	};
-	if (!config?.riskWeights) return defaults;
+	if (!config?.riskWeights) return { ...DEFAULT_RISK_WEIGHTS };
 	return {
-		volatility: config.riskWeights.volatility ?? defaults.volatility,
-		coupling: config.riskWeights.coupling ?? defaults.coupling,
-		drift: config.riskWeights.drift ?? defaults.drift,
-		importers: config.riskWeights.importers ?? defaults.importers,
+		volatility: config.riskWeights.volatility ?? DEFAULT_RISK_WEIGHTS.volatility,
+		coupling: config.riskWeights.coupling ?? DEFAULT_RISK_WEIGHTS.coupling,
+		drift: config.riskWeights.drift ?? DEFAULT_RISK_WEIGHTS.drift,
+		importers: config.riskWeights.importers ?? DEFAULT_RISK_WEIGHTS.importers,
+	};
+}
+
+// Get effective thresholds (defaults + config overrides), ignoring adaptive
+// velocity logic. Useful for `memoria config` and anywhere a plain merge is
+// wanted. `getAdaptiveThresholds` layers velocity heuristics on top of these.
+export function getEffectiveThresholds(
+	config: MemoriaConfig | null | undefined,
+): {
+	couplingPercent: number;
+	driftDays: number;
+	analysisWindow: number;
+	maxFilesPerCommit: number;
+} {
+	return {
+		couplingPercent: config?.thresholds?.couplingPercent ?? DEFAULT_THRESHOLDS.couplingPercent,
+		driftDays: config?.thresholds?.driftDays ?? DEFAULT_THRESHOLDS.driftDays,
+		analysisWindow: config?.thresholds?.analysisWindow ?? DEFAULT_THRESHOLDS.analysisWindow,
+		maxFilesPerCommit: config?.thresholds?.maxFilesPerCommit ?? DEFAULT_THRESHOLDS.maxFilesPerCommit,
 	};
 }
 
@@ -574,10 +761,10 @@ export function getAdaptiveThresholds(
 	metrics: ProjectMetrics,
 	config?: MemoriaConfig | null,
 ): AdaptiveThresholds {
-	// Base thresholds
-	let couplingThreshold = 15;
-	let driftDays = 7;
-	let analysisWindow = 50;
+	// Base thresholds (single source of truth)
+	let couplingThreshold: number = DEFAULT_THRESHOLDS.couplingPercent;
+	let driftDays: number = DEFAULT_THRESHOLDS.driftDays;
+	let analysisWindow: number = DEFAULT_THRESHOLDS.analysisWindow;
 
 	// Adjust based on commit velocity
 	if (metrics.commitsPerWeek < 5) {
@@ -727,6 +914,19 @@ export function parseDiffToSummary(rawDiff: string): DiffSummary {
 export function getGitForFile(filePath: string) {
 	const dir = path.dirname(filePath);
 	return simpleGit(dir);
+}
+
+// Resolve the git repository root containing `startPath` (a file or directory).
+// Returns null when not inside a git repository.
+export async function resolveRepoRoot(startPath: string): Promise<string | null> {
+	try {
+		const stat = await fs.stat(startPath).catch(() => null);
+		const dir = stat?.isDirectory() ? startPath : path.dirname(startPath);
+		const root = await simpleGit(dir).revparse(["--show-toplevel"]);
+		return root.trim();
+	} catch {
+		return null;
+	}
 }
 
 // --- BINARY FILE DETECTION ---
@@ -962,7 +1162,8 @@ export async function getCoupledFiles(
 		> = {};
 
 		// Get max files per commit threshold (default: 15)
-		const maxFilesPerCommit = config?.thresholds?.maxFilesPerCommit ?? 15;
+		const maxFilesPerCommit =
+			config?.thresholds?.maxFilesPerCommit ?? DEFAULT_THRESHOLDS.maxFilesPerCommit;
 
 		// Process all commits to find co-changes (limited to 5 concurrent git operations)
 		await mapConcurrent(log.all, 5, async (commit) => {
@@ -4770,26 +4971,12 @@ function setupServer(server: Server): Server {
 		const { uri } = request.params;
 
 		if (uri === "memoria://defaults") {
-			const defaults = {
-				thresholds: {
-					couplingPercent: 15,
-					driftDays: 7,
-					analysisWindow: 50,
-					maxFilesPerCommit: 15,
-				},
-				riskWeights: {
-					volatility: 0.35,
-					coupling: 0.3,
-					drift: 0.2,
-					importers: 0.15,
-				},
-			};
 			return {
 				contents: [
 					{
 						uri,
 						mimeType: "application/json",
-						text: JSON.stringify(defaults, null, 2),
+						text: JSON.stringify(DEFAULT_CONFIG, null, 2),
 					},
 				],
 			};

@@ -395,14 +395,42 @@ Create a `.memoria.json` in your project root to customize thresholds:
 }
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `thresholds.couplingPercent` | 15 | Minimum coupling % to report |
-| `thresholds.driftDays` | 7 | Days before a file is "stale" |
-| `thresholds.analysisWindow` | 50 | Number of commits to analyze |
-| `ignore` | [] | Additional glob patterns to ignore |
-| `panicKeywords` | {} | Custom keywords with severity weights |
-| `riskWeights` | {} | Override risk calculation weights |
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `thresholds.couplingPercent` | 15 | 0–100 | Minimum coupling % to report |
+| `thresholds.driftDays` | 7 | 1–365 | Days before a file is "stale" |
+| `thresholds.analysisWindow` | 50 | 10–500 | Number of commits to analyze |
+| `thresholds.maxFilesPerCommit` | 15 | 5–100 | Skip commits touching more files (filters bulk refactors) |
+| `ignore` | `[]` | — | Additional `.gitignore`-style glob patterns to exclude |
+| `panicKeywords` | `{}` | — | Custom commit keywords mapped to severity weights |
+| `riskWeights.volatility` | 0.35 | 0–1 | Weight of volatility in the risk score |
+| `riskWeights.coupling` | 0.30 | 0–1 | Weight of coupling in the risk score |
+| `riskWeights.drift` | 0.20 | 0–1 | Weight of drift in the risk score |
+| `riskWeights.importers` | 0.15 | 0–1 | Weight of static importers in the risk score |
+
+> `riskWeights` should sum to ~1.0 so scores map cleanly onto the 0–100 scale.
+
+### Validating your config
+
+The CLI and the MCP server share one config loader, so they always agree on
+what your `.memoria.json` means. Unknown options (including typos in nested
+keys) and out-of-range values are reported with clear messages rather than
+silently ignored — if the file is broken, Memoria warns on `stderr` and falls
+back to the built-in defaults instead of crashing.
+
+```bash
+memoria config            # Show the effective config (defaults + .memoria.json)
+memoria config validate   # Validate .memoria.json (exits non-zero on error)
+memoria config init       # Scaffold a .memoria.json with the defaults above
+```
+
+Example error output:
+
+```text
+Invalid .memoria.json (/repo/.memoria.json):
+  • Unknown option at "thresholds": "couplingPct" — check for typos.
+  • "thresholds.driftDays" must be a number (got string).
+```
 
 ---
 

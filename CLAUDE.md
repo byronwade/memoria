@@ -645,6 +645,30 @@ Then in your MCP config:
 }
 ```
 
+## Configuration Loading
+
+Config defaults live in **one place** — the `DEFAULT_THRESHOLDS`,
+`DEFAULT_RISK_WEIGHTS`, and `DEFAULT_CONFIG` constants in `src/index.ts`. The
+CLI, the MCP server, the Smithery `configSchema`, and the `memoria://defaults`
+resource all read from these, so they can never drift apart.
+
+`.memoria.json` is loaded through a single shared code path:
+
+- **`loadConfigResult(repoRoot)`** — returns a tagged result:
+  - `{ status: "missing" }` — no file; defaults are used silently (the normal case)
+  - `{ status: "ok", config, warnings }` — valid; `warnings` flags non-fatal issues (e.g. risk weights not summing to 1.0)
+  - `{ status: "invalid", errors }` — bad JSON, unknown options (typos), or out-of-range values, with clear messages
+- **`loadConfig(repoRoot)`** — thin wrapper returning `MemoriaConfig | null`. On an invalid file it logs the errors to `stderr` (safe in MCP stdio mode) and falls back to defaults instead of swallowing the problem silently.
+- Schema objects are **`.strict()` at every level**, so a typo like `couplingPct` is reported instead of ignored.
+
+CLI commands for inspecting/validating config:
+
+```bash
+memoria config            # Show effective config (defaults merged with .memoria.json)
+memoria config validate   # Validate .memoria.json; exits non-zero with clear errors
+memoria config init       # Scaffold a .memoria.json populated with the defaults
+```
+
 ## Configuration File (`.memoria.json`)
 
 Create a `.memoria.json` file in your repository root to customize Memoria's behavior:

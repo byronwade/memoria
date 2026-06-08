@@ -141,6 +141,11 @@ ${chalk.bold.cyan("Analysis Commands:")}
   memoria importers <file>       Show files that import target
   memoria history <query> [file] Search git history for context
 
+${chalk.bold.cyan("Config Commands:")}
+  memoria config                 Show effective config (defaults + .memoria.json)
+  memoria config validate        Validate .memoria.json (exit 1 on error)
+  memoria config init            Scaffold a .memoria.json with defaults
+
 ${chalk.bold.cyan("Setup Commands:")}
   memoria init                   Install Memoria rules for AI tools
   memoria serve                  Start the MCP server
@@ -647,8 +652,11 @@ async function runRisk(filePath: string, options: CliOptions): Promise<void> {
 
 	const driftFiles = await memoria.checkDrift(absolutePath, coupledFiles, ctx);
 	const riskAssessment = memoria.calculateCompoundRisk(volatility, coupledFiles, driftFiles, importers);
-	const config = await memoria.loadConfig(absolutePath);
-	const weights = memoria.getEffectiveRiskWeights(config);
+	// Reuse the config already resolved by the analysis context. Calling
+	// loadConfig with a file path (instead of the repo root) silently failed to
+	// find .memoria.json, so the CLI ignored user config here — ctx.config is
+	// loaded from the correct repo root, matching the MCP server exactly.
+	const weights = memoria.getEffectiveRiskWeights(ctx.config);
 
 	if (options.json) {
 		console.log(JSON.stringify({
@@ -1153,6 +1161,126 @@ async function showInteractiveSetup(cwd: string): Promise<void> {
 	);
 }
 
+// memoria config [show|validate|init]
+// Shows the effective configuration (defaults merged with .memoria.json),
+// validates the file with clear errors, or scaffolds a starter config.
+async function runConfig(
+	subcommand: string | undefined,
+	options: CliOptions,
+): Promise<void> {
+	const memoria = await import("./index.js");
+	const cwd = process.cwd();
+	const repoRoot = (await memoria.resolveRepoRoot(cwd)) ?? cwd;
+
+	// memoria config init — scaffold a starter .memoria.json
+	if (subcommand === "init") {
+		const target = path.join(repoRoot, ".memoria.json");
+		if (fs.existsSync(target)) {
+			console.error(chalk.red(`Error: ${target} already exists. Refusing to overwrite.`));
+			process.exit(1);
+		}
+		const starter = {
+			thresholds: { ...memoria.DEFAULT_THRESHOLDS },
+			riskWeights: { ...memoria.DEFAULT_RISK_WEIGHTS },
+			ignore: [],
+		};
+		fs.writeFileSync(target, `${JSON.stringify(starter, null, 2)}\n`);
+		console.log(chalk.green(`Created ${target} with default values.`));
+		console.log(chalk.dim("Edit it to customize, then run `memoria config validate`."));
+		return;
+	}
+
+	const result = await memoria.loadConfigResult(repoRoot);
+
+	// memoria config validate — exit non-zero when the file is broken
+	if (subcommand === "validate") {
+		if (result.status === "missing") {
+			console.log(chalk.dim(`No .memoria.json found at ${result.configPath} (defaults will be used).`));
+			return;
+		}
+		if (result.status === "invalid") {
+			console.error(chalk.red(`Invalid .memoria.json (${result.configPath}):`));
+			for (const err of result.errors) {
+				console.error(chalk.red(`  • ${err}`));
+			}
+			process.exit(1);
+		}
+		console.log(chalk.green(`.memoria.json is valid (${result.configPath}).`));
+		for (const w of result.warnings) {
+			console.log(chalk.yellow(`  ⚠ ${w}`));
+		}
+		return;
+	}
+
+	// Default: show effective configuration
+	const effective = {
+		thresholds: memoria.getEffectiveThresholds(result.config),
+		riskWeights: memoria.getEffectiveRiskWeights(result.config),
+		ignore: result.config?.ignore ?? [],
+		panicKeywords: memoria.getEffectivePanicKeywords(result.config),
+	};
+
+	if (options.json) {
+		console.log(
+			JSON.stringify(
+				{
+					source: result.status,
+					configPath: result.configPath,
+					errors: result.status === "invalid" ? result.errors : [],
+					warnings: result.status === "ok" ? result.warnings : [],
+					effective,
+				},
+				null,
+				2,
+			),
+		);
+		if (result.status === "invalid") process.exit(1);
+		return;
+	}
+
+	console.log();
+	console.log(chalk.bold("Memoria Configuration"));
+	console.log();
+
+	if (result.status === "missing") {
+		console.log(chalk.dim(`  No .memoria.json found — using built-in defaults.`));
+		console.log(chalk.dim(`  Create one with: memoria config init`));
+	} else if (result.status === "invalid") {
+		console.log(chalk.red(`  Invalid .memoria.json (${result.configPath}) — using defaults:`));
+		for (const err of result.errors) {
+			console.log(chalk.red(`    • ${err}`));
+		}
+	} else {
+		console.log(chalk.green(`  Loaded ${result.configPath}`));
+		for (const w of result.warnings) {
+			console.log(chalk.yellow(`    ⚠ ${w}`));
+		}
+	}
+
+	console.log();
+	console.log(chalk.bold.cyan("  Thresholds"));
+	console.log(`    couplingPercent    ${effective.thresholds.couplingPercent}`);
+	console.log(`    driftDays          ${effective.thresholds.driftDays}`);
+	console.log(`    analysisWindow     ${effective.thresholds.analysisWindow}`);
+	console.log(`    maxFilesPerCommit  ${effective.thresholds.maxFilesPerCommit}`);
+	console.log();
+	console.log(chalk.bold.cyan("  Risk Weights"));
+	console.log(`    volatility         ${effective.riskWeights.volatility}`);
+	console.log(`    coupling           ${effective.riskWeights.coupling}`);
+	console.log(`    drift              ${effective.riskWeights.drift}`);
+	console.log(`    importers          ${effective.riskWeights.importers}`);
+	if (effective.ignore.length > 0) {
+		console.log();
+		console.log(chalk.bold.cyan("  Ignore Patterns"));
+		for (const pat of effective.ignore) {
+			console.log(`    ${pat}`);
+		}
+	}
+	console.log();
+
+	if (result.status === "invalid") process.exit(1);
+}
+
 async function main() {
 	const args = process.argv.slice(2);
 	const cwd = process.cwd();
@@ -1266,6 +1394,13 @@ async function main() {
 			process.exit(1);
 		}
 		await runHistory(query, filePath, options);
+		return;
+	}
+
+	// memoria config [show|validate|init]
+	if (args[0] === "config") {
+		const sub = args.slice(1).find((a) => !a.startsWith("--"));
+		await runConfig(sub, options);
 		return;
 	}
 
