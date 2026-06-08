@@ -272,4 +272,67 @@ describe("MCP Tool Handler", () => {
 			expect(vol2).toBeDefined();
 		});
 	});
+
+	// The analyzeFile orchestrator is the single code path shared by the MCP
+	// analyze_file tool and the `memoria analyze/risk/coupled` CLI commands.
+	describe("analyzeFile orchestrator (shared CLI + MCP path)", () => {
+		it("should return a complete, well-formed analysis", async () => {
+			const module = await import("../src/index.js");
+			const filePath = join(projectRoot, "src", "index.ts");
+
+			const analysis = await module.analyzeFile(filePath);
+
+			expect(analysis.filePath).toBe(filePath);
+			expect(analysis.volatility).toBeDefined();
+			expect(Array.isArray(analysis.coupled)).toBe(true);
+			expect(Array.isArray(analysis.gitCoupled)).toBe(true);
+			expect(Array.isArray(analysis.drift)).toBe(true);
+			expect(Array.isArray(analysis.importers)).toBe(true);
+			expect(analysis.risk).toBeDefined();
+			expect(typeof analysis.risk.score).toBe("number");
+			expect(["low", "medium", "high", "critical"]).toContain(
+				analysis.risk.level,
+			);
+		});
+
+		it("should merge coupling from all engines (superset of git coupling)", async () => {
+			const module = await import("../src/index.js");
+			const filePath = join(projectRoot, "src", "index.ts");
+
+			const analysis = await module.analyzeFile(filePath);
+
+			// Every git-coupled file must appear in the merged list.
+			const mergedFiles = new Set(analysis.coupled.map((c: any) => c.file));
+			for (const gc of analysis.gitCoupled) {
+				expect(mergedFiles.has(gc.file)).toBe(true);
+			}
+		});
+
+		it("should produce a risk score matching calculateCompoundRisk on its outputs", async () => {
+			const module = await import("../src/index.js");
+			const filePath = join(projectRoot, "src", "index.ts");
+
+			const analysis = await module.analyzeFile(filePath);
+			const recomputed = module.calculateCompoundRisk(
+				analysis.volatility,
+				analysis.coupled,
+				analysis.drift,
+				analysis.importers,
+				analysis.config,
+			);
+
+			expect(analysis.risk.score).toBe(recomputed.score);
+			expect(analysis.risk.level).toBe(recomputed.level);
+		});
+
+		it("should reuse a provided AnalysisContext", async () => {
+			const module = await import("../src/index.js");
+			const filePath = join(projectRoot, "src", "index.ts");
+
+			const ctx = await module.createAnalysisContext(filePath);
+			const analysis = await module.analyzeFile(filePath, ctx);
+
+			expect(analysis.config).toBe(ctx.config);
+		});
+	});
 });

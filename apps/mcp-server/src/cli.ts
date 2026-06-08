@@ -52,82 +52,122 @@ const RULES: Record<string, { src: string; dest: string; name: string }> = {
 	},
 };
 
-// MCP config file locations
-interface McpConfig {
-	getPath: (cwd: string) => string;
+// MCP config file locations.
+//
+// Different tools store MCP servers in different files, scopes (project vs the
+// user's home directory), and JSON shapes. Capturing those differences here in
+// data keeps the install logic uniform and cross-platform.
+interface McpTarget {
 	name: string;
 	scope: "project" | "global";
-	detect: (cwd: string) => boolean;
+	// The JSON key the server map lives under. Most tools use "mcpServers";
+	// VS Code's native MCP support uses "servers".
+	serversKey: "mcpServers" | "servers";
+	// Returns the absolute config path, or null when unsupported on this OS.
+	getPath: (cwd: string) => string | null;
 }
 
-const MCP_CONFIGS: Record<string, McpConfig> = {
+// Cross-platform location of the Claude Desktop config file.
+function claudeDesktopConfigPath(): string | null {
+	if (process.platform === "win32") {
+		const appData = process.env.APPDATA;
+		return appData
+			? path.join(appData, "Claude", "claude_desktop_config.json")
+			: null;
+	}
+	if (process.platform === "darwin") {
+		return path.join(
+			os.homedir(),
+			"Library",
+			"Application Support",
+			"Claude",
+			"claude_desktop_config.json",
+		);
+	}
+	// Linux and other Unix-likes follow the XDG convention.
+	const xdg = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+	return path.join(xdg, "Claude", "claude_desktop_config.json");
+}
+
+const MCP_TARGETS: Record<string, McpTarget> = {
 	cursor: {
-		getPath: (cwd: string) => path.join(cwd, ".cursor", "mcp.json"),
 		name: "Cursor",
 		scope: "project",
-		detect: (cwd: string) =>
-			fs.existsSync(path.join(cwd, ".cursor")) ||
-			fs.existsSync(path.join(cwd, ".cursorrules")),
+		serversKey: "mcpServers",
+		getPath: (cwd) => path.join(cwd, ".cursor", "mcp.json"),
+	},
+	claude: {
+		// Claude Code reads a project-level `.mcp.json` at the repo root. This is
+		// far more reliable than editing the user's global Claude Desktop config,
+		// and matches where the Claude rules (.claude/CLAUDE.md) are installed.
+		name: "Claude Code",
+		scope: "project",
+		serversKey: "mcpServers",
+		getPath: (cwd) => path.join(cwd, ".mcp.json"),
 	},
 	"claude-desktop": {
-		getPath: () =>
-			process.platform === "win32"
-				? path.join(
-						process.env.APPDATA || "",
-						"Claude",
-						"claude_desktop_config.json",
-					)
-				: path.join(
-						os.homedir(),
-						"Library",
-						"Application Support",
-						"Claude",
-						"claude_desktop_config.json",
-					),
 		name: "Claude Desktop",
 		scope: "global",
-		detect: () => {
-			const configPath =
-				process.platform === "win32"
-					? path.join(
-							process.env.APPDATA || "",
-							"Claude",
-							"claude_desktop_config.json",
-						)
-					: path.join(
-							os.homedir(),
-							"Library",
-							"Application Support",
-							"Claude",
-							"claude_desktop_config.json",
-						);
-			return fs.existsSync(path.dirname(configPath));
-		},
+		serversKey: "mcpServers",
+		getPath: () => claudeDesktopConfigPath(),
 	},
 	windsurf: {
-		getPath: () =>
-			path.join(os.homedir(), ".codeium", "windsurf", "mcp_config.json"),
 		name: "Windsurf",
 		scope: "global",
-		detect: () =>
-			fs.existsSync(path.join(os.homedir(), ".codeium", "windsurf")),
+		serversKey: "mcpServers",
+		getPath: () =>
+			path.join(os.homedir(), ".codeium", "windsurf", "mcp_config.json"),
+	},
+	vscode: {
+		name: "VS Code",
+		scope: "project",
+		serversKey: "servers",
+		getPath: (cwd) => path.join(cwd, ".vscode", "mcp.json"),
 	},
 };
 
-// Memoria MCP server entry
+// Maps a rule-tool selection to the MCP target it should configure.
+// Tools without a standard MCP config file (e.g. Cline) are rules-only.
+const TOOL_TO_MCP: Record<string, string> = {
+	cursor: "cursor",
+	claude: "claude",
+	windsurf: "windsurf",
+};
+
+// Memoria MCP server entry written into each tool's config.
 const MEMORIA_MCP_ENTRY = {
 	command: "npx",
 	args: ["-y", "@byronwade/memoria"],
 };
 
+// Read the package version from the bundled package.json (best-effort).
+function getVersion(): string {
+	const candidates = [
+		path.join(__dirname, "../package.json"), // published: dist/ -> ../package.json
+		path.join(__dirname, "../../package.json"),
+	];
+	for (const candidate of candidates) {
+		try {
+			const pkg = JSON.parse(fs.readFileSync(candidate, "utf8"));
+			if (pkg?.name === "@byronwade/memoria" && pkg.version) {
+				return pkg.version as string;
+			}
+		} catch {
+			// Try the next candidate.
+		}
+	}
+	return "unknown";
+}
+
 function printHelp() {
 	console.log(`
-${chalk.bold("Memoria")} - The Memory Your AI Lacks
+${chalk.bold("Memoria")} ${chalk.dim(`v${getVersion()}`)} - The Memory Your AI Lacks
 
 ${chalk.dim("Usage:")}
   memoria                        Interactive setup (recommended)
-  memoria init [options]         Install AI tool rules in your project
-  memoria serve                  Start MCP server
+  memoria <command> [options]
+  memoria --help                 Show this help
+  memoria --version              Print the installed version
 
 ${chalk.bold.cyan("Account Commands:")}
   memoria login                  Link this device to your Memoria account
@@ -152,19 +192,20 @@ ${chalk.dim("Init Options:")}
   --cline      Install Cline/Continue rules (.clinerules)
   --all        Install all rule files
   --force      Update existing Memoria rules
+  --no-mcp     Skip writing project MCP server configs
 
 ${chalk.dim("Analysis Options:")}
   --json       Output as JSON (for scripting)
   --no-color   Disable colored output
 
-${chalk.dim("History Search Options:")}
-  --type=<t>         Search type: message, diff, or both (default)
-  --limit=<n>        Max results to return (default: 20)
-  --since=<date>     Only commits after date (e.g., "30days", "2024-01-01")
-  --until=<date>     Only commits before date
-  --author=<name>    Filter by author name or email
+${chalk.dim("History Search Options:")} ${chalk.dim("(accept --flag=value or --flag value)")}
+  --type <t>         Search type: message, diff, or both (default)
+  --limit <n>        Max results to return (default: 20)
+  --since <date>     Only commits after date (e.g., "30days", "2024-01-01")
+  --until <date>     Only commits before date
+  --author <name>    Filter by author name or email
   --diff, -d         Include code snippets (auto for ≤5 results)
-  --commit-type=<t>  Filter: bugfix,feature,refactor,docs,test,chore
+  --commit-type <t>  Filter: bugfix,feature,refactor,docs,test,chore
 
 ${chalk.dim("Examples:")}
   memoria login                               Link device to your account
@@ -280,16 +321,30 @@ interface RuleInstallSummary {
 	skipped: string[];
 }
 
+// Locate the bundled `rules/` directory. The CLI runs from `dist/cli.js`, but
+// the layout differs between a published npm package and the monorepo source
+// tree, so we probe several candidates and verify a known rule file exists.
+function findRulesDir(): string | null {
+	const candidates = [
+		path.join(__dirname, "../rules"), // published package: dist/ -> ../rules
+		path.join(__dirname, "../../rules"), // some bundlers nest one deeper
+		path.join(__dirname, "rules"), // co-located fallback
+	];
+	for (const dir of candidates) {
+		// A rules dir is only valid if it actually contains our source files.
+		if (fs.existsSync(path.join(dir, "claude", "CLAUDE.md"))) {
+			return dir;
+		}
+	}
+	return null;
+}
+
 function installRulesQuiet(
 	tools: string[],
 	cwd: string,
 	force: boolean,
 ): RuleInstallSummary {
-	let rulesDir = path.join(__dirname, "../rules");
-
-	if (!fs.existsSync(rulesDir)) {
-		rulesDir = path.join(__dirname, "../../rules");
-	}
+	const rulesDir = findRulesDir();
 
 	const results: RuleInstallSummary = {
 		created: [],
@@ -298,7 +353,7 @@ function installRulesQuiet(
 		skipped: [],
 	};
 
-	if (!fs.existsSync(rulesDir)) {
+	if (!rulesDir) {
 		return results;
 	}
 
@@ -319,6 +374,21 @@ function installRulesQuiet(
 }
 
 function installRules(tools: string[], cwd: string, force: boolean): void {
+	if (!findRulesDir()) {
+		console.error(
+			chalk.red(
+				"Error: Could not locate Memoria's bundled rule files.",
+			),
+		);
+		console.error(
+			chalk.dim(
+				"This usually means the package wasn't installed correctly. Try reinstalling @byronwade/memoria.",
+			),
+		);
+		process.exitCode = 1;
+		return;
+	}
+
 	const results = installRulesQuiet(tools, cwd, force);
 
 	for (const dest of results.created) {
@@ -333,15 +403,25 @@ function installRules(tools: string[], cwd: string, force: boolean): void {
 	for (const dest of results.skipped) {
 		console.log(`  ⊘ Skipped ${dest} (already installed)`);
 	}
+
+	const total =
+		results.created.length +
+		results.appended.length +
+		results.updated.length +
+		results.skipped.length;
+	if (total === 0) {
+		console.log(chalk.dim("  No matching rule files for the selected tools."));
+	}
 }
 
-type McpInstallResult = "created" | "added" | "exists" | "error";
+type McpInstallResult = "added" | "exists" | "unsupported" | "error";
 
-function installMcpConfig(configKey: string, cwd: string): McpInstallResult {
-	const config = MCP_CONFIGS[configKey];
-	if (!config) return "error";
+function installMcpConfig(targetKey: string, cwd: string): McpInstallResult {
+	const target = MCP_TARGETS[targetKey];
+	if (!target) return "error";
 
-	const configPath = config.getPath(cwd);
+	const configPath = target.getPath(cwd);
+	if (!configPath) return "unsupported";
 
 	try {
 		const configDir = path.dirname(configPath);
@@ -351,62 +431,45 @@ function installMcpConfig(configKey: string, cwd: string): McpInstallResult {
 
 		let existingConfig: Record<string, unknown> = {};
 		if (fs.existsSync(configPath)) {
-			const content = fs.readFileSync(configPath, "utf8");
-			existingConfig = JSON.parse(content);
+			const content = fs.readFileSync(configPath, "utf8").trim();
+			// Tolerate empty files; reject malformed JSON loudly so we never
+			// silently clobber a user's hand-written config.
+			if (content) {
+				existingConfig = JSON.parse(content);
+			}
 		}
 
-		const mcpServers =
-			(existingConfig.mcpServers as Record<string, unknown>) || {};
-		if (mcpServers.memoria) {
+		const servers =
+			(existingConfig[target.serversKey] as Record<string, unknown>) || {};
+		if (servers.memoria) {
 			return "exists";
 		}
 
-		existingConfig.mcpServers = {
-			...mcpServers,
+		existingConfig[target.serversKey] = {
+			...servers,
 			memoria: MEMORIA_MCP_ENTRY,
 		};
 
-		fs.writeFileSync(configPath, JSON.stringify(existingConfig, null, 2));
+		fs.writeFileSync(
+			configPath,
+			`${JSON.stringify(existingConfig, null, 2)}\n`,
+		);
 
-		return fs.existsSync(configPath) ? "added" : "created";
+		return "added";
 	} catch {
 		return "error";
 	}
 }
 
-interface McpInstallSummary {
-	added: string[];
-	exists: string[];
-	error: string[];
-}
-
-function installMcpConfigsQuiet(
-	tools: string[],
-	cwd: string,
-): McpInstallSummary {
-	const results: McpInstallSummary = { added: [], exists: [], error: [] };
-
-	for (const tool of tools) {
-		// Map rule tool names to MCP config keys
-		const mcpKey = tool === "claude" ? "claude-desktop" : tool;
-		const config = MCP_CONFIGS[mcpKey];
-		if (!config) continue;
-
-		const result = installMcpConfig(mcpKey, cwd);
-		const configPath = config.getPath(cwd);
-		const displayPath =
-			config.scope === "global" ? configPath : path.relative(cwd, configPath);
-
-		if (result === "created" || result === "added") {
-			results.added.push(displayPath);
-		} else if (result === "exists") {
-			results.exists.push(displayPath);
-		} else {
-			results.error.push(displayPath);
-		}
-	}
-
-	return results;
+// Resolve the display path for an MCP target (relative for project scope,
+// absolute for global scope so the user knows exactly which file changed).
+function mcpDisplayPath(targetKey: string, cwd: string): string {
+	const target = MCP_TARGETS[targetKey];
+	const configPath = target?.getPath(cwd);
+	if (!configPath) return targetKey;
+	return target.scope === "global"
+		? configPath
+		: path.relative(cwd, configPath);
 }
 
 function runServer(): void {
@@ -445,36 +508,145 @@ interface CliOptions {
 	commitTypes?: CommitType[];
 }
 
-function parseCliOptions(args: string[]): CliOptions {
-	const options: CliOptions = {};
-	for (const arg of args) {
-		if (arg === "--json") options.json = true;
-		if (arg === "--no-color") options.noColor = true;
-		if (arg === "--type=message") options.type = "message";
-		if (arg === "--type=diff") options.type = "diff";
-		if (arg === "--type=both") options.type = "both";
-		if (arg.startsWith("--limit=")) {
-			options.limit = parseInt(arg.split("=")[1], 10);
+// Raised by the parser for an invalid flag value; carries a user-facing message.
+class CliError extends Error {}
+
+const VALID_COMMIT_TYPES: CommitType[] = [
+	"bugfix",
+	"feature",
+	"refactor",
+	"docs",
+	"test",
+	"chore",
+];
+
+// Flags that consume a value, accepted as either `--flag=value` or `--flag value`.
+const VALUE_FLAGS = new Set([
+	"limit",
+	"type",
+	"since",
+	"until",
+	"author",
+	"commit-type",
+]);
+
+// Boolean flags (no value).
+const BOOL_FLAGS = new Set(["json", "no-color", "diff"]);
+
+interface ParsedArgs {
+	command: string | undefined;
+	positionals: string[];
+	options: CliOptions;
+	// Raw `--xxx` flags not consumed as analysis options (used by `init`).
+	rawFlags: string[];
+}
+
+function applyOption(options: CliOptions, key: string, value: string): void {
+	switch (key) {
+		case "limit": {
+			const n = Number(value);
+			if (!Number.isInteger(n) || n <= 0) {
+				throw new CliError(`--limit must be a positive integer (got "${value}")`);
+			}
+			options.limit = n;
+			break;
 		}
-		// New history search options
-		if (arg.startsWith("--since=")) {
-			options.since = arg.split("=")[1];
-		}
-		if (arg.startsWith("--until=")) {
-			options.until = arg.split("=")[1];
-		}
-		if (arg.startsWith("--author=")) {
-			options.author = arg.split("=")[1];
-		}
-		if (arg === "--diff" || arg === "-d") {
-			options.diff = true;
-		}
-		if (arg.startsWith("--commit-type=")) {
-			const types = arg.split("=")[1].split(",") as CommitType[];
-			options.commitTypes = types;
+		case "type":
+			if (value !== "message" && value !== "diff" && value !== "both") {
+				throw new CliError(
+					`--type must be one of: message, diff, both (got "${value}")`,
+				);
+			}
+			options.type = value;
+			break;
+		case "since":
+			options.since = value;
+			break;
+		case "until":
+			options.until = value;
+			break;
+		case "author":
+			options.author = value;
+			break;
+		case "commit-type": {
+			const types = value
+				.split(",")
+				.map((t) => t.trim())
+				.filter(Boolean);
+			for (const t of types) {
+				if (!VALID_COMMIT_TYPES.includes(t as CommitType)) {
+					throw new CliError(
+						`--commit-type values must be one of: ${VALID_COMMIT_TYPES.join(", ")} (got "${t}")`,
+					);
+				}
+			}
+			options.commitTypes = types as CommitType[];
+			break;
 		}
 	}
-	return options;
+}
+
+// Single tokenizer for the whole CLI. Separates the command, positional
+// arguments, recognized analysis options, and any remaining raw flags so each
+// command can pull exactly what it needs without re-parsing argv.
+function parseArgs(argv: string[]): ParsedArgs {
+	const options: CliOptions = {};
+	const positionals: string[] = [];
+	const rawFlags: string[] = [];
+
+	let command: string | undefined;
+	if (argv.length > 0 && !argv[0].startsWith("-")) {
+		command = argv[0];
+	}
+	const rest = command ? argv.slice(1) : argv;
+
+	for (let i = 0; i < rest.length; i++) {
+		const token = rest[i];
+
+		// Short aliases.
+		if (token === "-d") {
+			options.diff = true;
+			continue;
+		}
+
+		if (!token.startsWith("--")) {
+			positionals.push(token);
+			continue;
+		}
+
+		// Strip leading `--` and split an inline `=value`.
+		const body = token.slice(2);
+		const eq = body.indexOf("=");
+		const key = eq === -1 ? body : body.slice(0, eq);
+		const inlineValue = eq === -1 ? undefined : body.slice(eq + 1);
+
+		if (BOOL_FLAGS.has(key)) {
+			if (key === "no-color") options.noColor = true;
+			else if (key === "json") options.json = true;
+			else if (key === "diff") options.diff = true;
+			continue;
+		}
+
+		if (VALUE_FLAGS.has(key)) {
+			let value = inlineValue;
+			if (value === undefined) {
+				// Consume the next token as the value (`--limit 5` form).
+				const next = rest[i + 1];
+				if (next === undefined || next.startsWith("--")) {
+					throw new CliError(`--${key} requires a value`);
+				}
+				value = next;
+				i++;
+			}
+			applyOption(options, key, value);
+			continue;
+		}
+
+		// Unrecognized flag: keep it for command-specific handling (e.g. init tools).
+		rawFlags.push(token);
+	}
+
+	return { command, positionals, options, rawFlags };
 }
 
 function resolveFilePath(filePath: string): string {
@@ -489,50 +661,82 @@ function getRiskColor(score: number): (text: string) => string {
 	return chalk.green;
 }
 
-function getRiskLabel(score: number): string {
-	if (score >= 75) return "CRITICAL";
-	if (score >= 50) return "HIGH";
-	if (score >= 25) return "MEDIUM";
-	return "LOW";
+// ----------------------------------------------------------------------------
+// Shared helpers for the analysis commands
+// ----------------------------------------------------------------------------
+
+// Lazily import the engine module once and reuse it across commands.
+type Engine = typeof import("./index.js");
+let enginePromise: Promise<Engine> | null = null;
+function loadEngine(): Promise<Engine> {
+	if (!enginePromise) enginePromise = import("./index.js");
+	return enginePromise;
+}
+
+// Print a red error and exit non-zero. Centralizes failure formatting.
+function fail(message: string, usage?: string): never {
+	console.error(chalk.red(`Error: ${message}`));
+	if (usage) console.error(chalk.dim(usage));
+	process.exit(1);
+}
+
+// Resolve a file argument and verify it exists, failing cleanly otherwise.
+function requireExistingFile(filePath: string | undefined, usage: string): string {
+	if (!filePath) {
+		fail("Please provide a file path", usage);
+	}
+	const absolutePath = resolveFilePath(filePath);
+	if (!fs.existsSync(absolutePath)) {
+		fail(`File not found: ${filePath}`);
+	}
+	return absolutePath;
+}
+
+function isGitError(error: unknown): boolean {
+	const msg = error instanceof Error ? error.message : String(error);
+	return (
+		msg.includes("not a git repository") ||
+		msg.includes("Cannot find git root") ||
+		(msg.includes("git") && msg.includes("fatal"))
+	);
+}
+
+// Wrap an analysis command body with friendly git/error handling.
+async function runWithErrorHandling(fn: () => Promise<void>): Promise<void> {
+	try {
+		await fn();
+	} catch (error) {
+		if (isGitError(error)) {
+			console.error(chalk.red("Error: Not inside a git repository."));
+			console.error(
+				chalk.dim(
+					"Memoria analyzes git history. Run this command from within a git repo.",
+				),
+			);
+			process.exit(1);
+		}
+		const msg = error instanceof Error ? error.message : String(error);
+		fail(msg);
+	}
 }
 
 async function runAnalyze(filePath: string, options: CliOptions): Promise<void> {
-	const absolutePath = resolveFilePath(filePath);
-
-	if (!fs.existsSync(absolutePath)) {
-		console.error(chalk.red(`Error: File not found: ${filePath}`));
-		process.exit(1);
-	}
+	const absolutePath = requireExistingFile(filePath, "Usage: memoria analyze <file>");
 
 	const startTime = Date.now();
+	const memoria = await loadEngine();
 
-	// Dynamically import the analysis functions
-	const memoria = await import("./index.js");
-
-	const ctx = await memoria.createAnalysisContext(absolutePath);
-
-	// Run all analyses in parallel (same as MCP tool)
-	const [
+	// Run the SAME orchestrator the MCP `analyze_file` tool uses, so terminal
+	// output and AI output can never disagree (all 13 engines, merged coupling).
+	const analysis = await memoria.analyzeFile(absolutePath);
+	const {
 		volatility,
-		coupledFiles,
+		coupled,
+		drift: driftFiles,
 		importers,
 		siblingGuidance,
-	] = await Promise.all([
-		memoria.getVolatility(absolutePath, ctx),
-		memoria.getCoupledFiles(absolutePath, ctx),
-		memoria.getImporters(absolutePath, ctx),
-		memoria.getSiblingGuidance(absolutePath),
-	]);
-
-	// checkDrift needs coupled files as input
-	const driftFiles = await memoria.checkDrift(absolutePath, coupledFiles, ctx);
-
-	const riskAssessment = memoria.calculateCompoundRisk(
-		volatility,
-		coupledFiles,
-		driftFiles,
-		importers,
-	);
+		risk: riskAssessment,
+	} = analysis;
 
 	const duration = Date.now() - startTime;
 
@@ -542,8 +746,9 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 			absolutePath,
 			riskScore: riskAssessment.score,
 			riskLevel: riskAssessment.level.toUpperCase(),
+			riskFactors: riskAssessment.factors,
 			volatility,
-			coupledFiles,
+			coupledFiles: coupled,
 			driftFiles,
 			importers,
 			siblingGuidance,
@@ -561,15 +766,8 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 	console.log();
 	console.log(riskColor(`RISK: ${riskAssessment.score}/100 (${riskAssessment.level.toUpperCase()})`));
 
-	// Risk factors summary
-	const factors: string[] = [];
-	if (volatility.panicScore > 30) factors.push(`High volatility (${volatility.panicScore}%)`);
-	if (coupledFiles.length > 0) factors.push(`Coupled (${coupledFiles.length} files)`);
-	if (importers.length > 0) factors.push(`${importers.length} dependents`);
-	if (driftFiles.length > 0) factors.push(`${driftFiles.length} stale`);
-
-	if (factors.length > 0) {
-		console.log(chalk.dim(`Risk factors: ${factors.join(" • ")}`));
+	if (riskAssessment.factors.length > 0) {
+		console.log(chalk.dim(`Risk factors: ${riskAssessment.factors.join(" • ")}`));
 	}
 	console.log();
 
@@ -585,11 +783,11 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 	}
 
 	// Coupled files
-	if (coupledFiles.length > 0) {
+	if (coupled.length > 0) {
 		console.log(chalk.bold.cyan("COUPLED FILES"));
-		for (const cf of coupledFiles) {
-			const sourceLabel = cf.source ? `[${cf.source}]` : "";
-			console.log(chalk.blue(`  ${cf.file} — ${cf.score}% ${sourceLabel}`));
+		for (const cf of coupled) {
+			const sourceLabel = cf.source && cf.source !== "git" ? chalk.cyan(` [${cf.source}]`) : "";
+			console.log(chalk.blue(`  ${cf.file} — ${cf.score}%`) + sourceLabel);
 			if (cf.reason) {
 				console.log(chalk.dim(`    ${cf.reason}`));
 			}
@@ -629,26 +827,12 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 }
 
 async function runRisk(filePath: string, options: CliOptions): Promise<void> {
-	const absolutePath = resolveFilePath(filePath);
+	const absolutePath = requireExistingFile(filePath, "Usage: memoria risk <file>");
 
-	if (!fs.existsSync(absolutePath)) {
-		console.error(chalk.red(`Error: File not found: ${filePath}`));
-		process.exit(1);
-	}
-
-	const memoria = await import("./index.js");
-	const ctx = await memoria.createAnalysisContext(absolutePath);
-
-	const [volatility, coupledFiles, importers] = await Promise.all([
-		memoria.getVolatility(absolutePath, ctx),
-		memoria.getCoupledFiles(absolutePath, ctx),
-		memoria.getImporters(absolutePath, ctx),
-	]);
-
-	const driftFiles = await memoria.checkDrift(absolutePath, coupledFiles, ctx);
-	const riskAssessment = memoria.calculateCompoundRisk(volatility, coupledFiles, driftFiles, importers);
-	const config = await memoria.loadConfig(absolutePath);
-	const weights = memoria.getEffectiveRiskWeights(config);
+	const memoria = await loadEngine();
+	const analysis = await memoria.analyzeFile(absolutePath);
+	const { volatility, coupled, drift: driftFiles, importers, risk: riskAssessment } = analysis;
+	const weights = memoria.getEffectiveRiskWeights(analysis.config);
 
 	if (options.json) {
 		console.log(JSON.stringify({
@@ -657,7 +841,7 @@ async function runRisk(filePath: string, options: CliOptions): Promise<void> {
 			riskLevel: riskAssessment.level.toUpperCase(),
 			breakdown: {
 				volatility: { score: volatility.panicScore, weight: weights.volatility },
-				coupling: { count: coupledFiles.length, weight: weights.coupling },
+				coupling: { count: coupled.length, weight: weights.coupling },
 				drift: { count: driftFiles.length, weight: weights.drift },
 				importers: { count: importers.length, weight: weights.importers },
 			},
@@ -673,26 +857,21 @@ async function runRisk(filePath: string, options: CliOptions): Promise<void> {
 	console.log();
 	console.log(chalk.dim("Breakdown:"));
 	console.log(`  Volatility:  ${volatility.panicScore.toString().padStart(3)}% × ${(weights.volatility * 100).toFixed(0)}% weight`);
-	console.log(`  Coupling:    ${coupledFiles.length.toString().padStart(3)} files × ${(weights.coupling * 100).toFixed(0)}% weight`);
+	console.log(`  Coupling:    ${coupled.length.toString().padStart(3)} files × ${(weights.coupling * 100).toFixed(0)}% weight`);
 	console.log(`  Drift:       ${driftFiles.length.toString().padStart(3)} stale × ${(weights.drift * 100).toFixed(0)}% weight`);
 	console.log(`  Importers:   ${importers.length.toString().padStart(3)} files × ${(weights.importers * 100).toFixed(0)}% weight`);
 	console.log();
 }
 
 async function runCoupled(filePath: string, options: CliOptions): Promise<void> {
-	const absolutePath = resolveFilePath(filePath);
+	const absolutePath = requireExistingFile(filePath, "Usage: memoria coupled <file>");
 
-	if (!fs.existsSync(absolutePath)) {
-		console.error(chalk.red(`Error: File not found: ${filePath}`));
-		process.exit(1);
-	}
-
-	const memoria = await import("./index.js");
-	const ctx = await memoria.createAnalysisContext(absolutePath);
-	const coupledFiles = await memoria.getCoupledFiles(absolutePath, ctx);
+	const memoria = await loadEngine();
+	// Use the merged coupling from all engines — same data the AI tool sees.
+	const { coupled } = await memoria.analyzeFile(absolutePath);
 
 	if (options.json) {
-		console.log(JSON.stringify({ file: filePath, coupledFiles }, null, 2));
+		console.log(JSON.stringify({ file: filePath, coupledFiles: coupled }, null, 2));
 		return;
 	}
 
@@ -700,14 +879,14 @@ async function runCoupled(filePath: string, options: CliOptions): Promise<void> 
 	console.log(chalk.bold(`Coupled Files for \`${path.basename(filePath)}\``));
 	console.log();
 
-	if (coupledFiles.length === 0) {
+	if (coupled.length === 0) {
 		console.log(chalk.dim("  No coupled files detected."));
 		console.log(chalk.dim("  This file changes independently of others."));
 	} else {
-		for (const cf of coupledFiles) {
-			const sourceLabel = cf.source ? chalk.cyan(`[${cf.source}]`) : "";
+		for (const cf of coupled) {
+			const sourceLabel = cf.source && cf.source !== "git" ? chalk.cyan(` [${cf.source}]`) : "";
 			const scoreColor = cf.score >= 50 ? chalk.yellow : chalk.green;
-			console.log(`  ${scoreColor(`${cf.score}%`)} ${cf.file} ${sourceLabel}`);
+			console.log(`  ${scoreColor(`${cf.score}%`)} ${cf.file}${sourceLabel}`);
 			if (cf.reason) {
 				console.log(chalk.dim(`      ${cf.reason}`));
 			}
@@ -717,14 +896,9 @@ async function runCoupled(filePath: string, options: CliOptions): Promise<void> 
 }
 
 async function runImporters(filePath: string, options: CliOptions): Promise<void> {
-	const absolutePath = resolveFilePath(filePath);
+	const absolutePath = requireExistingFile(filePath, "Usage: memoria importers <file>");
 
-	if (!fs.existsSync(absolutePath)) {
-		console.error(chalk.red(`Error: File not found: ${filePath}`));
-		process.exit(1);
-	}
-
-	const memoria = await import("./index.js");
+	const memoria = await loadEngine();
 	const ctx = await memoria.createAnalysisContext(absolutePath);
 	const importers = await memoria.getImporters(absolutePath, ctx);
 
@@ -920,14 +1094,15 @@ async function runStatus(): Promise<void> {
 }
 
 async function runHistory(query: string, filePath: string | undefined, options: CliOptions): Promise<void> {
-	const absolutePath = filePath ? resolveFilePath(filePath) : undefined;
-
-	if (absolutePath && !fs.existsSync(absolutePath)) {
-		console.error(chalk.red(`Error: File not found: ${filePath}`));
-		process.exit(1);
+	let absolutePath: string | undefined;
+	if (filePath) {
+		absolutePath = resolveFilePath(filePath);
+		if (!fs.existsSync(absolutePath)) {
+			fail(`File not found: ${filePath}`);
+		}
 	}
 
-	const memoria = await import("./index.js");
+	const memoria = await loadEngine();
 	const result = await memoria.searchHistory({
 		query,
 		filePath: absolutePath,
@@ -1112,19 +1287,18 @@ async function showInteractiveSetup(cwd: string): Promise<void> {
 	if (installMcp) {
 		// Install MCP configs for selected tools
 		for (const tool of tools) {
-			const mcpKey = tool === "claude" ? "claude-desktop" : tool;
-			const config = MCP_CONFIGS[mcpKey];
-			if (!config) continue;
+			const mcpKey = TOOL_TO_MCP[tool];
+			if (!mcpKey) continue;
 
 			const result = installMcpConfig(mcpKey, cwd);
-			const configPath = config.getPath(cwd);
-			const displayPath =
-				config.scope === "global" ? configPath : path.relative(cwd, configPath);
+			const displayPath = mcpDisplayPath(mcpKey, cwd);
 
-			if (result === "added" || result === "created") {
+			if (result === "added") {
 				installResults.push(`Added MCP config to ${displayPath}`);
 			} else if (result === "exists") {
 				installResults.push(`MCP already in ${displayPath}`);
+			} else if (result === "error") {
+				installResults.push(`Could not write MCP config for ${MCP_TARGETS[mcpKey].name}`);
 			}
 		}
 	}
@@ -1154,12 +1328,21 @@ async function showInteractiveSetup(cwd: string): Promise<void> {
 }
 
 async function main() {
-	const args = process.argv.slice(2);
+	const argv = process.argv.slice(2);
 	const cwd = process.cwd();
-	const options = parseCliOptions(args);
 
-	// No arguments - check if interactive terminal vs MCP client
-	if (args.length === 0) {
+	// Global flags handled before command dispatch.
+	if (argv.includes("--help") || argv.includes("-h")) {
+		printHelp();
+		process.exit(0);
+	}
+	if (argv.includes("--version") || argv.includes("-v") || argv[0] === "version") {
+		console.log(getVersion());
+		process.exit(0);
+	}
+
+	// No arguments - interactive terminal gets setup; otherwise act as MCP server.
+	if (argv.length === 0) {
 		if (process.stdin.isTTY && process.stdout.isTTY) {
 			await showInteractiveSetup(cwd);
 			return;
@@ -1168,131 +1351,107 @@ async function main() {
 		return;
 	}
 
-	// Check for explicit server command
-	if (args[0] === "serve" || args[0] === "server") {
+	// `serve`/`server` start the MCP server and never parse analysis flags.
+	if (argv[0] === "serve" || argv[0] === "server") {
 		runServer();
 		return;
 	}
 
-	// Check for help
-	if (args.includes("--help") || args.includes("-h")) {
-		printHelp();
-		process.exit(0);
-	}
-
-	// ========== Account Commands ==========
-
-	// memoria login
-	if (args[0] === "login") {
-		await runLogin();
-		return;
-	}
-
-	// memoria logout
-	if (args[0] === "logout") {
-		await runLogout();
-		return;
-	}
-
-	// memoria status
-	if (args[0] === "status") {
-		await runStatus();
-		return;
-	}
-
-	// ========== Analysis Commands ==========
-
-	// memoria analyze <file>
-	if (args[0] === "analyze") {
-		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
-		const filePath = nonFlagArgs[0];
-		if (!filePath) {
-			console.error(chalk.red("Error: Please provide a file path"));
-			console.log("Usage: memoria analyze <file>");
-			process.exit(1);
+	// Parse everything else through the unified tokenizer.
+	let parsed: ParsedArgs;
+	try {
+		parsed = parseArgs(argv);
+	} catch (error) {
+		if (error instanceof CliError) {
+			fail(error.message, 'Run "memoria --help" for usage');
 		}
-		await runAnalyze(filePath, options);
-		return;
+		throw error;
 	}
+	const { command, positionals, options, rawFlags } = parsed;
 
-	// memoria risk <file>
-	if (args[0] === "risk") {
-		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
-		const filePath = nonFlagArgs[0];
-		if (!filePath) {
-			console.error(chalk.red("Error: Please provide a file path"));
-			console.log("Usage: memoria risk <file>");
-			process.exit(1);
+	// Honor --no-color by disabling chalk styling everywhere.
+	if (options.noColor) chalk.level = 0;
+
+	switch (command) {
+		// ========== Account Commands ==========
+		case "login":
+			await runLogin();
+			return;
+		case "logout":
+			await runLogout();
+			return;
+		case "status":
+			await runStatus();
+			return;
+
+		// ========== Analysis Commands ==========
+		case "analyze":
+			await runWithErrorHandling(() => runAnalyze(positionals[0], options));
+			return;
+		case "risk":
+			await runWithErrorHandling(() => runRisk(positionals[0], options));
+			return;
+		case "coupled":
+			await runWithErrorHandling(() => runCoupled(positionals[0], options));
+			return;
+		case "importers":
+			await runWithErrorHandling(() => runImporters(positionals[0], options));
+			return;
+		case "history": {
+			const query = positionals[0];
+			if (!query) {
+				fail("Please provide a search query", "Usage: memoria history <query> [file]");
+			}
+			await runWithErrorHandling(() => runHistory(query, positionals[1], options));
+			return;
 		}
-		await runRisk(filePath, options);
-		return;
+
+		// ========== Setup Commands ==========
+		case "init":
+			runInit(cwd, rawFlags);
+			return;
+
+		default:
+			fail(`Unknown command: ${command}`, 'Run "memoria --help" for usage');
 	}
+}
 
-	// memoria coupled <file>
-	if (args[0] === "coupled") {
-		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
-		const filePath = nonFlagArgs[0];
-		if (!filePath) {
-			console.error(chalk.red("Error: Please provide a file path"));
-			console.log("Usage: memoria coupled <file>");
-			process.exit(1);
-		}
-		await runCoupled(filePath, options);
-		return;
-	}
+// `memoria init [--all|--cursor|--claude|...] [--force] [--no-mcp]`
+function runInit(cwd: string, rawFlags: string[]): void {
+	const force = rawFlags.includes("--force");
+	const installMcp = !rawFlags.includes("--no-mcp");
+	const reserved = new Set(["--force", "--all", "--mcp", "--no-mcp"]);
+	const toolFlags = rawFlags.filter((f) => !reserved.has(f));
 
-	// memoria importers <file>
-	if (args[0] === "importers") {
-		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
-		const filePath = nonFlagArgs[0];
-		if (!filePath) {
-			console.error(chalk.red("Error: Please provide a file path"));
-			console.log("Usage: memoria importers <file>");
-			process.exit(1);
-		}
-		await runImporters(filePath, options);
-		return;
-	}
-
-	// memoria history <query> [file]
-	if (args[0] === "history") {
-		const nonFlagArgs = args.slice(1).filter((a) => !a.startsWith("--"));
-		const query = nonFlagArgs[0];
-		const filePath = nonFlagArgs[1];
-
-		if (!query) {
-			console.error(chalk.red("Error: Please provide a search query"));
-			console.log("Usage: memoria history <query> [file]");
-			process.exit(1);
-		}
-		await runHistory(query, filePath, options);
-		return;
-	}
-
-	// ========== Setup Commands ==========
-
-	// Check for init command
-	if (args[0] !== "init") {
-		console.error(chalk.red(`Unknown command: ${args[0]}`));
-		console.log('Run "memoria --help" for usage');
-		process.exit(1);
-	}
-
-	// Parse flags
-	const flags = args.slice(1).filter((a) => a.startsWith("--"));
-	const force = flags.includes("--force");
-
-	const toolFlags = flags.filter((f) => f !== "--force" && f !== "--all");
-	let tools: string[] = [];
-
-	if (flags.includes("--all")) {
+	let tools: string[];
+	if (rawFlags.includes("--all")) {
 		tools = Object.keys(RULES);
 	} else if (toolFlags.length > 0) {
-		tools = toolFlags.map((f) => f.slice(2));
+		// Validate tool flags up front so typos produce a clear message.
+		const requested = toolFlags.map((f) => f.slice(2));
+		const unknown = requested.filter((t) => !RULES[t]);
+		tools = requested.filter((t) => RULES[t]);
+		if (unknown.length > 0) {
+			console.log(
+				chalk.yellow(
+					`Ignoring unknown tool${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`,
+				),
+			);
+			console.log(chalk.dim(`Valid tools: ${Object.keys(RULES).join(", ")}`));
+		}
+		if (tools.length === 0) {
+			fail(
+				"No valid tools specified.",
+				`Valid tools: ${Object.keys(RULES).map((t) => `--${t}`).join(", ")}, or --all`,
+			);
+		}
 	} else {
 		tools = detectTools(cwd);
 		if (tools.length === 0) {
 			console.log("No AI tools detected. Use --all or specify tools.");
+			console.log(
+				chalk.dim(`Example: memoria init --all`),
+			);
 			process.exit(0);
 		}
 		console.log(
@@ -1302,6 +1461,59 @@ async function main() {
 
 	console.log("\nInstalling Memoria rules...\n");
 	installRules(tools, cwd, force);
+
+	if (installMcp) {
+		installMcpForInit(tools, cwd);
+	}
 }
 
-main().catch(console.error);
+// Wire up MCP server configs during a non-interactive `init`. Rules tell the AI
+// to use Memoria, but without an MCP config the AI literally cannot call it.
+// We only auto-write PROJECT-scoped configs (safe, lives in the repo). For
+// global configs (e.g. Windsurf in the home dir) we print the entry to add
+// rather than silently editing files outside the project.
+function installMcpForInit(tools: string[], cwd: string): void {
+	console.log("\nConfiguring MCP servers...\n");
+	let wroteAny = false;
+
+	for (const tool of tools) {
+		const mcpKey = TOOL_TO_MCP[tool];
+		if (!mcpKey) continue;
+		const target = MCP_TARGETS[mcpKey];
+
+		if (target.scope === "global") {
+			const displayPath = mcpDisplayPath(mcpKey, cwd);
+			console.log(
+				chalk.dim(
+					`  ⓘ ${target.name} uses a global config (${displayPath}). Run 'memoria' (interactive) to set it up.`,
+				),
+			);
+			continue;
+		}
+
+		const result = installMcpConfig(mcpKey, cwd);
+		const displayPath = mcpDisplayPath(mcpKey, cwd);
+		if (result === "added") {
+			console.log(`  ✓ Configured ${target.name} (${displayPath})`);
+			wroteAny = true;
+		} else if (result === "exists") {
+			console.log(`  ⊘ ${target.name} already configured (${displayPath})`);
+			wroteAny = true;
+		} else if (result === "error") {
+			console.log(
+				chalk.yellow(`  ✗ Could not write MCP config for ${target.name}`),
+			);
+		}
+	}
+
+	if (!wroteAny) {
+		console.log(
+			chalk.dim("  No project-scoped MCP configs for the selected tools."),
+		);
+	}
+}
+
+main().catch((error) => {
+	console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+	process.exit(1);
+});
