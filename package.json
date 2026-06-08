@@ -28,7 +28,7 @@
 	},
 	"packageManager": "npm@11.6.2",
 	"engines": {
-		"node": ">=18.0.0"
+		"node": ">=20.9.0"
 	},
 	"devDependencies": {
 		"concurrently": "^9.2.1",
