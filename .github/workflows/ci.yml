@@ -7,6 +7,10 @@ on:
     branches: [main]
 
 jobs:
+  # Matrix tests the PUBLISHED package across the Node versions its
+  # engines field supports (>=18). It is scoped to @byronwade/memoria so the
+  # Node-20-only Next.js web app isn't built on Node 18. The full monorepo
+  # build (web + api + mcp-server) is covered by the `lint` job below on Node 20.
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -20,9 +24,10 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm ci
-      - run: npm run build
-      - run: npm test
+      - run: npm run build -w @byronwade/memoria
+      - run: npm test -w @byronwade/memoria
 
+  # Builds every workspace (incl. the Next.js web app, which requires Node 20+).
   lint:
     runs-on: ubuntu-latest
     steps:
