@@ -3015,7 +3015,32 @@ export async function getVolatility(
 
 	// Use context if provided, otherwise initialize (backward compatibility)
 	const git = ctx ? ctx.git : getGitForFile(filePath);
-	const log = await git.log({ file: filePath, maxCount: 20 });
+
+	// git.log throws on a repo with no commits yet ("does not have any commits
+	// yet"). Treat that — and any other log failure — as zero history, matching
+	// the safe-empty behavior of the other git engines so analyze_file never
+	// crashes on an empty or uninitialized repository.
+	const log = await git
+		.log({ file: filePath, maxCount: 20 })
+		.catch(() => null);
+	if (!log) {
+		const empty: VolatilityResult = {
+			commitCount: 0,
+			panicScore: 0,
+			panicCommits: [],
+			lastCommitDate: undefined,
+			authors: 0,
+			authorDetails: [],
+			topAuthor: null,
+			recencyDecay: {
+				oldestCommitDays: 0,
+				newestCommitDays: 0,
+				decayFactor: 1,
+			},
+		};
+		cache.set(cacheKey, empty);
+		return empty;
+	}
 
 	// Get effective panic keywords (base + config overrides)
 	const panicKeywords = getEffectivePanicKeywords(config);
