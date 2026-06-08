@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -3206,6 +3208,108 @@ export function calculateCompoundRisk(
 	return { score, level, factors, action };
 }
 
+// --- DRIFT ALERT (returned by checkDrift) ---
+export interface DriftAlert {
+	file: string;
+	daysOld: number;
+}
+
+// --- COMPLETE FILE ANALYSIS (shared orchestration for CLI + MCP server) ---
+// The single source of truth for "analyze this file". Both the `analyze_file`
+// MCP tool and the `memoria analyze/risk/coupled` CLI commands call this so the
+// two surfaces can never drift apart in which engines they run or how results
+// are merged. Returns structured data; formatting is left to the caller
+// (generateAiInstructions for the MCP/AI surface, the CLI's own pretty printer).
+export interface FileAnalysis {
+	filePath: string;
+	volatility: VolatilityResult;
+	// Unified coupling list (all 13 engines merged + de-duplicated).
+	coupled: EnhancedCoupledFile[];
+	// Raw git co-change coupling only — drift detection keys off this subset
+	// (file modification times only make sense for historically-coupled files).
+	gitCoupled: EnhancedCoupledFile[];
+	drift: DriftAlert[];
+	importers: string[];
+	siblingGuidance: SiblingGuidance | null;
+	risk: RiskAssessment;
+	config: MemoriaConfig | null;
+}
+
+export async function analyzeFile(
+	targetPath: string,
+	ctx?: AnalysisContext,
+): Promise<FileAnalysis> {
+	// Reuse a caller-provided context (so we don't re-init git/config) or build one.
+	const context = ctx ?? (await createAnalysisContext(targetPath));
+
+	// Run every engine in parallel — identical set to the MCP analyze_file tool.
+	const [
+		volatility,
+		gitCoupled,
+		importers,
+		docsCoupled,
+		typeCoupled,
+		contentCoupled,
+		testCoupled,
+		envCoupled,
+		schemaCoupled,
+		apiCoupled,
+		transitiveCoupled,
+	] = await Promise.all([
+		getVolatility(targetPath, context),
+		getCoupledFiles(targetPath, context),
+		getImporters(targetPath, context),
+		getDocsCoupling(targetPath, context),
+		getTypeCoupling(targetPath, context),
+		getContentCoupling(targetPath, context),
+		getTestCoupling(targetPath, context),
+		getEnvCoupling(targetPath, context),
+		getSchemaCoupling(targetPath, context),
+		getApiCoupling(targetPath, context),
+		getTransitiveCoupling(targetPath, context),
+	]);
+
+	const coupled = mergeCouplingResults(
+		gitCoupled,
+		docsCoupled,
+		typeCoupled,
+		contentCoupled,
+		testCoupled,
+		envCoupled,
+		schemaCoupled,
+		apiCoupled,
+		transitiveCoupled,
+	);
+
+	const drift = await checkDrift(targetPath, gitCoupled, context);
+
+	// Sibling guidance only adds value for new files with no git history.
+	let siblingGuidance: SiblingGuidance | null = null;
+	if (volatility.commitCount === 0) {
+		siblingGuidance = await getSiblingGuidance(targetPath, context.config);
+	}
+
+	const risk = calculateCompoundRisk(
+		volatility,
+		coupled,
+		drift,
+		importers,
+		context.config,
+	);
+
+	return {
+		filePath: targetPath,
+		volatility,
+		coupled,
+		gitCoupled,
+		drift,
+		importers,
+		siblingGuidance,
+		risk,
+		config: context.config,
+	};
+}
+
 // Helper for get_context tool - uses shared risk assessment from context-response.ts
 function buildRiskAssessmentFromData(
 	volatilityScore: number,
@@ -3772,68 +3876,20 @@ function setupServer(server: Server): Server {
 			}
 
 			try {
-				// 3. Create AnalysisContext ONCE (initializes git, config, ignore, metrics)
-				// This replaces 5+ redundant git/config initialization calls
-				const ctx = await createAnalysisContext(targetPath);
-
-				// 4. Run Engines on the Validated Path (all in parallel for speed)
-				// All engines now receive the shared context
-				// 13 coupling engines run in parallel for comprehensive analysis
-				const [
-					volatility,
-					gitCoupled,
-					importers,
-					docsCoupled,
-					typeCoupled,
-					contentCoupled,
-					testCoupled,
-					envCoupled,
-					schemaCoupled,
-					apiCoupled,
-					transitiveCoupled,
-				] = await Promise.all([
-					getVolatility(targetPath, ctx),
-					getCoupledFiles(targetPath, ctx),
-					getImporters(targetPath, ctx),
-					getDocsCoupling(targetPath, ctx),
-					getTypeCoupling(targetPath, ctx),
-					getContentCoupling(targetPath, ctx),
-					getTestCoupling(targetPath, ctx),
-					getEnvCoupling(targetPath, ctx),
-					getSchemaCoupling(targetPath, ctx),
-					getApiCoupling(targetPath, ctx),
-					getTransitiveCoupling(targetPath, ctx),
-				]);
-
-				// Merge all coupling sources into unified list
-				const coupled = mergeCouplingResults(
-					gitCoupled,
-					docsCoupled,
-					typeCoupled,
-					contentCoupled,
-					testCoupled,
-					envCoupled,
-					schemaCoupled,
-					apiCoupled,
-					transitiveCoupled,
-				);
-
-				const drift = await checkDrift(targetPath, gitCoupled, ctx);
-
-				// 5. Get sibling guidance for new files (no git history)
-				let siblingGuidance: SiblingGuidance | null = null;
-				if (volatility.commitCount === 0) {
-					siblingGuidance = await getSiblingGuidance(targetPath, ctx.config);
-				}
+				// 3. Run the shared analysis orchestrator. This is the exact same
+				// code path the `memoria analyze` CLI command uses, so the AI tool
+				// and the terminal can never disagree on results. It creates the
+				// AnalysisContext once and runs all 13 engines in parallel.
+				const analysis = await analyzeFile(targetPath);
 
 				const report = generateAiInstructions(
 					targetPath,
-					volatility,
-					coupled,
-					drift,
-					importers,
-					ctx.config,
-					siblingGuidance,
+					analysis.volatility,
+					analysis.coupled,
+					analysis.drift,
+					analysis.importers,
+					analysis.config,
+					analysis.siblingGuidance,
 				);
 
 				return { content: [{ type: "text", text: report }] };
@@ -4804,7 +4860,27 @@ function setupServer(server: Server): Server {
 // --- STDIO STARTUP (for CLI usage) ---
 // Only run when executed directly, not when imported by Smithery or during tests
 const isTestEnvironment = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
-const isDirectExecution = !isTestEnvironment && (process.argv[1]?.includes("index") || process.argv[1]?.includes("memoria"));
+
+// Only bootstrap the stdio MCP server when THIS file is the process entry point.
+// A path-substring heuristic is unsafe here: the package is named "memoria", so
+// virtually every install path contains "memoria" — which would (incorrectly)
+// boot the server whenever the CLI or another module merely *imports* this file
+// (e.g. `memoria analyze`, Smithery, tests). Comparing the resolved entry path to
+// this module's own path is exact: it's true for `memoria-server`/`serve` (where
+// index.js IS the entry) and false when imported.
+function isProcessEntryPoint(): boolean {
+	const entry = process.argv[1];
+	if (!entry) return false;
+	try {
+		return (
+			realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entry)
+		);
+	} catch {
+		return false;
+	}
+}
+
+const isDirectExecution = !isTestEnvironment && isProcessEntryPoint();
 if (isDirectExecution) {
 	(async () => {
 		// Ensure user is authenticated before starting the server

@@ -282,4 +282,113 @@ Some content here.
 			expect(content.endsWith("\n")).toBe(true);
 		});
 	});
+
+	describe("version", () => {
+		it("should print the version with --version", () => {
+			const output = runCli("--version").trim();
+			expect(output).toMatch(/^\d+\.\d+\.\d+$/);
+		});
+
+		it("should print the version with the version command", () => {
+			const output = runCli("version").trim();
+			expect(output).toMatch(/^\d+\.\d+\.\d+$/);
+		});
+	});
+
+	describe("argument validation", () => {
+		it("should reject a non-numeric --limit", () => {
+			const output = runCli("history foo --limit=abc");
+			expect(output).toContain("--limit must be a positive integer");
+		});
+
+		it("should reject an invalid --type", () => {
+			const output = runCli("history foo --type=bogus");
+			expect(output).toContain("--type must be one of");
+		});
+
+		it("should reject an invalid --commit-type", () => {
+			const output = runCli("history foo --commit-type=nope");
+			expect(output).toContain("--commit-type values must be one of");
+		});
+
+		it("should error when a value flag has no value", () => {
+			const output = runCli("history foo --limit");
+			expect(output).toContain("--limit requires a value");
+		});
+	});
+
+	describe("unknown command", () => {
+		it("should error with a non-zero exit on an unknown command", () => {
+			const output = runCli("frobnicate");
+			expect(output).toContain("Unknown command: frobnicate");
+		});
+	});
+
+	describe("init - MCP server configs", () => {
+		it("should write a project .mcp.json for Claude Code by default", () => {
+			runCli("init --claude");
+
+			const mcpPath = path.join(testDir, ".mcp.json");
+			expect(fs.existsSync(mcpPath)).toBe(true);
+			const config = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+			expect(config.mcpServers.memoria).toBeDefined();
+			expect(config.mcpServers.memoria.command).toBe("npx");
+		});
+
+		it("should write a project .cursor/mcp.json for Cursor by default", () => {
+			runCli("init --cursor");
+
+			const mcpPath = path.join(testDir, ".cursor", "mcp.json");
+			expect(fs.existsSync(mcpPath)).toBe(true);
+			const config = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+			expect(config.mcpServers.memoria).toBeDefined();
+		});
+
+		it("should skip MCP configs with --no-mcp", () => {
+			runCli("init --claude --no-mcp");
+
+			expect(fs.existsSync(path.join(testDir, ".mcp.json"))).toBe(false);
+			// Rules are still installed.
+			expect(fs.existsSync(path.join(testDir, ".claude/CLAUDE.md"))).toBe(true);
+		});
+
+		it("should not overwrite an existing memoria MCP entry", () => {
+			runCli("init --claude");
+			const output = runCli("init --claude");
+			expect(output).toContain("already configured");
+		});
+
+		it("should preserve other MCP servers when adding memoria", () => {
+			const existing = {
+				mcpServers: { other: { command: "node", args: ["x.js"] } },
+			};
+			fs.writeFileSync(
+				path.join(testDir, ".mcp.json"),
+				JSON.stringify(existing, null, 2),
+			);
+
+			runCli("init --claude");
+
+			const config = JSON.parse(
+				fs.readFileSync(path.join(testDir, ".mcp.json"), "utf8"),
+			);
+			expect(config.mcpServers.other).toBeDefined();
+			expect(config.mcpServers.memoria).toBeDefined();
+		});
+
+		it("should print a hint instead of writing a global config for Windsurf", () => {
+			const output = runCli("init --windsurf");
+			expect(output).toContain("global config");
+			// No project MCP file should be created for a global-scoped tool.
+			expect(fs.existsSync(path.join(testDir, ".mcp.json"))).toBe(false);
+		});
+	});
+
+	describe("init - tool validation", () => {
+		it("should warn about unknown tool flags", () => {
+			const output = runCli("init --notatool");
+			expect(output).toContain("unknown tool");
+			expect(output).toContain("notatool");
+		});
+	});
 });
