@@ -1,5 +1,9 @@
 name: Publish to npm
 
+# Publishes the @byronwade/memoria package that lives in apps/mcp-server.
+# The repo root is a PRIVATE workspace (memoria-monorepo) and must never be
+# published, so every step below targets the workspace explicitly with `-w`.
+
 on:
   push:
     tags:
@@ -11,12 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # tests read git history
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm ci
-      - run: npm test
+      - run: npm run build -w @byronwade/memoria
+      - run: npm test -w @byronwade/memoria
 
   publish:
     needs: test
@@ -26,12 +31,15 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # prepublishOnly runs the test suite, which reads git history
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci
-      - run: npm run build
-      - run: npm publish --access public
+      # `npm publish -w` runs the package's prepublishOnly (clean + build + test)
+      # in apps/mcp-server, so the tarball is always built fresh from source.
+      - run: npm publish -w @byronwade/memoria --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

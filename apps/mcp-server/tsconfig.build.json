@@ -1,0 +1,8 @@
+{
+	"//": "Build config used by `npm run build` / `npm publish`. Extends the dev tsconfig but strips source maps and declaration maps, which reference the unpublished src/ tree and would otherwise ship ~250kB of dead-weight, broken maps in the npm tarball.",
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"sourceMap": false,
+		"declarationMap": false
+	}
+}

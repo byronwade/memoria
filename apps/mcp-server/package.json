@@ -4,6 +4,7 @@
 	"description": "The Memory Your AI Lacks - MCP server giving AI Senior Developer Intuition through git forensics",
 	"type": "module",
 	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
 	"module": "./src/index.ts",
 	"bin": {
 		"memoria": "dist/cli.js",
@@ -16,7 +17,8 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "tsc",
+		"clean": "rm -rf dist",
+		"build": "tsc -p tsconfig.build.json",
 		"start": "node dist/index.js",
 		"dev": "tsc --watch",
 		"lint": "echo \"No lint configured\"",
@@ -24,7 +26,7 @@
 		"test:watch": "vitest",
 		"test:ui": "vitest --ui",
 		"test:coverage": "vitest run --coverage",
-		"prepublishOnly": "npm run build && npm test"
+		"prepublishOnly": "npm run clean && npm run build && npm test"
 	},
 	"keywords": [
 		"mcp",

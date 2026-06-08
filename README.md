@@ -615,10 +615,21 @@ npx tsx benchmarks/run-benchmarks.ts
 
 ## Monorepo Layout (Turbo)
 
-- `apps/mcp-server` — MCP server & npm package (publishes `@byronwade/memoria`)
-- `apps/api` — API backend stub (Node HTTP placeholder)
-- `apps/web` — Web frontend stub
-- `packages` — Shared libraries (future)
+This repo is a Turborepo workspace managed with **npm** (see `packageManager` in
+the root `package.json`; `package-lock.json` is the single source of truth).
+
+| Path | Package name | Published? |
+|------|--------------|------------|
+| **`apps/mcp-server`** | **`@byronwade/memoria`** | ✅ **This is the package on npm** |
+| `apps/api` | `@memoria/api` | ❌ private |
+| `apps/web` | `@memoria/web` | ❌ private |
+| repo root | `memoria-monorepo` | ❌ private (orchestration only) |
+
+> [!IMPORTANT]
+> The repo root (`memoria-monorepo`) is `private` and is **never published**. The
+> only thing that ships to npm is `apps/mcp-server`, and its `version` field is the
+> published version — not the root's. Always run publish commands against the
+> workspace, e.g. `-w @byronwade/memoria`.
 
 ---
 
@@ -633,6 +644,52 @@ npm test                          # turbo test (runs vitest in mcp-server)
 npx turbo run build --filter=@byronwade/memoria
 npx turbo run dev --filter=@byronwade/memoria
 ```
+
+---
+
+## Build & Publish (`@byronwade/memoria`)
+
+The published package lives in `apps/mcp-server`. Everything publish-related is
+scoped to that workspace.
+
+```bash
+# Build just the package (TypeScript -> dist/, no source maps)
+npm run build -w @byronwade/memoria
+
+# See exactly what would ship — should be dist/*.js, dist/*.d.ts, rules/,
+# README.md, LICENSE, and package.json. Nothing else.
+npm pack --dry-run -w @byronwade/memoria
+```
+
+**What gets shipped** is controlled by the `files` whitelist in
+`apps/mcp-server/package.json` (`dist`, `rules`, `README.md`, `LICENSE`). Source,
+tests, configs, and source maps are intentionally excluded. The build uses
+`tsconfig.build.json`, which strips `.js.map`/`.d.ts.map` (they would reference the
+unpublished `src/` tree and just bloat the tarball).
+
+### Releasing a new version
+
+1. Bump the version **in the package**, which also creates the matching tag:
+   ```bash
+   npm version patch -w @byronwade/memoria   # or minor / major
+   ```
+2. Push the commit and tag:
+   ```bash
+   git push --follow-tags
+   ```
+3. The `Publish to npm` GitHub Action fires on the `v*` tag and runs
+   `npm publish -w @byronwade/memoria`, which triggers the package's
+   `prepublishOnly` (clean → build → test) so the tarball is always built fresh.
+
+### Manual / local publish
+
+```bash
+# Runs prepublishOnly (clean + build + test) automatically before uploading.
+npm publish -w @byronwade/memoria --access public
+```
+
+> Never run a bare `npm publish` at the repo root — the root package is `private`
+> and npm will refuse it.
 
 ---
 

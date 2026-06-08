@@ -336,6 +336,11 @@ This installs rule files that tell your AI to always call `analyze_file` before 
 
 ## Development
 
+> This package (`@byronwade/memoria`) lives inside the Memoria Turborepo at
+> `apps/mcp-server`. The repo root is a **private** workspace and is never
+> published — this directory is the actual npm package. Run all commands below
+> from the repo root.
+
 ```bash
 npm install
 npm run build                     # turbo build across workspaces
@@ -345,6 +350,37 @@ npm test                          # turbo test (runs vitest in mcp-server)
 npx turbo run build --filter=@byronwade/memoria
 npx turbo run dev --filter=@byronwade/memoria
 ```
+
+### Build
+
+```bash
+npm run build -w @byronwade/memoria
+```
+
+`build` runs `tsc -p tsconfig.build.json`, emitting `dist/*.js` + `dist/*.d.ts`.
+Source maps are intentionally **off** for the published build (they'd point at the
+unshipped `src/` tree). Use `npm run dev -w @byronwade/memoria` (`tsc --watch`,
+which uses `tsconfig.json` and keeps maps) while developing.
+
+### Publish
+
+The `files` whitelist in `package.json` (`dist`, `rules`, `README.md`, `LICENSE`)
+defines exactly what ships. Verify before releasing:
+
+```bash
+npm pack --dry-run -w @byronwade/memoria
+```
+
+Release flow:
+
+```bash
+npm version patch -w @byronwade/memoria   # bump version + create v* tag
+git push --follow-tags                    # CI publishes on the tag
+```
+
+`npm publish` (run by CI or manually) triggers `prepublishOnly`, which does a clean
+build and runs the full test suite before anything is uploaded, so the tarball is
+always reproducible.
 
 ---
 
