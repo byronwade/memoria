@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -4989,9 +4991,33 @@ function setupServer(server: Server): Server {
 }
 
 // --- STDIO STARTUP (for CLI usage) ---
-// Only run when executed directly, not when imported by Smithery or during tests
-const isTestEnvironment = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
-const isDirectExecution = !isTestEnvironment && (process.argv[1]?.includes("index") || process.argv[1]?.includes("memoria"));
+// Only boot the MCP stdio server when THIS module (index.js) is the actual
+// entry point — i.e. `node dist/index.js`, the `memoria-server` bin, or the
+// child process spawned by `memoria serve`.
+//
+// We must NOT boot it when index.js is merely *imported* as a library (by
+// cli.js for `memoria analyze`/`config`/etc., by Smithery, or by tests).
+// The old check sniffed process.argv[1] for the substrings "index"/"memoria",
+// which wrongly matched cli.js (its path contains "memoria"), so every CLI
+// command also spun up auth + the stdio server. We instead compare the real
+// path of the entry script against this module's real path (realpath resolves
+// the npm bin symlink so `memoria-server` still works).
+const isTestEnvironment =
+	process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+
+function isMainModule(): boolean {
+	const entry = process.argv[1];
+	if (!entry) return false;
+	try {
+		const entryReal = realpathSync(entry);
+		const selfReal = realpathSync(fileURLToPath(import.meta.url));
+		return entryReal === selfReal;
+	} catch {
+		return false;
+	}
+}
+
+const isDirectExecution = !isTestEnvironment && isMainModule();
 if (isDirectExecution) {
 	(async () => {
 		// Ensure user is authenticated before starting the server

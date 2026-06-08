@@ -282,4 +282,30 @@ Some content here.
 			expect(content.endsWith("\n")).toBe(true);
 		});
 	});
+
+	describe("does not boot the MCP server", () => {
+		// Regression: index.js used to detect "direct execution" by sniffing
+		// process.argv[1] for "memoria"/"index". Since the CLI lives at
+		// .../memoria/dist/cli.js, that matched, so importing index.js from the
+		// CLI wrongly started auth + the stdio server on EVERY command. The
+		// server prints "[memoria] Opening browser..." synchronously at startup,
+		// so its absence proves the CLI no longer boots the server.
+		const SERVER_BOOT_MARKER = "Opening browser for authentication";
+
+		it("should not start the server during `config`", () => {
+			const output = runCli("config");
+			expect(output).toContain("Memoria Configuration");
+			expect(output).not.toContain(SERVER_BOOT_MARKER);
+		});
+
+		it("should not start the server during `init`", () => {
+			const output = runCli("init --windsurf");
+			expect(output).not.toContain(SERVER_BOOT_MARKER);
+		});
+
+		it("should not start the server during `--help`", () => {
+			const output = runCli("--help");
+			expect(output).not.toContain(SERVER_BOOT_MARKER);
+		});
+	});
 });
