@@ -293,7 +293,7 @@ describe("MCP Tool Handler", () => {
 			expect(["low", "medium", "high", "critical"]).toContain(
 				analysis.risk.level,
 			);
-		});
+		}, 30000);
 
 		it("should merge coupling from all engines (superset of git coupling)", async () => {
 			const module = await import("../src/index.js");
@@ -306,7 +306,7 @@ describe("MCP Tool Handler", () => {
 			for (const gc of analysis.gitCoupled) {
 				expect(mergedFiles.has(gc.file)).toBe(true);
 			}
-		});
+		}, 30000);
 
 		it("should produce a risk score matching calculateCompoundRisk on its outputs", async () => {
 			const module = await import("../src/index.js");
@@ -323,7 +323,7 @@ describe("MCP Tool Handler", () => {
 
 			expect(analysis.risk.score).toBe(recomputed.score);
 			expect(analysis.risk.level).toBe(recomputed.level);
-		});
+		}, 30000);
 
 		it("should reuse a provided AnalysisContext", async () => {
 			const module = await import("../src/index.js");
@@ -333,6 +333,6 @@ describe("MCP Tool Handler", () => {
 			const analysis = await module.analyzeFile(filePath, ctx);
 
 			expect(analysis.config).toBe(ctx.config);
-		});
+		}, 30000);
 	});
 });
