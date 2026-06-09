@@ -156,11 +156,13 @@ describe("History Search Engine (The Archaeologist)", () => {
 			});
 		});
 
-		it("should truncate hash to 7 characters", async () => {
+		it("should store full commit hash for reliable git operations", async () => {
 			const result = await searchHistory("test", undefined, "message", 5);
 
 			result.results.forEach((r: any) => {
-				expect(r.hash.length).toBe(7);
+				// Full 40-char hash is stored so git operations remain unambiguous.
+				// The display formatter abbreviates to 7 chars when rendering output.
+				expect(r.hash.length).toBe(40);
 			});
 		});
 
