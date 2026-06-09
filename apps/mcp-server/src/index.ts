@@ -968,7 +968,7 @@ export async function getCoupledFiles(
 
 		// Process all commits to find co-changes (limited to 5 concurrent git operations)
 		await mapConcurrent(log.all, 5, async (commit) => {
-			const show = await git.show([commit.hash, "--name-only", "--format="]);
+			const show = await git.show([commit.hash, "--name-only", "--format="]).catch(() => "");
 			const allFiles = show
 				.split("\n")
 				.map((f) => f.trim())
@@ -2715,7 +2715,7 @@ export async function searchHistory(
 					.split("\n")
 					.filter((f) => f.trim());
 				results.push({
-					hash: commit.hash.slice(0, 7),
+					hash: commit.hash,
 					date: commit.date?.split(" ")[0] || "",
 					author: commit.author || "unknown",
 					message: commit.message.trim(),
@@ -2827,7 +2827,7 @@ export async function searchHistory(
 				const commit = allCommits[i];
 				const files = filesResults[i].split("\n").filter((f) => f.trim());
 				results.push({
-					hash: commit.hash.slice(0, 7),
+					hash: commit.hash,
 					date: commit.date?.split(" ")[0] || "",
 					author: commit.author || "unknown",
 					message: commit.message,
@@ -2855,7 +2855,7 @@ export async function searchHistory(
 				const commit = messageCommits[i];
 				const files = filesResults[i].split("\n").filter((f) => f.trim());
 				results.push({
-					hash: commit.hash.slice(0, 7),
+					hash: commit.hash,
 					date: commit.date?.split(" ")[0] || "",
 					author: commit.author || "unknown",
 					message: commit.message,
@@ -2883,7 +2883,7 @@ export async function searchHistory(
 				const commit = pickaxeCommits[i];
 				const files = filesResults[i].split("\n").filter((f) => f.trim());
 				results.push({
-					hash: commit.hash.slice(0, 7),
+					hash: commit.hash,
 					date: commit.date?.split(" ")[0] || "",
 					author: commit.author || "unknown",
 					message: commit.message,
@@ -2964,7 +2964,7 @@ export function formatHistoryResults(output: HistorySearchOutput): string {
 	results.forEach((r, i) => {
 		const matchType = r.matchType === "message" ? "msg" : "diff";
 		const typeLabel = r.commitType ? `[${r.commitType.toUpperCase()}]` : "";
-		report += `**${i + 1}. \`${r.hash}\`** ${r.date} · @${r.author} · ${matchType} ${typeLabel}\n`;
+		report += `**${i + 1}. \`${r.hash.slice(0, 7)}\`** ${r.date} · @${r.author} · ${matchType} ${typeLabel}\n`;
 		report += `> ${r.message}\n`;
 		if (r.filesChanged.length > 0) {
 			report += `Files: ${r.filesChanged.map((f) => `\`${f}\``).join(", ")}\n`;
@@ -3046,7 +3046,7 @@ export async function getVolatility(
 	const panicKeywords = getEffectivePanicKeywords(config);
 
 	let weightedPanicScore = 0;
-	const maxPossibleScore = 20 * 3; // 20 commits × max weight of 3
+	const maxPossibleScore = Math.max(1, log.all.length) * 3; // actual commits × max weight of 3
 	const panicCommits: string[] = [];
 
 	// Track author contributions (Bus Factor)
@@ -3099,7 +3099,7 @@ export async function getVolatility(
 		}
 
 		// Track author contributions
-		const authorKey = c.author_email || c.author_name;
+		const authorKey = c.author_email || c.author_name || "unknown";
 		const existing = authorMap.get(authorKey);
 		if (existing) {
 			existing.commits++;
