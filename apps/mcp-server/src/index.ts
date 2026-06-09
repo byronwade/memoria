@@ -493,6 +493,11 @@ export const UNIVERSAL_IGNORE_PATTERNS = [
 	"output/",
 	"release/",
 	"debug/",
+	".turbo/",
+	"*.tar",
+	"*.tar.gz",
+	"*.tar.zst",
+	"*.zst",
 
 	// IDE/Editor files
 	".vscode/",
@@ -893,9 +898,13 @@ export function shouldIgnoreFile(
 export async function createAnalysisContext(
 	targetPath: string,
 ): Promise<AnalysisContext> {
-	const git = getGitForFile(targetPath);
-	const root = await git.revparse(["--show-toplevel"]);
+	// Discover repo root via a temporary git instance at the file's directory,
+	// then re-initialize at the repo root so that git grep and other commands
+	// return paths relative to the repo root (fixes self-exclusion comparisons).
+	const tempGit = getGitForFile(targetPath);
+	const root = await tempGit.revparse(["--show-toplevel"]);
 	const repoRoot = root.trim();
+	const git = simpleGit(repoRoot);
 	const config = await loadConfig(repoRoot);
 
 	// getIgnoreFilter depends on config, but getProjectMetrics does not
@@ -1423,6 +1432,7 @@ export async function getContentCoupling(
 			? ctx.repoRoot
 			: (await git.revparse(["--show-toplevel"])).trim();
 		const relativePath = path.relative(repoRoot, filePath);
+		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
 		// Read source and extract strings
 		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
@@ -1458,7 +1468,7 @@ export async function getContentCoupling(
 			const files = grepResult
 				.split("\n")
 				.map((f) => f.trim())
-				.filter((f) => f && f !== relativePath);
+				.filter((f) => f && f !== relativePath && !shouldIgnoreFile(f, ig));
 
 			for (const file of files) {
 				if (!fileStringMap.has(file)) {
@@ -1955,6 +1965,7 @@ export async function getApiCoupling(
 			? ctx.repoRoot
 			: (await git.revparse(["--show-toplevel"])).trim();
 		const relativePath = path.relative(repoRoot, filePath);
+		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
 		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
 
@@ -1989,7 +2000,7 @@ export async function getApiCoupling(
 			const files = grepResult
 				.split("\n")
 				.map((f) => f.trim())
-				.filter((f) => f && f !== relativePath);
+				.filter((f) => f && f !== relativePath && !shouldIgnoreFile(f, ig));
 
 			for (const file of files) {
 				if (!allConsumers.has(file)) {
