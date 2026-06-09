@@ -138,7 +138,7 @@ describe("MCP Protocol Compliance", () => {
 			expect(text).toContain("index.ts");
 			expect(text).toContain("RISK:");
 			expect(result.isError).toBeFalsy();
-		}, 30000);
+		});
 
 		it("fails loudly with a retry instruction for a non-existent path", async () => {
 			const result = await harness.client.callTool({
