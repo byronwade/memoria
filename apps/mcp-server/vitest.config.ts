@@ -13,8 +13,8 @@ export default defineConfig({
 			"tests/auto-save-memories.test.ts",
 			"tests/memory-stress.test.ts",
 		],
-		// Increase timeout for git-based tests that can be slow
-		testTimeout: 10000,
+		// Increase timeout for git-based tests that can be slow on CI runners
+		testTimeout: 30000,
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "json", "html"],

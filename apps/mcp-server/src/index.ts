@@ -1546,17 +1546,19 @@ export async function getTestCoupling(
 			`${escapedBasename}-spec\\.`,        // login-spec.js
 		];
 
-		// Search using git grep for files matching test naming pattern
+		// Search by file PATH (not content) via git ls-files glob patterns.
+		// Using `git grep` on content causes false positives when docs/READMEs
+		// mention test file names in code examples.
+		const lsFilesPatterns = [
+			`*${escapedBasename}.test.*`,
+			`*${escapedBasename}.spec.*`,
+			`*${escapedBasename}_test.*`,
+			`*test_${escapedBasename}.*`,
+			`*${escapedBasename}-test.*`,
+			`*${escapedBasename}-spec.*`,
+		];
 		const grepResult = await git
-			.raw([
-				"--no-optional-locks",
-				"grep",
-				"-l",
-				"-E",
-				testPatterns.join("|"),
-				"--",
-				"*",
-			])
+			.raw(["ls-files", "--", ...lsFilesPatterns])
 			.catch(() => "");
 
 		const testFiles = grepResult
@@ -1705,7 +1707,8 @@ export async function getEnvCoupling(
 		const files = grepResult
 			.split("\n")
 			.map((f) => f.trim())
-			.filter((f) => f && f !== relativePath);
+			// Exclude docs/config — env var names appear in README/CLAUDE.md as examples
+			.filter((f) => f && f !== relativePath && !/\.(md|txt|rst|mdc|mdx)$/i.test(f));
 
 		// For each file, find which env vars it shares
 		const fileEnvMap: Map<string, string[]> = new Map();
@@ -1857,7 +1860,8 @@ export async function getSchemaCoupling(
 		const files = grepResult
 			.split("\n")
 			.map((f) => f.trim())
-			.filter((f) => f && f !== relativePath);
+			// Exclude docs/config — schema names appear in README, rules files, etc.
+			.filter((f) => f && f !== relativePath && !/\.(md|txt|rst|mdc|mdx|json|ya?ml|toml)$/i.test(f));
 
 		// For each file, determine what schema names it references
 		const fileSchemaMap: Map<string, string[]> = new Map();
@@ -2000,7 +2004,8 @@ export async function getApiCoupling(
 			const files = grepResult
 				.split("\n")
 				.map((f) => f.trim())
-				.filter((f) => f && f !== relativePath && !shouldIgnoreFile(f, ig));
+				// Exclude docs/config — they mention API paths as examples, not as callers
+				.filter((f) => f && f !== relativePath && !shouldIgnoreFile(f, ig) && !/\.(md|txt|rst|mdc|mdx|json|ya?ml|toml)$/i.test(f));
 
 			for (const file of files) {
 				if (!allConsumers.has(file)) {
