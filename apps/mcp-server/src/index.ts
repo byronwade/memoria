@@ -2239,8 +2239,16 @@ export function mergeCouplingResults(
 		}
 	}
 
-	// Sort by score descending and return top 15 (expanded from 10)
-	return merged.sort((a, b) => b.score - a.score).slice(0, 15);
+	// Git co-change files are the most reliable signal and must always survive the
+	// cap.  Other engines fill the remaining slots with their highest-scoring
+	// entries, then the whole list is sorted by score for the caller.
+	const MAX_RESULTS = 15;
+	const gitEntries = merged.filter((f) => f.source === "git");
+	const otherEntries = merged
+		.filter((f) => f.source !== "git")
+		.sort((a, b) => b.score - a.score)
+		.slice(0, Math.max(0, MAX_RESULTS - gitEntries.length));
+	return [...gitEntries, ...otherEntries].sort((a, b) => b.score - a.score);
 }
 
 // --- ENGINE 7: SIBLING GUIDANCE (Smart New File Guidance) ---
