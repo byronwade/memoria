@@ -126,6 +126,15 @@ describe("MCP Protocol Compliance", () => {
 			// annotations are passed through verbatim by the SDK
 			expect((analyze as any).annotations?.readOnlyHint).toBe(true);
 		});
+
+		it("advertises an outputSchema for analyze_file (MCP 2025-06-18)", async () => {
+			const { tools } = await harness.client.listTools();
+			const analyze = tools.find((t) => t.name === "analyze_file")!;
+			const schema = (analyze as any).outputSchema;
+			expect(schema?.type).toBe("object");
+			expect(schema.properties.risk).toBeDefined();
+			expect(schema.properties.coupledFiles).toBeDefined();
+		});
 	});
 
 	describe("tools/call: analyze_file", () => {
@@ -138,6 +147,21 @@ describe("MCP Protocol Compliance", () => {
 			expect(text).toContain("index.ts");
 			expect(text).toContain("RISK:");
 			expect(result.isError).toBeFalsy();
+		});
+
+		it("returns typed structuredContent alongside the markdown", async () => {
+			const result = await harness.client.callTool({
+				name: "analyze_file",
+				arguments: { path: REAL_FILE },
+			});
+			const sc = (result as any).structuredContent;
+			expect(sc).toBeDefined();
+			expect(sc.path).toBe(REAL_FILE);
+			expect(typeof sc.risk.score).toBe("number");
+			expect(["low", "medium", "high", "critical"]).toContain(sc.risk.level);
+			expect(Array.isArray(sc.coupledFiles)).toBe(true);
+			expect(Array.isArray(sc.staticDependents)).toBe(true);
+			expect(Array.isArray(sc.preflightChecklist)).toBe(true);
 		});
 
 		it("fails loudly with a retry instruction for a non-existent path", async () => {

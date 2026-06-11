@@ -3335,6 +3335,155 @@ export async function analyzeFile(
 	};
 }
 
+// --- STRUCTURED TOOL OUTPUT (MCP 2025-06-18) ---
+// JSON Schema for analyze_file's `structuredContent`. Hosts that support output
+// schemas can render and route this TYPED data (risk, coupling, dependents,
+// checklist) instead of regex-parsing the markdown. The markdown text is still
+// returned for back-compat. Several fields are optional and forward-compatible:
+// `coupledFiles[].lift/support` and `volatility.hotspotScore/bugFixCommits/
+// minorContributors` populate automatically once the lift and bugspots engines
+// land — the schema declares them now so consumers can rely on a stable shape.
+export const ANALYZE_FILE_OUTPUT_SCHEMA = {
+	type: "object",
+	properties: {
+		path: { type: "string", description: "Absolute path that was analyzed" },
+		risk: {
+			type: "object",
+			description: "Compound risk assessment",
+			properties: {
+				score: { type: "number", description: "0-100 compound risk score" },
+				level: {
+					type: "string",
+					enum: ["low", "medium", "high", "critical"],
+				},
+				action: { type: "string", description: "Recommended action" },
+				factors: { type: "array", items: { type: "string" } },
+			},
+			required: ["score", "level"],
+		},
+		volatility: {
+			type: "object",
+			properties: {
+				panicScore: { type: "number", description: "0-100 time-decayed panic score" },
+				commitCount: { type: "number" },
+				topAuthor: {
+					type: ["object", "null"],
+					properties: {
+						name: { type: "string" },
+						percentage: { type: "number" },
+					},
+				},
+				hotspotScore: { type: "number", description: "Bugspots hotspot (when available)" },
+				bugFixCommits: { type: "number" },
+				minorContributors: { type: "number" },
+			},
+		},
+		coupledFiles: {
+			type: "array",
+			description: "Files that historically change with the target",
+			items: {
+				type: "object",
+				properties: {
+					file: { type: "string" },
+					score: {
+						type: "number",
+						description: "Coupling % (association-rule confidence)",
+					},
+					source: {
+						type: "string",
+						description: "git | type | content | docs | test | env | schema | api | transitive",
+					},
+					relationship: { type: "string" },
+					lift: { type: "number", description: "Association-rule lift, >1 = genuine (when available)" },
+					support: { type: "number", description: "# shared commits (when available)" },
+				},
+				required: ["file", "score"],
+			},
+		},
+		staticDependents: {
+			type: "array",
+			description: "Files that import the target (must update on API change)",
+			items: { type: "string" },
+		},
+		drift: {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					file: { type: "string" },
+					daysOld: { type: "number" },
+				},
+			},
+		},
+		preflightChecklist: { type: "array", items: { type: "string" } },
+	},
+	required: ["path", "risk"],
+} as const;
+
+/**
+ * Build the typed `structuredContent` payload for analyze_file from the raw
+ * analysis result. Optional fields (lift/support, hotspot/ownership) are emitted
+ * only when present, so this is correct both today and after those engines land.
+ */
+export function buildStructuredAnalysis(
+	analysis: Awaited<ReturnType<typeof analyzeFile>>,
+) {
+	const vol = analysis.volatility as VolatilityResult & {
+		hotspotScore?: number;
+		bugFixCommits?: number;
+		minorContributors?: number;
+	};
+
+	const coupledFiles = analysis.coupled.map((c: any) => {
+		const relationship =
+			c.relationship ??
+			(typeof c.evidence === "object" ? c.evidence?.changeType : undefined);
+		return {
+			file: c.file,
+			score: c.score,
+			source: c.source ?? "git",
+			...(relationship && relationship !== "unknown" ? { relationship } : {}),
+			...(typeof c.lift === "number" ? { lift: c.lift } : {}),
+			...(typeof c.support === "number" ? { support: c.support } : {}),
+		};
+	});
+
+	const volatility: Record<string, unknown> = {
+		panicScore: vol.panicScore,
+		commitCount: vol.commitCount,
+		topAuthor: vol.topAuthor
+			? { name: vol.topAuthor.name, percentage: vol.topAuthor.percentage }
+			: null,
+	};
+	if (typeof vol.hotspotScore === "number") volatility.hotspotScore = vol.hotspotScore;
+	if (typeof vol.bugFixCommits === "number") volatility.bugFixCommits = vol.bugFixCommits;
+	if (typeof vol.minorContributors === "number") volatility.minorContributors = vol.minorContributors;
+
+	const preflightChecklist = [
+		`Modify ${path.basename(analysis.filePath)} (primary target)`,
+		...coupledFiles.map((c) => `Verify ${c.file} (coupled${c.source && c.source !== "git" ? ` — ${c.source}` : ""})`),
+		...analysis.importers.map((f: string) => `Check ${f} (imports this)`),
+	];
+
+	return {
+		path: analysis.filePath,
+		risk: {
+			score: analysis.risk.score,
+			level: analysis.risk.level,
+			action: analysis.risk.action,
+			factors: analysis.risk.factors,
+		},
+		volatility,
+		coupledFiles,
+		staticDependents: analysis.importers,
+		drift: analysis.drift.map((d: { file: string; daysOld: number }) => ({
+			file: d.file,
+			daysOld: d.daysOld,
+		})),
+		preflightChecklist,
+	};
+}
+
 // Helper for get_context tool - uses shared risk assessment from context-response.ts
 function buildRiskAssessmentFromData(
 	volatilityScore: number,
@@ -3626,6 +3775,7 @@ function setupServer(server: Server): Server {
 					},
 					required: ["path"],
 				},
+				outputSchema: ANALYZE_FILE_OUTPUT_SCHEMA,
 				annotations: {
 					title: "Analyze File",
 					readOnlyHint: true,
@@ -3917,7 +4067,10 @@ function setupServer(server: Server): Server {
 					analysis.siblingGuidance,
 				);
 
-				return { content: [{ type: "text", text: report }] };
+				return {
+					content: [{ type: "text", text: report }],
+					structuredContent: buildStructuredAnalysis(analysis),
+				};
 			} catch (error: any) {
 				// Check for common git-related errors
 				const errorMsg = error.message || String(error);

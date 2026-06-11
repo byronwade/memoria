@@ -192,6 +192,14 @@ npm test
 - [ ] Verify `Profile.tsx` (imports this file)
 ```
 
+**Structured output (MCP 2025-06-18):** in addition to the markdown above,
+`analyze_file` returns typed `structuredContent` conforming to a published
+`outputSchema` (`path`, `risk {score, level, action, factors}`, `volatility`,
+`coupledFiles[] {file, score, source, relationship, lift?, support?}`,
+`staticDependents[]`, `drift[]`, `preflightChecklist[]`). Hosts that support
+output schemas can render and route this typed data instead of parsing markdown;
+clients without support still read the markdown for back-compat.
+
 ### `ask_history` (The Archaeologist + Sherlock Mode)
 
 Search git history to understand WHY code was written a certain way. Solves the **Chesterton's Fence** problem.
