@@ -17,7 +17,7 @@ import { LRUCache } from "lru-cache";
 import simpleGit from "simple-git";
 import { z } from "zod";
 import { getCloudClient, initializeCloudClient, type Memory } from "./convex-client.js";
-import { ensureAuthenticated } from "./auth.js";
+import { getDeviceInfo } from "./auth.js";
 import { extractFromCode, extractFromCommitMessage, type ExtractedMemory } from "./auto-librarian.js";
 import { searchBM25, extractKeywords, extractFileKeywords, extractCodeKeywords, combineKeywords } from "./bm25.js";
 import { buildRiskAssessment as buildRiskAssessmentHelper } from "./context-response.js";
@@ -4051,7 +4051,7 @@ function setupServer(server: Server): Server {
 				let cloudError: string | undefined;
 				let autoSavedCount = 0;
 
-				if (cloudClient.isConfigured()) {
+				if (cloudClient.hasAuth()) {
 					const queryKeywords = query ? query.split(/\s+/).filter((w) => w.length > 2) : undefined;
 					const result = await cloudClient.getMemoriesForFile(targetPath, queryKeywords, repoId);
 					memories = result.memories;
@@ -4075,7 +4075,7 @@ function setupServer(server: Server): Server {
 				}
 
 				// AUTO-SAVE: Save critical/high importance local memories to cloud
-				if (autoSave && cloudClient.isConfigured() && localMemories.length > 0) {
+				if (autoSave && cloudClient.hasAuth() && localMemories.length > 0) {
 					const toSave = localMemories.filter(
 						(m) => m.confidence >= 70 &&
 							(m.importance === "critical" || m.importance === "high")
@@ -4176,7 +4176,7 @@ function setupServer(server: Server): Server {
 					sections.push("**MEMORIES**\n");
 					sections.push(`> ${cloudError}`);
 					sections.push("");
-				} else if (!cloudClient.isConfigured()) {
+				} else if (!cloudClient.hasAuth()) {
 					// Show local memories extracted from code comments (FREE)
 					if (localMemories.length > 0) {
 						const criticalLocal = localMemories.filter(
@@ -4456,7 +4456,7 @@ function setupServer(server: Server): Server {
 				let saveErrors: string[] = [];
 				const cloudClient = getCloudClient();
 
-				if (autoSave && cloudClient.isConfigured()) {
+				if (autoSave && cloudClient.hasAuth()) {
 					// Filter for auto-save: high confidence + critical/high importance
 					const toSave = filtered.filter(
 						(m) => m.confidence >= autoSaveThreshold &&
@@ -4513,7 +4513,7 @@ function setupServer(server: Server): Server {
 				sections.push(`### Memory Extraction: ${filtered.length} memories found\n`);
 
 				// Show auto-save status
-				if (autoSave && cloudClient.isConfigured()) {
+				if (autoSave && cloudClient.hasAuth()) {
 					if (savedCount > 0) {
 						sections.push(`✅ **Auto-saved ${savedCount} high-confidence memories to cloud**\n`);
 					} else if (saveErrors.length > 0) {
@@ -4521,8 +4521,8 @@ function setupServer(server: Server): Server {
 					} else {
 						sections.push(`ℹ️ No memories met auto-save criteria (confidence >= ${autoSaveThreshold}%, critical/high importance)\n`);
 					}
-				} else if (autoSave && !cloudClient.isConfigured()) {
-					sections.push(`ℹ️ Auto-save disabled: Cloud not configured (set MEMORIA_API_URL)\n`);
+				} else if (autoSave && !cloudClient.hasAuth()) {
+					sections.push(`ℹ️ Auto-save disabled: Not signed in. Run 'memoria login' to enable cloud memories.\n`);
 				}
 
 				if (critical.length > 0) {
@@ -4807,29 +4807,35 @@ const isTestEnvironment = process.env.VITEST === "true" || process.env.NODE_ENV 
 const isDirectExecution = !isTestEnvironment && (process.argv[1]?.includes("index") || process.argv[1]?.includes("memoria"));
 if (isDirectExecution) {
 	(async () => {
-		// Ensure user is authenticated before starting the server
-		const authResult = await ensureAuthenticated({
-			onStatus: (status) => {
-				// Write to stderr so MCP client can see it (stdout is for JSON-RPC)
-				process.stderr.write(`[memoria] ${status}\n`);
-			},
-		});
+		// Connect the stdio transport IMMEDIATELY so the client's `initialize`
+		// request gets a timely response. MCP servers are launched headlessly by
+		// the client (Claude Desktop, Cursor, etc.) — there is no terminal or
+		// browser to drive an interactive OAuth flow, so we must NOT block startup
+		// on authentication. Doing so previously caused the server to hang while
+		// polling for a browser login (up to 5 minutes) and then exit(1), which is
+		// why the server appeared to "never work".
+		//
+		// Authentication is OPTIONAL: it only enables cloud features (shared
+		// memories/guardrails). The core git-forensics tools run fully locally with
+		// no account. Browser login lives in the `memoria login` CLI command, which
+		// writes the linked device to ~/.memoria/device.json; the cloud client
+		// auto-loads it on construction.
+		const server = createServer();
+		const transport = new StdioServerTransport();
 
-		if (!authResult.authenticated) {
-			process.stderr.write(`[memoria] Authentication failed: ${authResult.error || "Unknown error"}\n`);
-			process.stderr.write(`[memoria] Please run 'npx @byronwade/memoria login' to authenticate.\n`);
+		try {
+			await server.connect(transport);
+		} catch (err) {
+			process.stderr.write(`[memoria] Failed to start MCP server: ${(err as Error).message}\n`);
 			process.exit(1);
 		}
 
-		// Reload cloud client with authenticated device
-		const cloudClient = getCloudClient();
-		// The device ID is now loaded from ~/.memoria/device.json
-
-		process.stderr.write(`[memoria] Authenticated as ${authResult.email}\n`);
-
-		// Start the MCP server
-		const server = createServer();
-		const transport = new StdioServerTransport();
-		server.connect(transport);
+		// Best-effort, non-blocking status note on stderr (stdout is JSON-RPC only).
+		const device = getDeviceInfo();
+		if (device?.linkedAt) {
+			process.stderr.write(`[memoria] Ready. Cloud features enabled${device.userEmail ? ` (${device.userEmail})` : ""}.\n`);
+		} else {
+			process.stderr.write("[memoria] Ready (local mode). Run 'npx @byronwade/memoria login' to enable cloud memories.\n");
+		}
 	})();
 }
