@@ -1160,24 +1160,94 @@ export async function getImporters(
 // Solves the "README needs update when output changes" problem
 
 /**
+ * Blank out comments and string/template literals in C-family source, replacing
+ * their characters with spaces (newlines preserved) so token offsets and line
+ * numbers stay intact. This lets the regex extractors ignore keywords that only
+ * appear inside comments or strings — e.g. a `// export const foo` in a comment,
+ * or `"import x from y"` in a doc string — which is the main source of
+ * false-positive matches without a full parser.
+ */
+export function stripCommentsAndStrings(code: string): string {
+	let out = "";
+	let state:
+		| "code"
+		| "line"
+		| "block"
+		| "squote"
+		| "dquote"
+		| "template" = "code";
+	for (let i = 0; i < code.length; i++) {
+		const c = code[i];
+		const c2 = i + 1 < code.length ? code[i + 1] : "";
+		const blank = c === "\n" ? "\n" : " ";
+		switch (state) {
+			case "code":
+				if (c === "/" && c2 === "/") { state = "line"; out += "  "; i++; }
+				else if (c === "/" && c2 === "*") { state = "block"; out += "  "; i++; }
+				else if (c === "'") { state = "squote"; out += " "; }
+				else if (c === '"') { state = "dquote"; out += " "; }
+				else if (c === "`") { state = "template"; out += " "; }
+				else out += c;
+				break;
+			case "line":
+				if (c === "\n") { state = "code"; out += "\n"; }
+				else out += " ";
+				break;
+			case "block":
+				if (c === "*" && c2 === "/") { state = "code"; out += "  "; i++; }
+				else out += blank;
+				break;
+			case "squote":
+			case "dquote": {
+				const quote = state === "squote" ? "'" : '"';
+				if (c === "\\") { out += "  "; i++; }
+				else if (c === quote) { state = "code"; out += " "; }
+				else out += blank;
+				break;
+			}
+			case "template":
+				// Template interpolations (${...}) are blanked along with the literal;
+				// exported identifiers never live inside one, so this is safe.
+				if (c === "\\") { out += "  "; i++; }
+				else if (c === "`") { state = "code"; out += " "; }
+				else out += blank;
+				break;
+		}
+	}
+	return out;
+}
+
+/**
  * Extract exported identifiers from source code using regex (no AST needed)
  */
 export function extractExports(sourceCode: string): string[] {
+	// Precision pass: blank out comments and string/template literals first, so we
+	// never match an `export` keyword that lives inside a comment or a string (the
+	// #1 false positive of regex-based extraction). Lengths/newlines are preserved.
+	const code = stripCommentsAndStrings(sourceCode);
 	const exportPattern =
-		/export\s+(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+(\w+)/g;
+		/export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function\*?|const|let|var|class|interface|type|enum|namespace)\s+(\w+)/g;
 	const identifiers: string[] = [];
 	let match: RegExpExecArray | null;
-	while ((match = exportPattern.exec(sourceCode)) !== null) {
+	while ((match = exportPattern.exec(code)) !== null) {
 		identifiers.push(match[1]);
 	}
-	// Also catch `export { name }` and `export default function name`
-	const namedExportPattern = /export\s+\{\s*([^}]+)\s*\}/g;
-	while ((match = namedExportPattern.exec(sourceCode)) !== null) {
+	// Also catch `export { name }` / `export type { name }` and re-exports. The
+	// LOCAL name (before `as`) is what other modules and docs reference.
+	const namedExportPattern = /export\s+(?:type\s+)?\{\s*([^}]+)\s*\}/g;
+	while ((match = namedExportPattern.exec(code)) !== null) {
 		const names = match[1].split(",").map((n) => n.trim().split(/\s+as\s+/)[0]);
 		identifiers.push(...names.filter((n) => n && !n.includes("*")));
 	}
-	const defaultFnPattern = /export\s+default\s+(?:async\s+)?function\s+(\w+)/g;
-	while ((match = defaultFnPattern.exec(sourceCode)) !== null) {
+	// `export default function name` / `export default class name`
+	const defaultDeclPattern =
+		/export\s+default\s+(?:async\s+)?(?:function\*?|class)\s+(\w+)/g;
+	while ((match = defaultDeclPattern.exec(code)) !== null) {
+		identifiers.push(match[1]);
+	}
+	// `export * as NS from '...'` (namespace re-export)
+	const starAsPattern = /export\s+\*\s+as\s+(\w+)\s+from/g;
+	while ((match = starAsPattern.exec(code)) !== null) {
 		identifiers.push(match[1]);
 	}
 	// Filter out common/meaningless names and dedupe
