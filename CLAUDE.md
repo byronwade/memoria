@@ -299,16 +299,33 @@ weightedPanicScore += keywordWeight * decay
 
 A bug fix from yesterday matters far more than a fix from 3 years ago.
 
-**Bus Factor Tracking:**
-Now tracks all contributors with commit counts and percentages:
+**Bugspots Hotspot Score (recency-weighted bug-fix density):**
+In addition to the panic score, the engine computes the **bugspots** score from
+Google's "Bug Prediction at Google" (2011) — each bug-fixing commit contributes
+`1 / (1 + e^(−12·t + 12))` where `t` is the fix's position in `[0,1]` across the
+file's fix history (`t = 1 − (now − fixDate) / (now − oldestFixDate)`). Recent
+and repeated fixes dominate, on the empirically-validated premise that recently-
+and-repeatedly-fixed code is where the next bug lives.
+- `hotspotScore` - the summed sigmoid weight
+- `bugFixCommits` - number of bug-fixing commits in the window
+
+**Bus Factor + Ownership Risk (Bird et al., FSE 2011):**
+Tracks all contributors with commit counts and percentages, and counts
+**minor contributors** — authors owning <5% of the file (computed over a wider
+window than the panic window so the threshold is meaningful). Microsoft's study
+found the number of minor contributors correlated with defects more strongly
+than almost any other metric.
 - `authorDetails[]` - All authors sorted by commit count
 - `topAuthor` - The primary owner (most commits)
+- `minorContributors` - count of <5%-ownership authors (elevated-risk signal)
 - Expert warning when one person owns >70% of the file
 
 **Output Example:**
 ```
 🔥 Status: VOLATILE (Score: 85%)
+Hotspot: 6 bug-fix commits here (recency-weighted score 3.2).
 Expert: Dave wrote 90% of this file. If the logic is unclear, assume it is complex.
+Ownership risk: 4 minor contributors (<5% each).
 
 Contributors:
   - Dave (45 commits, 90%)

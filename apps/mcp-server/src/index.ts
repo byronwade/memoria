@@ -260,6 +260,12 @@ export interface VolatilityResult {
 	// NEW fields
 	authorDetails: AuthorContribution[]; // Full author breakdown
 	topAuthor: AuthorContribution | null; // Bus factor indicator
+	// Bugspots recency-weighted bug-fix density (higher = more fragile hot spot)
+	hotspotScore: number;
+	bugFixCommits: number; // # bug-fixing commits in the analyzed window
+	// Bird et al. (FSE 2011): # contributors who own <5% of the file. More
+	// low-ownership ("minor") authors correlates strongly with defects.
+	minorContributors: number;
 	recencyDecay: {
 		oldestCommitDays: number;
 		newestCommitDays: number;
@@ -316,6 +322,33 @@ export function calculateRecencyDecay(commitDate: Date): number {
 		(now - commitDate.getTime()) / (1000 * 60 * 60 * 24),
 	);
 	return 0.5 ** (daysAgo / 30);
+}
+
+// --- BUGSPOTS HOTSPOT SCORE ---
+// Google "Bug Prediction at Google" (2011); exact formula from igrigorik/bugspots.
+// Each bug-fixing commit contributes 1 / (1 + e^(-12·t + 12)), where t is the
+// fix's position in [0,1] across the file's fix history:
+//   t = 1 - (now - fixDate) / (now - oldestFixDate)
+// so a fix from "now" weighs most and the oldest fix ~0. Summing over a file's
+// fixes yields a recency-weighted bug-fix DENSITY — recently and repeatedly
+// fixed code is where the next bug most likely lives. Unlike a raw count, the
+// sigmoid front-loads recent fixes; unlike our half-life panic decay, it is the
+// published, empirically-validated shape.
+export function calculateHotspotScore(
+	fixDates: Date[],
+	now: number = Date.now(),
+): number {
+	if (fixDates.length === 0) return 0;
+	const times = fixDates.map((d) => d.getTime());
+	const oldest = Math.min(...times);
+	const span = now - oldest;
+	let score = 0;
+	for (const t0 of times) {
+		// Normalize to [0,1]; if all fixes share a timestamp, treat as most recent.
+		const t = span > 0 ? 1 - (now - t0) / span : 1;
+		score += 1 / (1 + Math.exp(-12 * t + 12));
+	}
+	return Math.round(score * 1000) / 1000;
 }
 
 // --- CONCURRENCY LIMITER ---
@@ -3032,6 +3065,9 @@ export async function getVolatility(
 			authors: 0,
 			authorDetails: [],
 			topAuthor: null,
+			hotspotScore: 0,
+			bugFixCommits: 0,
+			minorContributors: 0,
 			recencyDecay: {
 				oldestCommitDays: 0,
 				newestCommitDays: 0,
@@ -3066,6 +3102,10 @@ export async function getVolatility(
 	let oldestDays = 0;
 	let newestDays = Infinity;
 
+	// Dates of bug-fixing commits (weight >= 1 excludes 0.5 maintenance keywords
+	// like refactor/cleanup, which are not fixes) for the bugspots hotspot score.
+	const fixDates: Date[] = [];
+
 	log.all.forEach((c) => {
 		const msgLower = c.message.toLowerCase();
 		let commitWeight = 0;
@@ -3095,6 +3135,10 @@ export async function getVolatility(
 			// Track high-severity commits for output (regardless of decay)
 			if (commitWeight >= 2) {
 				panicCommits.push(c.message.split("\n")[0].slice(0, 60));
+			}
+			// Bug-fix commit (weight >= 1) -> feeds the bugspots hotspot score.
+			if (commitWeight >= 1) {
+				fixDates.push(commitDate);
 			}
 		}
 
@@ -3132,6 +3176,41 @@ export async function getVolatility(
 	// Identify top author (bus factor indicator)
 	const topAuthor = authorDetails.length > 0 ? authorDetails[0] : null;
 
+	// Bird et al. (FSE 2011): contributors owning <5% of a file are "minor", and
+	// a higher count of minor contributors correlates strongly with defects.
+	// Computed over a WIDER window than the panic window (which caps at 20): with
+	// only 20 commits, a single-commit author is already 5%, so the <5% threshold
+	// would never fire. A format-only `git log` over more history is cheap.
+	let minorContributors = 0;
+	try {
+		const ownerLog = await git.raw([
+			"log",
+			"--format=%ae",
+			"-n",
+			"200",
+			"--",
+			filePath,
+		]);
+		const ownerCounts = new Map<string, number>();
+		let ownerTotal = 0;
+		for (const line of ownerLog.split("\n")) {
+			const email = line.trim();
+			if (!email) continue;
+			ownerTotal++;
+			ownerCounts.set(email, (ownerCounts.get(email) ?? 0) + 1);
+		}
+		if (ownerTotal > 0) {
+			for (const n of ownerCounts.values()) {
+				if (n / ownerTotal < 0.05) minorContributors++;
+			}
+		}
+	} catch {
+		// Leave minorContributors at 0 if the ownership log fails.
+	}
+
+	// Bugspots recency-weighted bug-fix density over the analyzed window.
+	const hotspotScore = calculateHotspotScore(fixDates);
+
 	const result: VolatilityResult = {
 		commitCount: log.total,
 		panicScore: Math.min(
@@ -3143,6 +3222,9 @@ export async function getVolatility(
 		authors: authorMap.size, // Backward compatible count
 		authorDetails,
 		topAuthor,
+		hotspotScore,
+		bugFixCommits: fixDates.length,
+		minorContributors,
 		recencyDecay: {
 			oldestCommitDays: oldestDays,
 			newestCommitDays: newestDays === Infinity ? 0 : newestDays,
@@ -3559,7 +3641,12 @@ export function generateAiInstructions(
 		if (siblingGuidance && siblingGuidance.patterns.length > 0) {
 			output += formatSiblingGuidance(siblingGuidance);
 		}
-	} else if (volatility.panicScore > 25 || volatility.topAuthor?.percentage >= 70) {
+	} else if (
+		volatility.panicScore > 25 ||
+		volatility.topAuthor?.percentage >= 70 ||
+		volatility.bugFixCommits >= 3 ||
+		volatility.minorContributors >= 3
+	) {
 		// Only show history section if there's something notable
 		output += `---\n\n`;
 		output += `## File History\n\n`;
@@ -3578,9 +3665,19 @@ export function generateAiInstructions(
 			}
 		}
 
+		// Hotspot (bugspots): recency-weighted bug-fix density
+		if (volatility.bugFixCommits >= 2) {
+			output += `**Hotspot:** ${volatility.bugFixCommits} bug-fix commits here (recency-weighted score ${volatility.hotspotScore}). Recently/repeatedly fixed code is where the next bug tends to live.\n`;
+		}
+
 		// Bus Factor warning
 		if (volatility.topAuthor && volatility.topAuthor.percentage >= 70) {
-			output += `**Expert:** ${volatility.topAuthor.name} (${volatility.topAuthor.percentage}% of commits)\n`;
+			output += `**Expert:** ${volatility.topAuthor.name} (${volatility.topAuthor.percentage}% of commits) — if the logic is unclear, assume it is intentional.\n`;
+		}
+
+		// Ownership risk (Bird et al.): many low-ownership editors -> elevated risk
+		if (volatility.minorContributors >= 3) {
+			output += `**Ownership risk:** ${volatility.minorContributors} minor contributors (<5% each). Code touched by many low-ownership authors correlates with higher defect rates.\n`;
 		}
 
 		// Concerning commits
