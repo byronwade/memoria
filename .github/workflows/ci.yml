@@ -23,7 +23,11 @@ jobs:
       - run: npm run build
       - run: npm test
 
-  lint:
+  # Static type checking. Previously this job was named "lint" but only ran
+  # `npm run build` (a duplicate of the test job's build step) and never linted.
+  # It now runs `tsc --noEmit` across workspaces that define a typecheck script,
+  # catching type regressions that a successful build can still hide.
+  typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,4 +37,4 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci
-      - run: npm run build
+      - run: npm run typecheck

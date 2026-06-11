@@ -14,7 +14,8 @@
 		"tunnel": "cloudflared tunnel run memoria",
 		"tunnel:setup": "./scripts/setup-tunnel.sh",
 		"test": "turbo run test",
-		"lint": "turbo run lint --parallel"
+		"lint": "turbo run lint --parallel",
+		"typecheck": "turbo run typecheck --parallel"
 	},
 	"author": "Byron Wade",
 	"license": "MIT",
