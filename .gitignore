@@ -4,5 +4,9 @@ dist/
 .DS_Store
 *.tsbuildinfo
 
+.turbo/
 .vercel
 .env.local
+
+# Use npm (see packageManager in package.json); keep a single lockfile.
+bun.lock

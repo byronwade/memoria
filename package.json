@@ -4,8 +4,7 @@
 	"private": true,
 	"description": "Monorepo for Memoria MCP server, website, and API",
 	"workspaces": [
-		"apps/*",
-		"packages/*"
+		"apps/*"
 	],
 	"scripts": {
 		"build": "turbo run build",

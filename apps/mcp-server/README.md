@@ -113,7 +113,7 @@ Result: CRASH                           AI: "I'll update both files"
 
 ---
 
-## The Four MCP Tools
+## The Six MCP Tools
 
 ### 1. `analyze_file` (FREE)
 Full forensic analysis of any file — risk score, coupled files, static dependents, pre-flight checklist.
@@ -128,6 +128,12 @@ Get context for a file before editing:
 
 ### 4. `save_lesson` (PAID)
 Save a lesson or context that persists across sessions and team members.
+
+### 5. `extract_memories` (FREE)
+Extract memories from code comments (`IMPORTANT`, `WARNING`, `HACK`, `TODO`, …). When signed in, auto-saves high-confidence findings to the cloud.
+
+### 6. `search_memories` (FREE)
+Search extracted memories with local BM25 keyword matching — no account required.
 
 ---
 

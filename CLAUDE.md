@@ -18,7 +18,7 @@ AI assistants are goldfish. They see the file you're editing but have zero aware
 
 ### The Solution
 
-Memoria provides **Senior Developer Intuition** by running 8 analysis engines that pre-compute what AI cannot do efficiently:
+Memoria provides **Senior Developer Intuition** by running 13 analysis engines that pre-compute what AI cannot do efficiently:
 
 1. **Volatility Engine** - Weighted panic keyword analysis with **time-decay** (recent bugs matter more) and **Bus Factor** tracking (who owns the code)
 2. **Entanglement Engine** - Git co-change correlation with structured diff evidence
@@ -28,6 +28,11 @@ Memoria provides **Senior Developer Intuition** by running 8 analysis engines th
 6. **Documentation Coupling Engine** - Finds markdown files that reference exported functions/types
 7. **Type Coupling Engine** - Finds files sharing type definitions via `git log -S` (pickaxe)
 8. **Content Coupling Engine** - Finds files sharing string literals (error messages, constants)
+9. **Test File Coupling Engine** - Auto-discovers test/mock files for the target
+10. **Environment Variable Coupling Engine** - Finds files sharing the same env vars
+11. **Schema/Model Coupling Engine** - Finds files affected by DB schema/model changes
+12. **API Endpoint Coupling Engine** - Finds client code calling routes defined in the file
+13. **Re-Export Chain Coupling Engine** - Finds files affected transitively through barrels
 
 ## Critical Setup: Making AI Use Memoria
 
@@ -120,14 +125,20 @@ Before modifying files, call the Memoria MCP tool:
 └───────────────┘   └───────────────────┘   └───────────────┘
 ```
 
-### Single File Implementation
+### Source Layout
 
-Everything lives in `src/index.ts`:
-- MCP Server with stdio transport (2 tools: `analyze_file` and `ask_history`)
-- 8 analysis engines running in parallel
-- LRU cache (100 items, 5-minute TTL)
-- Output formatter generating AI-optimized markdown
-- Optional `.memoria.json` config support
+The MCP server lives in `apps/mcp-server/src/`, split across a few modules:
+- `index.ts` — MCP server (stdio transport), the analysis engines, LRU cache
+  (100 items, 5-minute TTL), output formatter, and `.memoria.json` config support
+- `cli.ts` — the `memoria` CLI (analyze/risk/coupled/importers/history/doctor/init)
+- `auth.ts` — device-based authentication for optional cloud features
+- `convex-client.ts` — cloud client for team memories/guardrails (degrades gracefully)
+- `auto-librarian.ts` / `bm25.ts` — memory extraction and local keyword search
+- `context-response.ts` — risk assessment formatting
+
+The server exposes six MCP tools (`analyze_file`, `ask_history`, `get_context`,
+`save_lesson`, `extract_memories`, `search_memories`) backed by 13 analysis
+engines that run in parallel.
 
 ### Key Design Decisions
 
@@ -148,7 +159,7 @@ npm run dev
 # Run the MCP server
 npm start
 
-# Run test suite (442 tests)
+# Run test suite (580+ tests)
 npm test
 ```
 
@@ -743,7 +754,7 @@ Plus any patterns from the project's `.gitignore`.
 
 ## Test Coverage
 
-442 tests covering:
+580+ tests covering:
 - All 13 engines with edge cases
 - Documentation, type, and content coupling engines
 - Test file, env var, schema, API, and transitive coupling engines

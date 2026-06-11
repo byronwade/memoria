@@ -616,9 +616,8 @@ npx tsx benchmarks/run-benchmarks.ts
 ## Monorepo Layout (Turbo)
 
 - `apps/mcp-server` — MCP server & npm package (publishes `@byronwade/memoria`)
-- `apps/api` — API backend stub (Node HTTP placeholder)
-- `apps/web` — Web frontend stub
-- `packages` — Shared libraries (future)
+- `apps/api` — Convex backend (devices, memories, guardrails, scans); deploys as the `memoria-api` service
+- `apps/web` — Next.js marketing site + dashboard and the device-link/OAuth endpoints
 
 ---
 
