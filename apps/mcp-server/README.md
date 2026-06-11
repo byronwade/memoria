@@ -209,7 +209,28 @@ memoria history "fix" --type=message
 
 # Install auto-pilot rules for your AI tool
 memoria init --all
+
+# Diagnose your environment if analysis isn't working
+memoria doctor
 ```
+
+---
+
+## Troubleshooting
+
+If Memoria isn't returning results in your AI tool, run the built-in
+diagnostic from inside your project:
+
+```bash
+npx -y @byronwade/memoria doctor
+```
+
+It checks, in order: your Node.js version, that `git` is installed, that
+you're inside a git repository with commit history, that any `.memoria.json`
+config is valid, your account/cloud status, and finally runs a real sample
+analysis end-to-end. Each line is marked ✓ / ! / ✗ so you can see exactly
+where things break. Memoria's core analysis works fully **locally** with no
+account — `doctor` reporting "local mode" is normal and not an error.
 
 ---
 

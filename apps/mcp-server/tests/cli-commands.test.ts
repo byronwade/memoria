@@ -84,6 +84,19 @@ describe("CLI Command Dispatch", () => {
 			// Help should document the primary commands a user can run.
 			expect(output).toContain("analyze");
 			expect(output).toContain("init");
+			expect(output).toContain("doctor");
+		});
+	});
+
+	describe("doctor", () => {
+		// Runs inside this package's own git repo, so the diagnostic should
+		// complete and report on each environment check.
+		it("reports the environment checks", () => {
+			const { output } = runCli(["doctor"]);
+			expect(output).toContain("Memoria Doctor");
+			expect(output).toContain("Node.js");
+			expect(output).toContain("Git");
+			expect(output).toContain("Sample analysis");
 		});
 	});
 });
