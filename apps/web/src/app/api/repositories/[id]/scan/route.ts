@@ -3,7 +3,8 @@ import { getSession } from "@/lib/auth/session";
 import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "memoria-internal";
+// No insecure default: when unset, the internal scan endpoint rejects the call.
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
 interface ScanStatus {
 	_id: string;

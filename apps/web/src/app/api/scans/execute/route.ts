@@ -2,13 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
 import { getInstallationToken } from "@/lib/github/auth";
 import simpleGit from "simple-git";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import ignore from "ignore";
 
-// Internal API key for server-to-server auth
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "memoria-internal";
+// Internal API key for server-to-server auth.
+// Intentionally NO fallback: a missing/empty value must fail closed rather than
+// fall back to a publicly-known default. Set INTERNAL_API_KEY in every environment.
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
+
+/** Constant-time comparison so the key check doesn't leak via timing. */
+function safeKeyEqual(provided: string, expected: string): boolean {
+	const a = Buffer.from(provided);
+	const b = Buffer.from(expected);
+	if (a.length !== b.length) return false;
+	return crypto.timingSafeEqual(a, b);
+}
 
 // Source code file extensions to analyze
 const SOURCE_EXTENSIONS = new Set([
@@ -101,9 +112,15 @@ interface FileAnalysisResult {
  * Execute a repository scan (called by Convex action or directly)
  */
 export async function POST(request: NextRequest) {
+	// Fail closed if the shared secret isn't configured.
+	if (!INTERNAL_API_KEY) {
+		console.error("INTERNAL_API_KEY is not set; refusing to execute scan.");
+		return NextResponse.json({ error: "Server misconfigured" }, { status: 503 });
+	}
+
 	// Verify internal API key
 	const apiKey = request.headers.get("X-Internal-Key");
-	if (apiKey !== INTERNAL_API_KEY) {
+	if (!apiKey || !safeKeyEqual(apiKey, INTERNAL_API_KEY)) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 

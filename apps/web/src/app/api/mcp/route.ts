@@ -18,9 +18,11 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://memoria.byronwade.co
  * - Cloud-based memory/context features (future)
  */
 
-// CORS headers for MCP clients
+// CORS headers for MCP clients.
+// Defaults to "*" (current behavior; the endpoint is Bearer-token protected and
+// sets no cookies). Set MEMORIA_ALLOWED_ORIGIN to lock it to a known origin.
 const corsHeaders = {
-	"Access-Control-Allow-Origin": "*",
+	"Access-Control-Allow-Origin": process.env.MEMORIA_ALLOWED_ORIGIN || "*",
 	"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 	"Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id",
 	"Access-Control-Expose-Headers": "Mcp-Session-Id",
