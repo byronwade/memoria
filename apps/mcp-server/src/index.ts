@@ -40,6 +40,8 @@ const MemoriaConfigSchema = z
 				driftDays: z.number().min(1).max(365).optional(),
 				analysisWindow: z.number().min(10).max(500).optional(),
 				maxFilesPerCommit: z.number().min(5).max(100).optional(),
+				minLift: z.number().min(0).max(100).optional(),
+				minSupport: z.number().min(1).max(100).optional(),
 			})
 			.optional(),
 		ignore: z.array(z.string()).optional(),
@@ -401,6 +403,8 @@ export function getStableConfigKey(
 		parts.push(`cp${config.thresholds.couplingPercent ?? "x"}`);
 		parts.push(`dd${config.thresholds.driftDays ?? "x"}`);
 		parts.push(`aw${config.thresholds.analysisWindow ?? "x"}`);
+		parts.push(`ml${config.thresholds.minLift ?? "x"}`);
+		parts.push(`ms${config.thresholds.minSupport ?? "x"}`);
 	}
 	// Ignore patterns count
 	if (config.ignore?.length) {
@@ -569,6 +573,67 @@ export async function getProjectMetrics(
 		// Return default metrics on error
 		return { totalCommits: 0, commitsPerWeek: 10, avgFilesPerCommit: 3 };
 	}
+}
+
+/**
+ * Repo-wide change frequency index: how many (non-bulk) commits touched each file
+ * within a bounded window. This is the BASE RATE denominator for association-rule
+ * "lift" in the entanglement engine — it tells us how often a file changes in
+ * general, so we can tell genuine co-change from a file that simply changes in
+ * almost every commit (lockfiles, barrels, formatters). One `git log` pass,
+ * cached per repo+window. See Zimmermann et al., "Mining Version Histories to
+ * Guide Software Changes" (IEEE TSE 2005) and standard association-rule metrics.
+ */
+export interface RepoChangeFrequency {
+	fileFreq: Map<string, number>; // file -> # non-bulk commits touching it
+	totalCommits: number; // # non-bulk commits in the window
+}
+
+export async function getRepoChangeFrequency(
+	git: ReturnType<typeof simpleGit>,
+	repoRoot: string,
+	window = 300,
+	maxFilesPerCommit = 15,
+): Promise<RepoChangeFrequency> {
+	const cacheKey = `repo-freq:${repoRoot}:${window}:${maxFilesPerCommit}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	const fileFreq = new Map<string, number>();
+	let totalCommits = 0;
+	try {
+		// NUL-delimit commits so a single split cleanly separates commit blocks
+		// regardless of commit-message content.
+		const raw = await git.raw([
+			"log",
+			"--name-only",
+			"--format=%x00%H",
+			"-n",
+			String(window),
+		]);
+
+		for (const block of raw.split("\u0000")) {
+			const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+			if (lines.length === 0) continue;
+			// lines[0] is the commit hash; the rest are file paths.
+			const files = lines.slice(1);
+			// Skip bulk commits (renames, reformatting, license headers, big merges):
+			// they co-change dozens of unrelated files and would poison base rates.
+			if (files.length === 0 || files.length > maxFilesPerCommit) continue;
+			totalCommits++;
+			const seen = new Set<string>();
+			for (const f of files) {
+				if (seen.has(f)) continue;
+				seen.add(f);
+				fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1);
+			}
+		}
+	} catch {
+		// On failure, an empty index yields lift=neutral (no filtering).
+	}
+
+	const result: RepoChangeFrequency = { fileFreq, totalCommits };
+	cache.set(cacheKey, result);
+	return result;
 }
 
 // Calculate thresholds based on project velocity and config overrides
@@ -997,18 +1062,51 @@ export async function getCoupledFiles(
 			});
 		});
 
-		// Get top 5 coupled files using adaptive threshold
+		// Association-rule metrics (Zimmermann et al., TSE 2005). For target X and
+		// candidate co-changed file Y:
+		//   support    = # commits that changed both X and Y (raw evidence count)
+		//   confidence = support / |commits touching X|  = P(Y changes | X changes)
+		//   lift       = confidence / baseRate(Y)        = how many times MORE OFTEN
+		//                than chance Y changes when X does
+		// `score` stays as confidence% (back-compat + ranking). `lift` is the new
+		// false-positive killer: a file that co-changes with everything (lockfiles,
+		// barrels) has high confidence but lift ~= 1 (coincidental), so we drop it.
+		const freq = await getRepoChangeFrequency(
+			git,
+			repoRoot,
+			Math.max(thresholds.analysisWindow, 200),
+			maxFilesPerCommit,
+		);
+		const totalRepoCommits = Math.max(1, freq.totalCommits);
+		const minLift = config?.thresholds?.minLift ?? 1.0;
+		const minSupport = config?.thresholds?.minSupport ?? 2;
+
+		// Get top coupled files using adaptive threshold + lift/support filtering
 		const topCoupled = Object.entries(couplingMap)
-			.sort(([, a], [, b]) => b.count - a.count)
-			.slice(0, 5)
-			.map(([file, data]) => ({
-				file,
-				count: data.count,
-				score: Math.round((data.count / log.total) * 100),
-				lastHash: data.lastHash,
-				reason: data.lastMsg,
-			}))
-			.filter((x) => x.score > thresholds.couplingThreshold);
+			.map(([file, data]) => {
+				const confidence = data.count / log.total; // 0..1
+				// baseRate floors at 1/N for files unseen in the repo window (very rare
+				// => any co-change is highly informative).
+				const baseRate = (freq.fileFreq.get(file) ?? 1) / totalRepoCommits;
+				const lift = baseRate > 0 ? confidence / baseRate : 0;
+				return {
+					file,
+					count: data.count,
+					support: data.count,
+					score: Math.round(confidence * 100),
+					lift: Math.round(lift * 10) / 10,
+					lastHash: data.lastHash,
+					reason: data.lastMsg,
+				};
+			})
+			.filter(
+				(x) =>
+					x.score > thresholds.couplingThreshold &&
+					x.support >= minSupport &&
+					x.lift >= minLift,
+			)
+			.sort((a, b) => b.score - a.score)
+			.slice(0, 5);
 
 		// Fetch diff evidence for all coupled files and parse into structured summaries
 		const result = await Promise.all(
@@ -1022,6 +1120,8 @@ export async function getCoupledFiles(
 				return {
 					file: item.file,
 					score: item.score,
+					lift: item.lift, // association-rule lift: >1 = genuine, ~1 = coincidental
+					support: item.support, // # commits changing both files
 					reason: item.reason,
 					lastHash: item.lastHash,
 					evidence, // Now a structured DiffSummary instead of raw string
@@ -3440,6 +3540,14 @@ export function generateAiInstructions(
 
 			// File name with coupling percentage and source label
 			output += `**\`${c.file}\`** — ${c.score}%`;
+			// Association-rule evidence (git coupling): lift = how many times more
+			// often than chance these change together; support = # shared commits.
+			if (source === "git" && typeof c.lift === "number" && c.lift > 0) {
+				output += ` · ${c.lift}× vs chance`;
+				if (typeof c.support === "number") {
+					output += ` (${c.support} co-commits)`;
+				}
+			}
 			if (sourceLabel) {
 				output += ` [${sourceLabel}]`;
 			} else if (relationship !== "unknown") {

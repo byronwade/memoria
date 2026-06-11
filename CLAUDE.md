@@ -322,13 +322,17 @@ Analyzes git history to find files that change together:
 
 1. Get last N commits for target file (N = adaptive, 30-100)
 2. For each commit, find all other files changed
-3. Calculate coupling %: `(co-changes / total commits) * 100`
-4. Fetch actual diff and parse into `DiffSummary`:
+3. Compute **association-rule metrics** (Zimmermann et al., *Mining Version Histories to Guide Software Changes*, IEEE TSE 2005):
+   - **support** — number of commits that changed both files (raw evidence count)
+   - **confidence** — `support / commits(target)` = `P(Y changes | X changes)` (this is the reported coupling %)
+   - **lift** — `confidence / baseRate(Y)` where `baseRate(Y) = commits(Y) / totalCommits` over a repo-wide window. Lift is **how many times more often than chance** the two change together. A file that changes in nearly every commit (a hot barrel/constants file) has high confidence but **lift ≈ 1** (coincidental) and is filtered out — this is the key false-positive killer that raw coupling % misses.
+4. Filter: keep files above the coupling threshold **and** `lift ≥ minLift` (default 1.0) **and** `support ≥ minSupport` (default 2 — a single shared commit is statistical noise).
+5. Fetch actual diff and parse into `DiffSummary`:
    - `additions[]` / `removals[]` - What changed
    - `changeType` - schema/api/config/import/test/style/unknown
    - `hasBreakingChange` - Removed exports, deleted functions, etc.
 
-**Output:** Top 5 coupled files with relationship classification
+**Output:** Top 5 coupled files, each annotated with `lift` (`N× vs chance`) and `support` (`N co-commits`) as evidence the AI can weigh.
 
 ### Engine 3: Sentinel (Drift Detection)
 
@@ -683,6 +687,8 @@ Create a `.memoria.json` file in your repository root to customize Memoria's beh
 | `thresholds.driftDays` | number (1-365) | 7 | Days before file is "stale" |
 | `thresholds.analysisWindow` | number (10-500) | 50 | Commits to analyze |
 | `thresholds.maxFilesPerCommit` | number (5-100) | 15 | Skip commits touching more files (filters bulk refactors/renames) |
+| `thresholds.minLift` | number | 1.0 | Minimum association-rule lift to report a coupling. Raise (e.g. 1.5-2) for higher precision; lift ≈ 1 means the co-change is coincidental |
+| `thresholds.minSupport` | number | 2 | Minimum number of shared commits before a coupling is reported (one shared commit is noise) |
 | `ignore` | string[] | [] | Additional glob patterns to ignore |
 | `panicKeywords` | Record<string, number> | {} | Custom panic keywords with weights |
 | `riskWeights.volatility` | number (0-1) | 0.35 | Weight for volatility in risk score |
