@@ -65,7 +65,10 @@ describe("Budgeted / fast analyze", () => {
 
 	it("fast mode runs fewer engines and finishes quickly", async () => {
 		const filePath = join(projectRoot, "src", "index.ts");
-		const analysis = await analyzeFile(filePath, null, { mode: "fast" });
+		const analysis = await analyzeFile(filePath, null, {
+			mode: "fast",
+			autoEscalate: false,
+		});
 
 		expect(analysis.mode).toBe("fast");
 		expect(analysis.enginesRun).toBeDefined();
@@ -110,10 +113,27 @@ describe("Budgeted / fast analyze", () => {
 		const events: string[] = [];
 		await analyzeFile(filePath, null, {
 			mode: "fast",
+			autoEscalate: false,
 			onProgress: (e) => events.push(e.phase),
 		});
 		expect(events).toContain("start");
 		expect(events).toContain("done");
+	}, 30000);
+
+	it("escalates fast to full when risk is high", async () => {
+		const filePath = join(projectRoot, "src", "index.ts");
+		const analysis = await analyzeFile(filePath, null, {
+			mode: "fast",
+			autoEscalate: true,
+		});
+		// Hot core file typically escalates; if not, mode stays fast with low risk.
+		if (analysis.escalated) {
+			expect(analysis.mode).toBe("full");
+			expect(analysis.structured?.escalated).toBe(true);
+		} else {
+			expect(analysis.mode).toBe("fast");
+			expect(analysis.risk.score).toBeLessThan(50);
+		}
 	}, 30000);
 });
 

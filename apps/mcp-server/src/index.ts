@@ -29,6 +29,7 @@ import {
 	type AnalyzeProgressEvent,
 	type EngineName,
 	type FileKind,
+	type StructuredAnalysis,
 	classifyFileKind,
 	planEngines,
 	sourceConfidence,
@@ -47,7 +48,23 @@ import {
 	extractSymbols,
 	listChangedFiles,
 	toAbsolutePaths,
+	toStructuredAnalysis,
+	shouldEscalate,
+	buildOwnerBrief,
+	detectBreakingChanges,
+	breakingHintsFromDiff,
+	getPackageCoupling,
+	findSymbolReferences,
+	evaluateCriticalRiskTests,
+	discoverPackages,
+	findPackageForFile,
+	startPackWatch,
+	installPostCommitHook,
+	packExists,
+	extractExportNames,
 	type WorkspacePack,
+	type BreakingChangeReport,
+	type CriticalCheckResult,
 	EXCLUDE_PATHSPECS,
 } from "./perf/index.js";
 
@@ -61,12 +78,29 @@ export {
 	listChangedFiles,
 	detectLanguage,
 	importGrepPatterns,
+	toStructuredAnalysis,
+	shouldEscalate,
+	buildOwnerBrief,
+	detectBreakingChanges,
+	breakingHintsFromDiff,
+	getPackageCoupling,
+	findSymbolReferences,
+	evaluateCriticalRiskTests,
+	discoverPackages,
+	findPackageForFile,
+	startPackWatch,
+	installPostCommitHook,
+	packExists,
+	extractExportNames,
 	type AnalyzeMode,
 	type AnalyzeOptions,
 	type AnalyzeProgressEvent,
 	type FileKind,
 	type EngineName,
 	type WorkspacePack,
+	type StructuredAnalysis,
+	type BreakingChangeReport,
+	type CriticalCheckResult,
 };
 
 // --- CONFIGURATION & CACHE ---
@@ -217,7 +251,8 @@ export type CouplingSource =
 	| "schema" // Engine 11: Database schema coupling
 	| "api" // Engine 12: API endpoint coupling
 	| "transitive" // Engine 13: Re-export chain coupling
-	| "symbol"; // Engine 14: Symbol-level references
+	| "symbol" // Engine 14: Symbol-level references
+	| "package"; // Engine 15: Monorepo package-graph coupling
 
 export interface EnhancedCoupledFile {
 	file: string;
@@ -2422,6 +2457,7 @@ export function mergeCouplingResults(
 	transitiveCoupled: EnhancedCoupledFile[] = [],
 	symbolCoupled: EnhancedCoupledFile[] = [],
 	confidenceMin = 0,
+	packageCoupled: EnhancedCoupledFile[] = [],
 ): EnhancedCoupledFile[] {
 	const merged: EnhancedCoupledFile[] = [];
 	const seenFiles = new Set<string>();
@@ -2434,7 +2470,7 @@ export function mergeCouplingResults(
 		merged.push({ ...c, confidence });
 	};
 
-	// Priority order: git → test → symbol → api → schema → env → docs → type → transitive → content
+	// Priority: git → test → symbol → api → package → schema → env → docs → type → transitive → content
 	for (const c of gitCoupled) {
 		push({
 			file: c.file,
@@ -2449,6 +2485,7 @@ export function mergeCouplingResults(
 	for (const c of testCoupled) push(c);
 	for (const c of symbolCoupled) push(c);
 	for (const c of apiCoupled) push(c);
+	for (const c of packageCoupled) push(c);
 	for (const c of schemaCoupled) push(c);
 	for (const c of envCoupled) push(c);
 	for (const c of docsCoupled) push(c);
@@ -3501,10 +3538,33 @@ export interface FileAnalysis {
 	enginesRun?: EngineName[];
 	/** Wall-clock duration in ms. */
 	elapsedMs?: number;
+	/** True when a fast run was escalated to full. */
+	escalated?: boolean;
+	/** Bus-factor / ownership guidance. */
+	ownerBrief?: string | null;
+	/** Export removals / additions vs HEAD. */
+	breakingChanges?: string[];
+	/** Machine-readable payload for MCP / scripting. */
+	structured?: StructuredAnalysis;
 }
 
 function emptyCoupled(): EnhancedCoupledFile[] {
 	return [];
+}
+
+async function readCommittedSource(
+	git: ReturnType<typeof simpleGit>,
+	repoRoot: string,
+	filePath: string,
+	ref = "HEAD",
+): Promise<string | null> {
+	const rel = path.relative(repoRoot, filePath).replace(/\\/g, "/");
+	if (!rel || rel.startsWith("..")) return null;
+	try {
+		return await git.show([`${ref}:${rel}`]);
+	} catch {
+		return null;
+	}
 }
 
 export async function analyzeFile(
@@ -3515,6 +3575,7 @@ export async function analyzeFile(
 	const started = Date.now();
 	const opts: AnalyzeOptions = {
 		mode: "full",
+		autoEscalate: true,
 		...ctx?.analyzeOptions,
 		...options,
 	};
@@ -3592,6 +3653,7 @@ export async function analyzeFile(
 		schemaCoupled,
 		apiCoupled,
 		symbolCoupled,
+		packageCoupledRaw,
 	] = await Promise.all([
 		runEngine("volatility", () => getVolatility(targetPath, context), {
 			commitCount: 0,
@@ -3627,7 +3689,53 @@ export async function analyzeFile(
 			},
 			emptyCoupled(),
 		),
+		runEngine(
+			"package",
+			async () => {
+				const hits = await getPackageCoupling({
+					git: context.git,
+					repoRoot: context.repoRoot,
+					filePath: targetPath,
+				});
+				return hits as EnhancedCoupledFile[];
+			},
+			emptyCoupled(),
+		),
 	]);
+
+	// Call-graph enhancer (TS AST when available) — full mode / symbol path only
+	let callGraphCoupled: EnhancedCoupledFile[] = [];
+	if (
+		(mode === "full" || Boolean(opts.symbol)) &&
+		withinBudget() &&
+		kind !== "docs" &&
+		kind !== "config"
+	) {
+		const symbols = opts.symbol
+			? [opts.symbol]
+			: extractSymbols(sourceContent).slice(0, 12);
+		const candidates = [
+			...importers,
+			...symbolCoupled.map((c) => c.file),
+		].filter(Boolean);
+		if (symbols.length > 0 && candidates.length > 0) {
+			emit("engine", "run callgraph", "symbol");
+			const hits = await findSymbolReferences({
+				repoRoot: context.repoRoot,
+				filePath: targetPath,
+				sourceContent,
+				symbols,
+				candidateFiles: [...new Set(candidates)].slice(0, 40),
+			});
+			callGraphCoupled = hits.map((h) => ({
+				file: h.file,
+				score: h.score,
+				source: "symbol" as const,
+				reason: h.reason,
+				confidence: h.confidence,
+			}));
+		}
+	}
 
 	// Transitive on demand: only when not deferred, or when barrels suspected
 	let transitiveCoupled: EnhancedCoupledFile[] = [];
@@ -3649,6 +3757,7 @@ export async function analyzeFile(
 	emit("merge", "merge coupling results");
 
 	const confidenceMin = opts.confidenceMin ?? 0;
+	const symbolMerged = [...symbolCoupled, ...callGraphCoupled];
 	const coupled = mergeCouplingResults(
 		gitCoupled,
 		docsCoupled,
@@ -3659,8 +3768,9 @@ export async function analyzeFile(
 		schemaCoupled,
 		apiCoupled,
 		transitiveCoupled,
-		symbolCoupled,
+		symbolMerged,
 		confidenceMin,
+		packageCoupledRaw,
 	);
 
 	const drift = await checkDrift(targetPath, gitCoupled, context);
@@ -3679,7 +3789,28 @@ export async function analyzeFile(
 		context.config,
 	);
 
-	const analysis: FileAnalysis = {
+	const ownerBrief = buildOwnerBrief(volatility.topAuthor, {
+		fileName: path.basename(targetPath),
+	});
+
+	const previousSource = await readCommittedSource(
+		context.git,
+		context.repoRoot,
+		targetPath,
+		"HEAD",
+	);
+	const breaking = detectBreakingChanges(sourceContent, previousSource);
+	const breakingChanges = [
+		...breaking.summary,
+		...breakingHintsFromDiff(
+			gitCoupled.find(
+				(c: EnhancedCoupledFile) =>
+					c.evidence && typeof c.evidence === "object",
+			)?.evidence as DiffSummary | undefined,
+		),
+	];
+
+	let analysis: FileAnalysis = {
 		filePath: targetPath,
 		volatility,
 		coupled,
@@ -3693,7 +3824,58 @@ export async function analyzeFile(
 		kind,
 		enginesRun,
 		elapsedMs: Date.now() - started,
+		escalated: false,
+		ownerBrief,
+		breakingChanges,
 	};
+
+	analysis.structured = toStructuredAnalysis(
+		{
+			filePath: analysis.filePath,
+			risk: analysis.risk,
+			volatility: {
+				commitCount: analysis.volatility.commitCount,
+				panicScore: analysis.volatility.panicScore,
+				topAuthor: analysis.volatility.topAuthor,
+			},
+			coupled: analysis.coupled,
+			importers: analysis.importers,
+			drift: analysis.drift,
+			mode: analysis.mode,
+			kind: analysis.kind,
+			enginesRun: analysis.enginesRun,
+			elapsedMs: analysis.elapsedMs,
+		},
+		{
+			escalated: false,
+			ownerBrief,
+			breakingChanges,
+		},
+	);
+
+	// Escalate fast → full when risk or importer fan-out is high
+	if (
+		opts.autoEscalate !== false &&
+		shouldEscalate({
+			mode: analysis.mode,
+			risk: analysis.risk,
+			importers: analysis.importers,
+		})
+	) {
+		emit("merge", "escalating fast → full");
+		cache.set(analysisCacheKey, analysis); // keep fast result briefly
+		const full = await analyzeFile(targetPath, context, {
+			...opts,
+			mode: "full",
+			autoEscalate: false,
+		});
+		full.escalated = true;
+		if (full.structured) full.structured.escalated = true;
+		full.elapsedMs = Date.now() - started;
+		cache.set(analysisCacheKey, full);
+		emit("done", `escalated complete in ${full.elapsedMs}ms`);
+		return full;
+	}
 
 	cache.set(analysisCacheKey, analysis);
 	emit("done", `complete in ${analysis.elapsedMs}ms`);
@@ -3796,6 +3978,12 @@ export function generateAiInstructions(
 	importers: string[] = [],
 	config?: MemoriaConfig | null,
 	siblingGuidance?: SiblingGuidance | null,
+	extras?: {
+		ownerBrief?: string | null;
+		breakingChanges?: string[];
+		escalated?: boolean;
+		mode?: string;
+	},
 ) {
 	const fileName = path.basename(filePath);
 
@@ -3837,6 +4025,22 @@ export function generateAiInstructions(
 		output += `> ${risk.action}\n\n`;
 	}
 
+	if (extras?.escalated) {
+		output += `> Escalated from fast → full due to elevated risk or importer fan-out.\n\n`;
+	}
+
+	if (extras?.ownerBrief) {
+		output += `${extras.ownerBrief}\n\n`;
+	}
+
+	if (extras?.breakingChanges && extras.breakingChanges.length > 0) {
+		output += `---\n\n## Breaking Changes\n\n`;
+		for (const line of extras.breakingChanges.slice(0, 6)) {
+			output += `- ${line}\n`;
+		}
+		output += `\n`;
+	}
+
 	// ══════════════════════════════════════════════════════════════════════════════
 	// SECTION: Coupled Files
 	// ══════════════════════════════════════════════════════════════════════════════
@@ -3856,6 +4060,7 @@ export function generateAiInstructions(
 			api: "api",        // Engine 12: API endpoint coupling
 			transitive: "transitive", // Engine 13: Re-export chain coupling
 			symbol: "symbol", // Engine 14: Symbol-level references
+			package: "package", // Engine 15: Monorepo package graph
 		};
 
 		// Source-specific instructions
@@ -3869,6 +4074,7 @@ export function generateAiInstructions(
 			api: "Calls endpoints from this file. Response changes will break this.",
 			transitive: "Imports via barrel/re-export. Indirect dependency.",
 			symbol: "References exported symbols from this file. Signature changes will break callers.",
+			package: "Related via monorepo package dependencies. Check shared contracts across packages.",
 		};
 
 		coupled.forEach((c) => {
@@ -4048,7 +4254,7 @@ export function generateAiInstructions(
 // --- SERVER FACTORY (for Smithery) ---
 export default function createServer(_options?: { config?: Record<string, unknown> }) {
 	const server = new Server(
-		{ name: "memoria", version: "1.0.0" },
+		{ name: "memoria", version: "1.1.0" },
 		{ capabilities: { tools: {}, prompts: {}, resources: {} } },
 	);
 
@@ -4092,11 +4298,59 @@ function setupServer(server: Server): Server {
 							description:
 								"Drop coupled results below this confidence (0–1). Heuristic sources score lower.",
 						},
+						format: {
+							type: "string",
+							enum: ["markdown", "json", "both"],
+							description:
+								"Response format. Default: both (markdown + structured JSON).",
+						},
+						autoEscalate: {
+							type: "boolean",
+							description:
+								"Re-run in full mode when fast analysis shows risk ≥50 or many importers. Default: true.",
+						},
 					},
 					required: ["path"],
 				},
 				annotations: {
 					title: "Analyze File",
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
+				},
+			},
+			{
+				name: "analyze_diff",
+				description:
+					"Analyze all files changed since a git base ref (PR / commit range). Returns risk-sorted forensic summaries. Use before merging or reviewing a PR.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						base: {
+							type: "string",
+							description:
+								"Git ref to diff against (default: HEAD~1). Examples: origin/main, HEAD~3, abc1234",
+						},
+						path: {
+							type: "string",
+							description:
+								"Optional absolute path inside the repo (used to locate the git root).",
+						},
+						mode: {
+							type: "string",
+							enum: ["fast", "full"],
+							description: "Per-file analyze mode. Default: fast.",
+						},
+						format: {
+							type: "string",
+							enum: ["markdown", "json", "both"],
+							description: "Response format. Default: both.",
+						},
+					},
+					required: [],
+				},
+				annotations: {
+					title: "Analyze Diff",
 					readOnlyHint: true,
 					idempotentHint: true,
 					openWorldHint: false,
@@ -4360,6 +4614,13 @@ function setupServer(server: Server): Server {
 				typeof request.params.arguments?.confidenceMin === "number"
 					? request.params.arguments.confidenceMin
 					: undefined;
+			const formatArg = request.params.arguments?.format;
+			const format =
+				formatArg === "markdown" || formatArg === "json" || formatArg === "both"
+					? formatArg
+					: "both";
+			const autoEscalate =
+				request.params.arguments?.autoEscalate === false ? false : true;
 
 			// 1. Sanitize Path (Handle Windows/Unix differences)
 			const targetPath = path.resolve(rawPath);
@@ -4410,6 +4671,7 @@ function setupServer(server: Server): Server {
 					symbol,
 					budgetMs,
 					confidenceMin,
+					autoEscalate,
 					onProgress,
 				});
 
@@ -4421,10 +4683,16 @@ function setupServer(server: Server): Server {
 					analysis.importers,
 					analysis.config,
 					analysis.siblingGuidance,
+					{
+						ownerBrief: analysis.ownerBrief,
+						breakingChanges: analysis.breakingChanges,
+						escalated: analysis.escalated,
+						mode: analysis.mode,
+					},
 				);
 
 				const meta =
-					`\n\n---\n_Mode: ${analysis.mode} · Kind: ${analysis.kind} · ` +
+					`\n\n---\n_Mode: ${analysis.mode}${analysis.escalated ? " (escalated)" : ""} · Kind: ${analysis.kind} · ` +
 					`Engines: ${(analysis.enginesRun ?? []).join(", ") || "none"} · ` +
 					`${analysis.elapsedMs ?? 0}ms_\n`;
 
@@ -4433,8 +4701,41 @@ function setupServer(server: Server): Server {
 						? `\n<details><summary>Progress</summary>\n\n\`\`\`\n${progressLines.join("\n")}\n\`\`\`\n</details>\n`
 						: "";
 
+				const structured = analysis.structured ?? toStructuredAnalysis({
+					filePath: analysis.filePath,
+					risk: analysis.risk,
+					volatility: {
+						commitCount: analysis.volatility.commitCount,
+						panicScore: analysis.volatility.panicScore,
+						topAuthor: analysis.volatility.topAuthor,
+					},
+					coupled: analysis.coupled,
+					importers: analysis.importers,
+					drift: analysis.drift,
+					mode: analysis.mode,
+					kind: analysis.kind,
+					enginesRun: analysis.enginesRun,
+					elapsedMs: analysis.elapsedMs,
+				}, {
+					escalated: analysis.escalated,
+					ownerBrief: analysis.ownerBrief,
+					breakingChanges: analysis.breakingChanges,
+				});
+
+				const jsonBlock =
+					`\n\n## Structured Result\n\n\`\`\`json\n${JSON.stringify(structured, null, 2)}\n\`\`\`\n`;
+
+				let text: string;
+				if (format === "json") {
+					text = JSON.stringify(structured, null, 2);
+				} else if (format === "markdown") {
+					text = report + meta + streamTail;
+				} else {
+					text = report + meta + jsonBlock + streamTail;
+				}
+
 				return {
-					content: [{ type: "text", text: report + meta + streamTail }],
+					content: [{ type: "text", text }],
 				};
 			} catch (error: any) {
 				// Check for common git-related errors
@@ -4462,6 +4763,93 @@ function setupServer(server: Server): Server {
 
 				return {
 					content: [{ type: "text", text: `Analysis Error: ${errorMsg}` }],
+					isError: true,
+				};
+			}
+		}
+
+		if (request.params.name === "analyze_diff") {
+			const base =
+				typeof request.params.arguments?.base === "string" &&
+				request.params.arguments.base.trim()
+					? request.params.arguments.base.trim()
+					: "HEAD~1";
+			const rawPath =
+				typeof request.params.arguments?.path === "string"
+					? request.params.arguments.path
+					: process.cwd();
+			const modeArg = request.params.arguments?.mode;
+			const mode: AnalyzeMode =
+				modeArg === "full" || modeArg === "fast" ? modeArg : "fast";
+			const formatArg = request.params.arguments?.format;
+			const format =
+				formatArg === "markdown" || formatArg === "json" || formatArg === "both"
+					? formatArg
+					: "both";
+
+			try {
+				const rootPath = path.resolve(rawPath);
+				const result = await analyzeDiff(rootPath, base, {
+					mode,
+					autoEscalate: true,
+				});
+
+				const payload = {
+					base: result.base,
+					elapsedMs: result.elapsedMs,
+					fileCount: result.files.length,
+					files: result.files.map((f) => f.structured ?? {
+						file: path.basename(f.filePath),
+						absolutePath: f.filePath,
+						risk: f.risk,
+						coupled: f.coupled,
+						importers: f.importers,
+						mode: f.mode,
+						escalated: f.escalated,
+					}),
+				};
+
+				if (format === "json") {
+					return {
+						content: [
+							{ type: "text", text: JSON.stringify(payload, null, 2) },
+						],
+					};
+				}
+
+				let md = `# Diff Analysis vs \`${result.base}\`\n\n`;
+				md += `${result.files.length} files · ${result.elapsedMs}ms\n\n`;
+				for (const f of result.files.slice(0, 25)) {
+					md += `- **${f.risk.score}/100** \`${path.basename(f.filePath)}\` — ${f.coupled.length} coupled, ${f.importers.length} importers`;
+					if (f.escalated) md += " _(escalated)_";
+					md += `\n`;
+				}
+				if (result.files.length > 25) {
+					md += `\n…and ${result.files.length - 25} more\n`;
+				}
+
+				if (format === "markdown") {
+					return { content: [{ type: "text", text: md }] };
+				}
+
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								md +
+								`\n\n## Structured Result\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\`\n`,
+						},
+					],
+				};
+			} catch (error: any) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Diff analysis error: ${error.message || String(error)}`,
+						},
+					],
 					isError: true,
 				};
 			}

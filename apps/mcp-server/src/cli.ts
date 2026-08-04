@@ -182,6 +182,8 @@ ${chalk.bold.cyan("Analysis Commands:")}
   memoria history <query> [file] Search git history for context
   memoria diff [base]            Analyze files changed since base (default HEAD~1)
   memoria pack                   Precompute workspace pack for hot files
+  memoria watch                  Refresh pack when HEAD changes (daemon)
+  memoria check [base]           Fail CI if critical-risk files lack test coupling
 
 ${chalk.bold.cyan("Setup Commands:")}
   memoria init                   Install Memoria rules for AI tools
@@ -195,6 +197,7 @@ ${chalk.dim("Init Options:")}
   --all        Install all rule files
   --force      Update existing Memoria rules
   --no-mcp     Skip writing project MCP server configs
+  --no-pack    Skip workspace pack + post-commit hook
 
 ${chalk.dim("Analysis Options:")}
   --json       Output as JSON (for scripting)
@@ -204,6 +207,8 @@ ${chalk.dim("Analysis Options:")}
   --symbol <s> Symbol-level coupling for an exported name
   --budget <ms> Soft time budget; skip expensive engines when exceeded
   --min-confidence <0-1>  Drop low-confidence heuristic couplings
+  --limit <n>  Pack/check file limit (pack default 40)
+  --interval <ms>  Watch poll interval (default 5000)
 
 ${chalk.dim("History Search Options:")} ${chalk.dim("(accept --flag=value or --flag value)")}
   --type <t>         Search type: message, diff, or both (default)
@@ -221,6 +226,8 @@ ${chalk.dim("Examples:")}
   memoria analyze src/utils.ts --symbol=foo   Who references symbol foo?
   memoria diff HEAD~1                         Analyze files in the last commit
   memoria pack                                Warm .memoria/pack.json
+  memoria watch                               Keep pack fresh on commits
+  memoria check origin/main                   CI gate for critical files
   memoria risk src/api/route.ts               Quick risk assessment
   memoria coupled src/auth.ts                 See what files change together
   memoria importers src/types.ts              Find all files importing this
@@ -523,6 +530,7 @@ interface CliOptions {
 	symbol?: string;
 	budgetMs?: number;
 	minConfidence?: number;
+	intervalMs?: number;
 }
 
 // Raised by the parser for an invalid flag value; carries a user-facing message.
@@ -548,6 +556,7 @@ const VALUE_FLAGS = new Set([
 	"symbol",
 	"budget",
 	"min-confidence",
+	"interval",
 ]);
 
 // Boolean flags (no value).
@@ -620,6 +629,14 @@ function applyOption(options: CliOptions, key: string, value: string): void {
 				throw new CliError(`--min-confidence must be between 0 and 1 (got "${value}")`);
 			}
 			options.minConfidence = n;
+			break;
+		}
+		case "interval": {
+			const n = Number(value);
+			if (!Number.isFinite(n) || n < 500) {
+				throw new CliError(`--interval must be ≥500 ms (got "${value}")`);
+			}
+			options.intervalMs = n;
 			break;
 		}
 	}
@@ -813,6 +830,10 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 			mode,
 			kind,
 			enginesRun,
+			escalated: analysis.escalated,
+			ownerBrief: analysis.ownerBrief,
+			breakingChanges: analysis.breakingChanges,
+			structured: analysis.structured,
 			analysisTime: `${duration}ms`,
 		}, null, 2));
 		return;
@@ -842,6 +863,17 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 		if (volatility.topAuthor) {
 			const pct = volatility.authorDetails?.[0]?.percentage || 0;
 			console.log(chalk.dim(`  Top author: ${volatility.topAuthor.name} (${pct}%)`));
+		}
+		if (analysis.ownerBrief) {
+			console.log(chalk.magenta(analysis.ownerBrief.replace(/\*\*/g, "")));
+		}
+		console.log();
+	}
+
+	if (analysis.breakingChanges && analysis.breakingChanges.length > 0) {
+		console.log(chalk.bold.yellow("BREAKING CHANGES"));
+		for (const line of analysis.breakingChanges.slice(0, 6)) {
+			console.log(chalk.yellow(`  ${line}`));
 		}
 		console.log();
 	}
@@ -942,6 +974,109 @@ async function runPack(options: CliOptions): Promise<void> {
 			`Packed ${Object.keys(pack.files).length} files → .memoria/pack.json (HEAD ${pack.headSha.slice(0, 7)})`,
 		),
 	);
+}
+
+async function runWatch(options: CliOptions): Promise<void> {
+	const memoria = await loadEngine();
+	const limit = options.limit ?? 20;
+	const intervalMs = options.intervalMs ?? 5000;
+	console.log(
+		chalk.dim(
+			`Watching HEAD · refreshing pack (limit=${limit}) every ${intervalMs}ms — Ctrl+C to stop`,
+		),
+	);
+
+	const { stop } = memoria.startPackWatch({
+		repoRoot: process.cwd(),
+		intervalMs,
+		refreshPack: async () => {
+			const pack = await memoria.buildWorkspacePack(process.cwd(), {
+				limit,
+				mode: options.full ? "full" : "fast",
+			});
+			return Object.keys(pack.files).length;
+		},
+		onUpdate: ({ headSha, packed }) => {
+			console.log(
+				chalk.green(
+					`Pack refreshed · HEAD ${headSha.slice(0, 7)} · ${packed} files`,
+				),
+			);
+		},
+		onError: (err) => {
+			console.error(
+				chalk.red(
+					`Watch error: ${err instanceof Error ? err.message : String(err)}`,
+				),
+			);
+		},
+	});
+
+	await new Promise<void>((resolve) => {
+		const shutdown = () => {
+			stop();
+			resolve();
+		};
+		process.once("SIGINT", shutdown);
+		process.once("SIGTERM", shutdown);
+	});
+}
+
+async function runCheck(base: string | undefined, options: CliOptions): Promise<void> {
+	const diffBase = base || "HEAD~1";
+	const memoria = await loadEngine();
+	const result = await memoria.analyzeDiff(process.cwd(), diffBase, {
+		...analyzeOptsFromCli(options),
+		mode: options.full ? "full" : "fast",
+		autoEscalate: true,
+	});
+
+	const evaluation = memoria.evaluateCriticalRiskTests(
+		result.files.map((f) => ({
+			filePath: f.filePath,
+			risk: { score: f.risk.score },
+			coupled: f.coupled.map((c) => ({ source: c.source })),
+		})),
+	);
+
+	if (options.json) {
+		console.log(
+			JSON.stringify(
+				{
+					base: diffBase,
+					ok: evaluation.ok,
+					checked: evaluation.checked,
+					failures: evaluation.failures,
+					filesAnalyzed: result.files.length,
+					elapsedMs: result.elapsedMs,
+				},
+				null,
+				2,
+			),
+		);
+	} else {
+		console.log();
+		console.log(chalk.bold(`Critical-risk test check vs ${diffBase}`));
+		console.log(
+			chalk.dim(
+				`${result.files.length} files analyzed · ${evaluation.checked} critical · ${result.elapsedMs}ms`,
+			),
+		);
+		if (evaluation.failures.length === 0) {
+			console.log(chalk.green("OK — no critical files missing test coupling"));
+		} else {
+			console.log(chalk.red(`${evaluation.failures.length} failure(s):`));
+			for (const f of evaluation.failures) {
+				console.log(chalk.red(`  ${f.file} (risk ${f.risk})`));
+				console.log(chalk.dim(`    ${f.reason}`));
+			}
+		}
+		console.log();
+	}
+
+	if (!evaluation.ok) {
+		process.exit(1);
+	}
 }
 
 async function runRisk(filePath: string, options: CliOptions): Promise<void> {
@@ -1529,10 +1664,16 @@ async function main() {
 		case "pack":
 			await runWithErrorHandling(() => runPack(options));
 			return;
+		case "watch":
+			await runWithErrorHandling(() => runWatch(options));
+			return;
+		case "check":
+			await runWithErrorHandling(() => runCheck(positionals[0], options));
+			return;
 
 		// ========== Setup Commands ==========
 		case "init":
-			runInit(cwd, rawFlags);
+			await runInit(cwd, rawFlags);
 			return;
 
 		default:
@@ -1540,11 +1681,12 @@ async function main() {
 	}
 }
 
-// `memoria init [--all|--cursor|--claude|...] [--force] [--no-mcp]`
-function runInit(cwd: string, rawFlags: string[]): void {
+// `memoria init [--all|--cursor|--claude|...] [--force] [--no-mcp] [--no-pack]`
+async function runInit(cwd: string, rawFlags: string[]): Promise<void> {
 	const force = rawFlags.includes("--force");
 	const installMcp = !rawFlags.includes("--no-mcp");
-	const reserved = new Set(["--force", "--all", "--mcp", "--no-mcp"]);
+	const installPack = !rawFlags.includes("--no-pack");
+	const reserved = new Set(["--force", "--all", "--mcp", "--no-mcp", "--no-pack"]);
 	const toolFlags = rawFlags.filter((f) => !reserved.has(f));
 
 	let tools: string[];
@@ -1588,6 +1730,36 @@ function runInit(cwd: string, rawFlags: string[]): void {
 
 	if (installMcp) {
 		installMcpForInit(tools, cwd);
+	}
+
+	if (installPack) {
+		try {
+			const memoria = await loadEngine();
+			const hookPath = await memoria.installPostCommitHook(cwd);
+			console.log(chalk.green(`\nPost-commit pack hook → ${path.relative(cwd, hookPath) || hookPath}`));
+
+			const already = await memoria.packExists(cwd);
+			if (!already) {
+				console.log(chalk.dim("Building initial workspace pack…"));
+				const pack = await memoria.buildWorkspacePack(cwd, {
+					limit: 20,
+					mode: "fast",
+				});
+				console.log(
+					chalk.green(
+						`Packed ${Object.keys(pack.files).length} files → .memoria/pack.json`,
+					),
+				);
+			} else {
+				console.log(chalk.dim("Workspace pack already present (.memoria/pack.json)"));
+			}
+		} catch (err) {
+			console.log(
+				chalk.yellow(
+					`Pack/hook setup skipped: ${err instanceof Error ? err.message : String(err)}`,
+				),
+			);
+		}
 	}
 }
 

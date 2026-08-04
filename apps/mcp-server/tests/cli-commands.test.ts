@@ -84,6 +84,9 @@ describe("CLI Command Dispatch", () => {
 			// Help should document the primary commands a user can run.
 			expect(output).toContain("analyze");
 			expect(output).toContain("init");
+			expect(output).toContain("watch");
+			expect(output).toContain("check");
+			expect(output).toContain("diff");
 		});
 	});
 });

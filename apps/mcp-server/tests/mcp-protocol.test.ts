@@ -78,6 +78,7 @@ describe("MCP Protocol Compliance", () => {
 			const names = tools.map((t) => t.name).sort();
 			expect(names).toEqual(
 				[
+					"analyze_diff",
 					"analyze_file",
 					"ask_history",
 					"extract_memories",

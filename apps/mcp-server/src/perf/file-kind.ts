@@ -97,6 +97,7 @@ function baseEngines(mode: AnalyzeMode): Set<EngineName> {
 		"api",
 		"transitive",
 		"symbol",
+		"package",
 	]);
 }
 
@@ -123,12 +124,14 @@ export function planEngines(
 		run.delete("content");
 		run.delete("transitive");
 		run.delete("symbol");
+		run.delete("package");
 	}
 	if (kind === "test") {
 		run.delete("docs");
 		run.delete("api");
 		run.delete("schema");
 		run.delete("transitive");
+		run.delete("package");
 	}
 	if (kind === "api") {
 		run.delete("schema");
@@ -181,6 +184,8 @@ export function sourceConfidence(
 			return 0.8;
 		case "symbol":
 			return 0.8;
+		case "package":
+			return 0.75;
 		case "type":
 			return 0.7;
 		case "docs":

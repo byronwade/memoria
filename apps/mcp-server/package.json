@@ -1,6 +1,6 @@
 {
 	"name": "@byronwade/memoria",
-	"version": "1.0.24",
+	"version": "1.1.0",
 	"description": "The Memory Your AI Lacks - MCP server giving AI Senior Developer Intuition through git forensics",
 	"type": "module",
 	"main": "dist/index.js",
@@ -13,6 +13,7 @@
 		"dist",
 		"rules",
 		"README.md",
+		"CHANGELOG.md",
 		"LICENSE"
 	],
 	"scripts": {
@@ -24,6 +25,7 @@
 		"test:watch": "vitest",
 		"test:ui": "vitest --ui",
 		"test:coverage": "vitest run --coverage",
+		"benchmark:ci": "node scripts/ci-benchmark.mjs",
 		"prepublishOnly": "npm run build && npm test"
 	},
 	"keywords": [

@@ -26,7 +26,8 @@ export type EngineName =
 	| "schema"
 	| "api"
 	| "transitive"
-	| "symbol";
+	| "symbol"
+	| "package";
 
 export interface AnalyzeOptions {
 	/** fast = core engines only; full = all engines (default for CLI). */
@@ -43,6 +44,11 @@ export interface AnalyzeOptions {
 	confidenceMin?: number;
 	/** Skip git diff evidence parsing (faster entanglement). */
 	skipEvidence?: boolean;
+	/**
+	 * When true (default), a fast analysis that looks risky is re-run in full.
+	 * Set false to disable (used internally after escalation).
+	 */
+	autoEscalate?: boolean;
 	/** Progress callback for streaming MCP / CLI. */
 	onProgress?: (event: AnalyzeProgressEvent) => void;
 }
