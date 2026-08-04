@@ -7,7 +7,13 @@ export const metadata: Metadata = generatePageMetadata({
 	description:
 		"Learn how Memoria uses git forensics plus optional cloud memories to prevent your AI from breaking code.",
 	path: "/docs/how-it-works",
-	keywords: ["git forensics", "engines", "how it works", "file dependencies", "cloud memories"],
+	keywords: [
+		"git forensics",
+		"engines",
+		"how it works",
+		"file dependencies",
+		"cloud memories",
+	],
 });
 
 export default function HowItWorksPage() {
@@ -23,23 +29,27 @@ export default function HowItWorksPage() {
 				<h1>How It Works</h1>
 
 				<p className="lead">
-					Memoria combines local git forensics (free) with optional cloud memories (paid)
-					to give your AI the intuition of a senior developer.
+					Memoria combines local git forensics (free) with optional cloud
+					memories (paid) to give your AI the intuition of a senior developer.
 				</p>
 
 				<h2>Two Layers of Intelligence</h2>
 
 				<div className="grid md:grid-cols-2 gap-4 my-6">
 					<div className="p-4 rounded-lg border border-border bg-card">
-						<h3 className="text-lg font-semibold text-primary mb-2">Free: Local Git Analysis</h3>
+						<h3 className="text-lg font-semibold text-primary mb-2">
+							Free: Local Git Analysis
+						</h3>
 						<p className="text-sm text-muted-foreground">
 							Thirteen engines analyze your git history to find coupled files,
-							calculate risk scores, and detect stale dependencies. Runs 100% locally,
-							no account needed.
+							calculate risk scores, and detect stale dependencies. Runs 100%
+							locally, no account needed.
 						</p>
 					</div>
 					<div className="p-4 rounded-lg border border-primary/30 bg-primary/5">
-						<h3 className="text-lg font-semibold text-primary mb-2">Paid: Cloud Intelligence</h3>
+						<h3 className="text-lg font-semibold text-primary mb-2">
+							Paid: Cloud Intelligence
+						</h3>
 						<p className="text-sm text-muted-foreground">
 							Team-wide memories persist lessons learned across sessions.
 							Guardrails protect critical files. Dashboards show trends.
@@ -70,7 +80,8 @@ export default function HowItWorksPage() {
 
 				<p>
 					Memoria analyzes commit history to find patterns that reveal hidden
-					dependencies. It runs thirteen analysis engines in parallel:</p>
+					dependencies. It runs thirteen analysis engines in parallel:
+				</p>
 
 				<h3>1. Volatility Engine</h3>
 
@@ -252,33 +263,55 @@ Evidence (commit a3f21b4):
 				<h2>Cloud Memories (Paid)</h2>
 
 				<p>
-					While git forensics reveals what files are coupled, <strong>cloud memories</strong> explain <em>why</em> things break and how to prevent it.
+					While git forensics reveals what files are coupled,{" "}
+					<strong>cloud memories</strong> explain <em>why</em> things break and
+					how to prevent it.
 				</p>
 
 				<h3>How Memories Work</h3>
 
 				<ol>
-					<li>Your team saves lessons when they learn something important (e.g., &ldquo;Safari OAuth requires 100ms delay&rdquo;)</li>
+					<li>
+						Your team saves lessons when they learn something important (e.g.,
+						&ldquo;Safari OAuth requires 100ms delay&rdquo;)
+					</li>
 					<li>Memories are linked to files and tagged with keywords</li>
-					<li>When anyone on your team edits a related file, relevant memories appear automatically</li>
+					<li>
+						When anyone on your team edits a related file, relevant memories
+						appear automatically
+					</li>
 					<li>The AI uses these memories to avoid repeating past mistakes</li>
 				</ol>
 
 				<h3>Memory Types</h3>
 
 				<ul>
-					<li><strong>Lesson:</strong> Something learned from a bug or incident</li>
-					<li><strong>Context:</strong> Background information about why code exists</li>
-					<li><strong>Decision:</strong> Architectural or design decisions</li>
-					<li><strong>Pattern:</strong> Recommended approaches for this area</li>
-					<li><strong>Warning:</strong> Things to avoid</li>
-					<li><strong>Todo:</strong> Known technical debt</li>
+					<li>
+						<strong>Lesson:</strong> Something learned from a bug or incident
+					</li>
+					<li>
+						<strong>Context:</strong> Background information about why code
+						exists
+					</li>
+					<li>
+						<strong>Decision:</strong> Architectural or design decisions
+					</li>
+					<li>
+						<strong>Pattern:</strong> Recommended approaches for this area
+					</li>
+					<li>
+						<strong>Warning:</strong> Things to avoid
+					</li>
+					<li>
+						<strong>Todo:</strong> Known technical debt
+					</li>
 				</ul>
 
 				<h2>Guardrails (Paid)</h2>
 
 				<p>
-					Guardrails are file protection rules that enforce team policies automatically.
+					Guardrails are file protection rules that enforce team policies
+					automatically.
 				</p>
 
 				<pre className="code-block">
@@ -289,14 +322,16 @@ Evidence (commit a3f21b4):
 				</pre>
 
 				<p>
-					When your AI tries to edit a protected file, the guardrail message appears in context,
-					either warning the AI to be careful or blocking the change entirely.
+					When your AI tries to edit a protected file, the guardrail message
+					appears in context, either warning the AI to be careful or blocking
+					the change entirely.
 				</p>
 
 				<h2>Enabling Cloud Features</h2>
 
 				<p>
-					To enable cloud memories and guardrails, set these environment variables:
+					To enable cloud memories and guardrails, set these environment
+					variables:
 				</p>
 
 				<pre className="code-block">

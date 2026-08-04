@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getConvexClient, callQuery } from "@/lib/convex";
+import { type NextRequest, NextResponse } from "next/server";
+import { callQuery, getConvexClient } from "@/lib/convex";
 
 interface RepositoryStats {
 	totalAnalyses: number;
@@ -18,17 +18,6 @@ interface RepositoryStats {
 		fileAnalyses: number;
 		couplingDetections: number;
 	};
-}
-
-interface RiskyFile {
-	_id: string;
-	filePath: string;
-	riskScore: number;
-	riskLevel: "high" | "medium" | "low";
-	volatilityScore: number;
-	coupledFilesCount: number;
-	importersCount: number;
-	lastAnalyzedAt: number;
 }
 
 // Scan-based types
@@ -68,15 +57,6 @@ interface FileAnalysis {
 	lastAnalyzedAt: number;
 }
 
-interface Activity {
-	_id: string;
-	type: "analysis" | "pr" | "coupling" | "drift";
-	description: string;
-	filePath?: string;
-	riskLevel?: "high" | "medium" | "low";
-	timestamp: number;
-}
-
 interface CouplingPair {
 	file1: string;
 	file2: string;
@@ -85,27 +65,13 @@ interface CouplingPair {
 	relationship: string;
 }
 
-interface ChartDataPoint {
-	date: string;
-	analyses: number;
-	prevented: number;
-	avgRisk: number;
-}
-
-interface Contributor {
-	name: string;
-	avatar?: string;
-	commits: number;
-	filesOwned: number;
-}
-
 /**
  * GET /api/repositories/[id]/stats
  * Get comprehensive statistics for a repository
  */
 export async function GET(
 	request: NextRequest,
-	context: { params: Promise<{ id: string }> }
+	context: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const cookieStore = await cookies();
@@ -131,34 +97,36 @@ export async function GET(
 
 		// Parse query parameters
 		const dataType = searchParams.get("type") || "all";
-		const limit = parseInt(searchParams.get("limit") || "10");
-		const offset = parseInt(searchParams.get("offset") || "0");
+		const limit = parseInt(searchParams.get("limit") || "10", 10);
+		const offset = parseInt(searchParams.get("offset") || "0", 10);
 
 		// Fetch data based on type
 		if (dataType === "stats" || dataType === "all") {
 			// Fetch scan-based data (from file_analyses table)
 			const [scanSummary, scanRiskyFiles, allFileAnalyses] = await Promise.all([
-				callQuery<ScanSummary>(
-					convex,
-					"scans:getScanSummary",
-					{ repositoryId: repoId }
-				),
-				callQuery<ScanRiskyFile[]>(
-					convex,
-					"scans:getRiskyFiles",
-					{ repositoryId: repoId, limit: 100 }
-				),
-				callQuery<FileAnalysis[]>(
-					convex,
-					"scans:getFileAnalyses",
-					{ repositoryId: repoId, limit: 1000 }
-				),
+				callQuery<ScanSummary>(convex, "scans:getScanSummary", {
+					repositoryId: repoId,
+				}),
+				callQuery<ScanRiskyFile[]>(convex, "scans:getRiskyFiles", {
+					repositoryId: repoId,
+					limit: 100,
+				}),
+				callQuery<FileAnalysis[]>(convex, "scans:getFileAnalyses", {
+					repositoryId: repoId,
+					limit: 1000,
+				}),
 			]);
 
 			// Calculate risk distribution from file analyses
-			const highRiskFiles = allFileAnalyses.filter(f => f.riskScore >= 50).length;
-			const mediumRiskFiles = allFileAnalyses.filter(f => f.riskScore >= 25 && f.riskScore < 50).length;
-			const lowRiskFiles = allFileAnalyses.filter(f => f.riskScore < 25).length;
+			const highRiskFiles = allFileAnalyses.filter(
+				(f) => f.riskScore >= 50,
+			).length;
+			const mediumRiskFiles = allFileAnalyses.filter(
+				(f) => f.riskScore >= 25 && f.riskScore < 50,
+			).length;
+			const lowRiskFiles = allFileAnalyses.filter(
+				(f) => f.riskScore < 25,
+			).length;
 
 			// Calculate health score (inverse of risk)
 			const avgRisk = scanSummary.averageRiskScore;
@@ -179,7 +147,9 @@ export async function GET(
 				analysisBreakdown: {
 					prAnalyses: 0,
 					fileAnalyses: scanSummary.totalFilesAnalyzed,
-					couplingDetections: allFileAnalyses.filter(f => f.coupledFiles.length > 0).length,
+					couplingDetections: allFileAnalyses.filter(
+						(f) => f.coupledFiles.length > 0,
+					).length,
 				},
 			};
 
@@ -188,16 +158,21 @@ export async function GET(
 			}
 
 			// Build risky files from scan data
-			const riskyFilesFormatted = scanRiskyFiles.slice(offset, offset + limit).map(f => ({
-				_id: f.filePath, // Use filePath as ID since we don't have the actual ID
-				filePath: f.filePath,
-				riskScore: f.riskScore,
-				riskLevel: f.riskLevel === "critical" ? "high" : f.riskLevel as "high" | "medium" | "low",
-				volatilityScore: f.volatilityScore,
-				coupledFilesCount: f.couplingScore, // Approximation
-				importersCount: f.importerCount,
-				lastAnalyzedAt: f.lastAnalyzedAt,
-			}));
+			const riskyFilesFormatted = scanRiskyFiles
+				.slice(offset, offset + limit)
+				.map((f) => ({
+					_id: f.filePath, // Use filePath as ID since we don't have the actual ID
+					filePath: f.filePath,
+					riskScore: f.riskScore,
+					riskLevel:
+						f.riskLevel === "critical"
+							? "high"
+							: (f.riskLevel as "high" | "medium" | "low"),
+					volatilityScore: f.volatilityScore,
+					coupledFilesCount: f.couplingScore, // Approximation
+					importersCount: f.importerCount,
+					lastAnalyzedAt: f.lastAnalyzedAt,
+				}));
 
 			// Build coupling pairs from file analyses
 			const couplingPairs: CouplingPair[] = [];
@@ -234,19 +209,29 @@ export async function GET(
 			const scanRiskyFiles = await callQuery<ScanRiskyFile[]>(
 				convex,
 				"scans:getRiskyFiles",
-				{ repositoryId: repoId, limit: 100 }
+				{ repositoryId: repoId, limit: 100 },
 			);
-			const riskyFilesFormatted = scanRiskyFiles.slice(offset, offset + limit).map(f => ({
-				_id: f.filePath,
-				filePath: f.filePath,
-				riskScore: f.riskScore,
-				riskLevel: f.riskLevel === "critical" ? "high" : f.riskLevel as "high" | "medium" | "low",
-				volatilityScore: f.volatilityScore,
-				coupledFilesCount: f.couplingScore,
-				importersCount: f.importerCount,
-				lastAnalyzedAt: f.lastAnalyzedAt,
-			}));
-			return NextResponse.json({ riskyFiles: { files: riskyFilesFormatted, total: scanRiskyFiles.length } });
+			const riskyFilesFormatted = scanRiskyFiles
+				.slice(offset, offset + limit)
+				.map((f) => ({
+					_id: f.filePath,
+					filePath: f.filePath,
+					riskScore: f.riskScore,
+					riskLevel:
+						f.riskLevel === "critical"
+							? "high"
+							: (f.riskLevel as "high" | "medium" | "low"),
+					volatilityScore: f.volatilityScore,
+					coupledFilesCount: f.couplingScore,
+					importersCount: f.importerCount,
+					lastAnalyzedAt: f.lastAnalyzedAt,
+				}));
+			return NextResponse.json({
+				riskyFiles: {
+					files: riskyFilesFormatted,
+					total: scanRiskyFiles.length,
+				},
+			});
 		}
 
 		if (dataType === "activity") {
@@ -258,7 +243,7 @@ export async function GET(
 			const allFileAnalyses = await callQuery<FileAnalysis[]>(
 				convex,
 				"scans:getFileAnalyses",
-				{ repositoryId: repoId, limit: 1000 }
+				{ repositoryId: repoId, limit: 1000 },
 			);
 			const couplingPairs: CouplingPair[] = [];
 			for (const file of allFileAnalyses) {
@@ -276,7 +261,7 @@ export async function GET(
 				coupling: {
 					pairs: couplingPairs.slice(offset, offset + limit),
 					total: couplingPairs.length,
-				}
+				},
 			});
 		}
 
@@ -295,7 +280,7 @@ export async function GET(
 		console.error("Failed to fetch repository stats:", error);
 		return NextResponse.json(
 			{ error: "Failed to fetch repository stats" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

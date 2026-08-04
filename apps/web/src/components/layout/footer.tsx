@@ -1,5 +1,5 @@
-import { Github, Twitter } from "lucide-react";
 import Link from "next/link";
+import { Github, Twitter } from "@/components/icons/brand";
 import { Container } from "@/components/ui/container";
 import { siteConfig } from "@/lib/seo/constants";
 

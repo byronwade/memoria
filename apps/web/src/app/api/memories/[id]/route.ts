@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface MemoryRecord {
 	_id: string;
@@ -13,7 +13,7 @@ interface MemoryRecord {
  */
 export async function PATCH(
 	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -32,14 +32,14 @@ export async function PATCH(
 		const memories = await callQuery<MemoryRecord[]>(
 			convex,
 			"memories:listMemories",
-			{ userId }
+			{ userId },
 		);
 
 		const memory = memories?.find((m) => m._id === memoryId);
 		if (!memory) {
 			return NextResponse.json(
 				{ error: "Memory not found or not authorized" },
-				{ status: 404 }
+				{ status: 404 },
 			);
 		}
 
@@ -47,7 +47,8 @@ export async function PATCH(
 		const updates: Record<string, unknown> = {};
 		if (context !== undefined) updates.context = context.trim();
 		if (tags !== undefined) updates.tags = Array.isArray(tags) ? tags : [];
-		if (linkedFiles !== undefined) updates.linkedFiles = Array.isArray(linkedFiles) ? linkedFiles : [];
+		if (linkedFiles !== undefined)
+			updates.linkedFiles = Array.isArray(linkedFiles) ? linkedFiles : [];
 		if (repoId !== undefined) updates.repoId = repoId || undefined;
 
 		// Update the memory
@@ -61,7 +62,7 @@ export async function PATCH(
 		console.error("Failed to update memory:", error);
 		return NextResponse.json(
 			{ error: "Failed to update memory" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
@@ -71,8 +72,8 @@ export async function PATCH(
  * Delete a memory
  */
 export async function DELETE(
-	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	_request: NextRequest,
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -89,14 +90,14 @@ export async function DELETE(
 		const memories = await callQuery<MemoryRecord[]>(
 			convex,
 			"memories:listMemories",
-			{ userId }
+			{ userId },
 		);
 
 		const memory = memories?.find((m) => m._id === memoryId);
 		if (!memory) {
 			return NextResponse.json(
 				{ error: "Memory not found or not authorized" },
-				{ status: 404 }
+				{ status: 404 },
 			);
 		}
 
@@ -108,7 +109,7 @@ export async function DELETE(
 		console.error("Failed to delete memory:", error);
 		return NextResponse.json(
 			{ error: "Failed to delete memory" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

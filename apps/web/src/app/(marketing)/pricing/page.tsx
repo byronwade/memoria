@@ -1,6 +1,7 @@
 import { ArrowUpRight, Check, Sparkles } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Section } from "@/components/layout/section";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -10,7 +11,6 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Container } from "@/components/ui/container";
-import { Section } from "@/components/layout/section";
 import { siteConfig } from "@/lib/seo/constants";
 
 const tiers = [
@@ -195,8 +195,9 @@ export default function PricingPage() {
 							All 13 engines. Zero cost.
 						</h2>
 						<p className="text-muted-foreground">
-							The full git analysis suite runs locally on your machine. No account,
-							no cloud, no limits. Works offline. We&apos;ll never paywall the core engines.
+							The full git analysis suite runs locally on your machine. No
+							account, no cloud, no limits. Works offline. We&apos;ll never
+							paywall the core engines.
 						</p>
 					</div>
 					<Card className="border border-primary/25 bg-gradient-to-br from-primary/10 via-card to-card/85 shadow-[0_20px_90px_-60px_var(--glow-color)]">
@@ -209,8 +210,8 @@ export default function PricingPage() {
 								Complete git forensics analysis
 							</CardTitle>
 							<CardDescription className="text-sm text-muted-foreground">
-								Volatility, entanglement, static imports, drift detection, history search,
-								and 8 more engines running in parallel.
+								Volatility, entanglement, static imports, drift detection,
+								history search, and 8 more engines running in parallel.
 							</CardDescription>
 						</CardHeader>
 						<CardContent>
@@ -249,7 +250,10 @@ export default function PricingPage() {
 					</div>
 					<div className="space-y-4">
 						{faqs.map((item) => (
-							<Card key={item.q} className="border-card-border/70 bg-card shadow-sm">
+							<Card
+								key={item.q}
+								className="border-card-border/70 bg-card shadow-sm"
+							>
 								<CardHeader>
 									<CardTitle className="text-lg text-foreground">
 										{item.q}

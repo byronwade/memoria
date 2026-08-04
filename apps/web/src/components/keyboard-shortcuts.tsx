@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import {
 	Dialog,
 	DialogContent,
@@ -21,7 +21,9 @@ interface KeyboardShortcutsProps {
 	shortcuts?: Shortcut[];
 }
 
-export function KeyboardShortcuts({ shortcuts: customShortcuts = [] }: KeyboardShortcutsProps) {
+export function KeyboardShortcuts({
+	shortcuts: customShortcuts = [],
+}: KeyboardShortcutsProps) {
 	const router = useRouter();
 	const [showHelp, setShowHelp] = useState(false);
 
@@ -66,7 +68,8 @@ export function KeyboardShortcuts({ shortcuts: customShortcuts = [] }: KeyboardS
 
 			for (const shortcut of allShortcuts) {
 				const modifiersMatch =
-					(!shortcut.modifiers || shortcut.modifiers.length === 0) ||
+					!shortcut.modifiers ||
+					shortcut.modifiers.length === 0 ||
 					shortcut.modifiers.every((mod) => {
 						switch (mod) {
 							case "meta":
@@ -82,14 +85,17 @@ export function KeyboardShortcuts({ shortcuts: customShortcuts = [] }: KeyboardS
 						}
 					});
 
-				if (modifiersMatch && event.key.toLowerCase() === shortcut.key.toLowerCase()) {
+				if (
+					modifiersMatch &&
+					event.key.toLowerCase() === shortcut.key.toLowerCase()
+				) {
 					event.preventDefault();
 					shortcut.action();
 					return;
 				}
 			}
 		},
-		[allShortcuts]
+		[allShortcuts],
 	);
 
 	useEffect(() => {
@@ -134,7 +140,11 @@ export function KeyboardShortcuts({ shortcuts: customShortcuts = [] }: KeyboardS
 						))}
 				</div>
 				<div className="text-xs text-muted-foreground text-center border-t pt-4">
-					Press <kbd className="px-1.5 py-0.5 text-xs font-mono bg-muted rounded border">/</kbd> anywhere to show this help
+					Press{" "}
+					<kbd className="px-1.5 py-0.5 text-xs font-mono bg-muted rounded border">
+						/
+					</kbd>{" "}
+					anywhere to show this help
 				</div>
 			</DialogContent>
 		</Dialog>

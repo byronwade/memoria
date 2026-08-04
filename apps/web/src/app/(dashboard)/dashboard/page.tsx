@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation";
-import { GitBranch, Plus, ArrowRight } from "lucide-react";
+import { ArrowRight, GitBranch, Plus } from "lucide-react";
 import Link from "next/link";
-import { getDashboardData } from "../dashboard-data";
+import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { getDashboardData } from "../dashboard-data";
 
 export default async function DashboardPage() {
 	const data = await getDashboardData();
@@ -17,11 +17,13 @@ export default async function DashboardPage() {
 	}
 
 	// Get active repositories
-	const activeRepos = data.repositories.filter(r => r.isActive);
+	const activeRepos = data.repositories.filter((r) => r.isActive);
 
 	// If has active repos, redirect to first one (full-width analytics view)
 	if (activeRepos.length > 0) {
-		redirect(`/dashboard/repositories/${activeRepos[0].fullName.split("/")[1]}`);
+		redirect(
+			`/dashboard/repositories/${activeRepos[0].fullName.split("/")[1]}`,
+		);
 	}
 
 	// Show empty state
@@ -32,7 +34,8 @@ export default async function DashboardPage() {
 			</div>
 			<h1 className="text-2xl font-semibold mb-2">No repositories connected</h1>
 			<p className="text-muted-foreground text-center max-w-md mb-8">
-				Connect your first repository to start analyzing your codebase with Memoria.
+				Connect your first repository to start analyzing your codebase with
+				Memoria.
 			</p>
 			<Button asChild size="lg">
 				<Link href="/onboarding">

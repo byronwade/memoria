@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
+import { type NextRequest, NextResponse } from "next/server";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 /**
  * POST /api/mcp/validate-token
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
 		if (!token) {
 			return NextResponse.json(
 				{ valid: false, error: "Token is required" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 		if (!result.valid) {
 			return NextResponse.json(
 				{ valid: false, error: result.error || "Invalid token" },
-				{ status: 401 }
+				{ status: 401 },
 			);
 		}
 
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 		console.error("Token validation error:", error);
 		return NextResponse.json(
 			{ valid: false, error: "Internal server error" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

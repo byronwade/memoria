@@ -9,9 +9,7 @@ const nextConfig: NextConfig = {
 		ignoreBuildErrors: true,
 	},
 	// Allow Cloudflare tunnel and other dev origins
-	allowedDevOrigins: [
-		"such-divided-reproduced-clinical.trycloudflare.com",
-	],
+	allowedDevOrigins: ["such-divided-reproduced-clinical.trycloudflare.com"],
 };
 
 export default nextConfig;

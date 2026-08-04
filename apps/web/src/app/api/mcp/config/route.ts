@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
+import { type NextRequest, NextResponse } from "next/server";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface TokenValidation {
 	valid: boolean;
@@ -46,10 +46,10 @@ interface Repository {
 export async function GET(request: NextRequest) {
 	// Extract token from Authorization header
 	const authHeader = request.headers.get("Authorization");
-	if (!authHeader || !authHeader.startsWith("Bearer ")) {
+	if (!authHeader?.startsWith("Bearer ")) {
 		return NextResponse.json(
 			{ error: "Missing or invalid Authorization header" },
-			{ status: 401 }
+			{ status: 401 },
 		);
 	}
 
@@ -62,13 +62,13 @@ export async function GET(request: NextRequest) {
 		const validation = await callQuery<TokenValidation>(
 			convex,
 			"teamTokens:validateToken",
-			{ token }
+			{ token },
 		);
 
 		if (!validation.valid || !validation.userId) {
 			return NextResponse.json(
 				{ error: validation.error || "Invalid token" },
-				{ status: 401 }
+				{ status: 401 },
 			);
 		}
 
@@ -86,15 +86,13 @@ export async function GET(request: NextRequest) {
 		let guardrails = await callQuery<Guardrail[]>(
 			convex,
 			"guardrails:listGuardrails",
-			{ userId: validation.userId }
+			{ userId: validation.userId },
 		);
 
 		// Fetch memories for this user
-		let memories = await callQuery<Memory[]>(
-			convex,
-			"memories:listMemories",
-			{ userId: validation.userId }
-		);
+		let memories = await callQuery<Memory[]>(convex, "memories:listMemories", {
+			userId: validation.userId,
+		});
 
 		// If repo filter is specified, find the repo and filter results
 		let repoId: string | undefined;
@@ -103,7 +101,7 @@ export async function GET(request: NextRequest) {
 			const repos = await callQuery<Repository[]>(
 				convex,
 				"scm:getRepositories",
-				{ userId: validation.userId }
+				{ userId: validation.userId },
 			);
 			const repo = repos.find((r) => r.fullName === repoFullName);
 
@@ -112,10 +110,10 @@ export async function GET(request: NextRequest) {
 
 				// Filter to user-wide + this repo's guardrails/memories
 				guardrails = guardrails.filter(
-					(g) => g.repoId === undefined || g.repoId === repoId
+					(g) => g.repoId === undefined || g.repoId === repoId,
 				);
 				memories = memories.filter(
-					(m) => m.repoId === undefined || m.repoId === repoId
+					(m) => m.repoId === undefined || m.repoId === repoId,
 				);
 			}
 		}
@@ -149,7 +147,7 @@ export async function GET(request: NextRequest) {
 		console.error("MCP config fetch error:", error);
 		return NextResponse.json(
 			{ error: "Failed to fetch configuration" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

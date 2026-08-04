@@ -23,11 +23,14 @@ export default function DocsPage() {
 						<span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold bg-green-500/20 text-green-600 dark:text-green-400 rounded">
 							100% FREE
 						</span>
-						<span className="text-sm font-medium text-foreground">Local & Private</span>
+						<span className="text-sm font-medium text-foreground">
+							Local & Private
+						</span>
 					</div>
 					<p className="text-sm text-muted-foreground">
-						All 13 git analysis engines run on your machine. No account, no cloud, no limits.
-						Paid plans are optional for teams who want shared cloud memories.
+						All 13 git analysis engines run on your machine. No account, no
+						cloud, no limits. Paid plans are optional for teams who want shared
+						cloud memories.
 					</p>
 				</div>
 

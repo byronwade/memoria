@@ -1,8 +1,8 @@
 "use node";
 
-import { internalAction } from "../_generated/server";
 import { v } from "convex/values";
-import { internal, api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
+import { internalAction } from "../_generated/server";
 
 /**
  * Handle installation events (created, deleted, suspend, unsuspend)
@@ -16,10 +16,13 @@ export const handleInstallation = internalAction({
 
 		if (action === "deleted" || action === "suspend") {
 			// Mark installation as deleted/suspended
-			await ctx.runMutation(internal.github.mutations.updateInstallationStatus, {
-				providerInstallationId: String(installation.id),
-				status: action === "deleted" ? "deleted" : "suspended",
-			});
+			await ctx.runMutation(
+				internal.github.mutations.updateInstallationStatus,
+				{
+					providerInstallationId: String(installation.id),
+					status: action === "deleted" ? "deleted" : "suspended",
+				},
+			);
 		} else if (action === "created") {
 			// Handle new installation via webhook
 			// This is a fallback if the Setup URL callback wasn't configured
@@ -81,14 +84,19 @@ export const handleInstallation = internalAction({
 			} else {
 				// User not found by GitHub ID - this happens when webhook arrives before user logs in
 				// The installation will be properly linked when user completes OAuth via /api/github/callback
-				console.log(`No user found for GitHub ID ${sender?.id}. Installation will be handled via OAuth callback when user logs in.`);
+				console.log(
+					`No user found for GitHub ID ${sender?.id}. Installation will be handled via OAuth callback when user logs in.`,
+				);
 			}
 		} else if (action === "unsuspend") {
 			// Reactivate installation
-			await ctx.runMutation(internal.github.mutations.updateInstallationStatus, {
-				providerInstallationId: String(installation.id),
-				status: "active",
-			});
+			await ctx.runMutation(
+				internal.github.mutations.updateInstallationStatus,
+				{
+					providerInstallationId: String(installation.id),
+					status: "active",
+				},
+			);
 		}
 	},
 });
@@ -102,7 +110,9 @@ export const handleRepoSync = internalAction({
 		const { action, installation, repositories_added, repositories_removed } =
 			args.payload;
 
-		console.log(`Repo sync event: ${action} for installation ${installation.id}`);
+		console.log(
+			`Repo sync event: ${action} for installation ${installation.id}`,
+		);
 
 		// Get installation from our database
 		const inst = await ctx.runQuery(api.scm.getInstallationByProviderId, {
@@ -154,7 +164,9 @@ export const handlePullRequest = internalAction({
 	handler: async (ctx, args) => {
 		const { action, pull_request, repository, installation } = args.payload;
 
-		console.log(`PR event: ${action} for ${repository.full_name}#${pull_request.number}`);
+		console.log(
+			`PR event: ${action} for ${repository.full_name}#${pull_request.number}`,
+		);
 
 		// Only analyze on opened, synchronize (new commits), or reopened
 		if (!["opened", "synchronize", "reopened"].includes(action)) {
@@ -264,7 +276,9 @@ export const handlePush = internalAction({
 			return;
 		}
 
-		console.log(`Push to ${repository.full_name}:${branchName} - ${commits?.length || 0} commits`);
+		console.log(
+			`Push to ${repository.full_name}:${branchName} - ${commits?.length || 0} commits`,
+		);
 
 		// Get installation
 		const inst = await ctx.runQuery(api.scm.getInstallationByProviderId, {
@@ -290,31 +304,36 @@ export const handlePush = internalAction({
 
 		// Index commits in temporal graph
 		if (commits && Array.isArray(commits) && commits.length > 0) {
-			const commitData = commits.map((c: {
-				id: string;
-				message: string;
-				timestamp: string;
-				author?: { email?: string; name?: string };
-				added?: string[];
-				modified?: string[];
-				removed?: string[];
-			}) => ({
-				repoId: repo._id,
-				commitHash: c.id,
-				message: c.message,
-				authorEmail: c.author?.email || pusher.email || "unknown",
-				authorName: c.author?.name || pusher.name || "unknown",
-				committedAt: new Date(c.timestamp).getTime(),
-				filesChanged: [
-					...(c.added || []),
-					...(c.modified || []),
-					...(c.removed || []),
-				],
-			}));
+			const commitData = commits.map(
+				(c: {
+					id: string;
+					message: string;
+					timestamp: string;
+					author?: { email?: string; name?: string };
+					added?: string[];
+					modified?: string[];
+					removed?: string[];
+				}) => ({
+					repoId: repo._id,
+					commitHash: c.id,
+					message: c.message,
+					authorEmail: c.author?.email || pusher.email || "unknown",
+					authorName: c.author?.name || pusher.name || "unknown",
+					committedAt: new Date(c.timestamp).getTime(),
+					filesChanged: [
+						...(c.added || []),
+						...(c.modified || []),
+						...(c.removed || []),
+					],
+				}),
+			);
 
-			const { indexed, skipped } = await ctx.runMutation(api.temporal.batchIndexCommits, {
-				commits: commitData,
-			});
+			const { indexed, skipped } = await ctx.runMutation(
+				api.temporal.batchIndexCommits,
+				{
+					commits: commitData,
+				},
+			);
 
 			console.log(`Indexed ${indexed} commits (${skipped} already indexed)`);
 		}

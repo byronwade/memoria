@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "memoria-internal";
@@ -29,10 +29,7 @@ export async function POST(request: NextRequest) {
 		const userId = session.user._id;
 
 		if (!Array.isArray(repoIds)) {
-			return NextResponse.json(
-				{ error: "Missing repoIds" },
-				{ status: 400 }
-			);
+			return NextResponse.json({ error: "Missing repoIds" }, { status: 400 });
 		}
 
 		const convex = getConvexClient();
@@ -41,7 +38,7 @@ export async function POST(request: NextRequest) {
 		const allRepos = await callQuery<Repository[]>(
 			convex,
 			"scm:getRepositories",
-			{ userId }
+			{ userId },
 		);
 
 		// Track newly activated repos for scanning
@@ -78,12 +75,16 @@ export async function POST(request: NextRequest) {
 				const installation = await callQuery<Installation | null>(
 					convex,
 					"scm:getInstallationById",
-					{ installationId: repo.installationId }
+					{ installationId: repo.installationId },
 				);
 
 				if (!installation) {
 					console.error(`Installation not found for ${repo.fullName}`);
-					return { repoId: repo.repoId, status: "failed", error: "Installation not found" };
+					return {
+						repoId: repo.repoId,
+						status: "failed",
+						error: "Installation not found",
+					};
 				}
 
 				// Create scan record
@@ -133,15 +134,18 @@ export async function POST(request: NextRequest) {
 
 		return NextResponse.json({
 			success: true,
-			scansTriggered: scanResults.filter((r) => r.status === "triggered").length,
-			scansAlreadyRunning: scanResults.filter((r) => r.status === "already_running").length,
+			scansTriggered: scanResults.filter((r) => r.status === "triggered")
+				.length,
+			scansAlreadyRunning: scanResults.filter(
+				(r) => r.status === "already_running",
+			).length,
 			scansFailed: scanResults.filter((r) => r.status === "failed").length,
 		});
 	} catch (error) {
 		console.error("Failed to save repos:", error);
 		return NextResponse.json(
 			{ error: "Failed to save repositories" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

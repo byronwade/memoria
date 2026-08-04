@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callQuery } from "@/lib/convex";
+import { callQuery, getConvexClient } from "@/lib/convex";
 import { createBillingPortalSession } from "@/lib/stripe/server";
 
 interface UserBilling {
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
 		const user = await callQuery<UserBilling | null>(
 			convex,
 			"billing:getUserBillingStatus",
-			{ userId }
+			{ userId },
 		);
 
 		if (!user) {
@@ -35,14 +35,15 @@ export async function POST(request: NextRequest) {
 		if (!user.stripeCustomerId) {
 			return NextResponse.json(
 				{ error: "No billing setup for this user" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
 		// Create billing portal session
 		const portalSession = await createBillingPortalSession({
 			customerId: user.stripeCustomerId,
-			returnUrl: returnUrl || `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/settings`,
+			returnUrl:
+				returnUrl || `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/settings`,
 		});
 
 		return NextResponse.json({ url: portalSession.url });
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
 		console.error("Failed to create billing portal session:", error);
 		return NextResponse.json(
 			{ error: "Failed to create billing portal session" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation } from "@/lib/convex";
+import { callMutation, getConvexClient } from "@/lib/convex";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -24,16 +24,25 @@ export async function GET(request: NextRequest) {
 
 	// Validate state (CSRF protection)
 	if (!state || state !== storedState) {
-		return NextResponse.json({ error: "Invalid state parameter" }, { status: 400 });
+		return NextResponse.json(
+			{ error: "Invalid state parameter" },
+			{ status: 400 },
+		);
 	}
 
 	// Validate required parameters
 	if (!client_id) {
-		return NextResponse.json({ error: "client_id is required" }, { status: 400 });
+		return NextResponse.json(
+			{ error: "client_id is required" },
+			{ status: 400 },
+		);
 	}
 
 	if (!redirect_uri) {
-		return NextResponse.json({ error: "redirect_uri is required" }, { status: 400 });
+		return NextResponse.json(
+			{ error: "redirect_uri is required" },
+			{ status: 400 },
+		);
 	}
 
 	// Get user session
@@ -61,7 +70,7 @@ export async function GET(request: NextRequest) {
 				userId: session.user._id,
 				name: tokenName,
 				createdBy: session.user._id,
-			}
+			},
 		);
 
 		// Build redirect URL with token
@@ -82,7 +91,7 @@ export async function GET(request: NextRequest) {
 		console.error("Failed to create token:", error);
 		return NextResponse.json(
 			{ error: "Failed to generate access token" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

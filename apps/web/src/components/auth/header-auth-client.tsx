@@ -29,12 +29,7 @@ export function HeaderAuthClient({ user }: HeaderAuthClientProps) {
 			</Link>
 
 			{/* CTA Button */}
-			<Button
-				size="sm"
-				variant="cta"
-				className="h-8 px-4"
-				asChild
-			>
+			<Button size="sm" variant="cta" className="h-8 px-4" asChild>
 				<Link href="/register">Get Started</Link>
 			</Button>
 		</>

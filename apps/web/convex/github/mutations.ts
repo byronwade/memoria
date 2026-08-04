@@ -1,5 +1,5 @@
-import { internalMutation } from "../_generated/server";
 import { v } from "convex/values";
+import { internalMutation } from "../_generated/server";
 
 const now = () => Date.now();
 
@@ -23,7 +23,7 @@ export const updateInstallationStatus = internalMutation({
 			.withIndex("by_providerInstallation", (q) =>
 				q
 					.eq("providerType", "github")
-					.eq("providerInstallationId", args.providerInstallationId)
+					.eq("providerInstallationId", args.providerInstallationId),
 			)
 			.first();
 
@@ -48,7 +48,9 @@ export const deactivateRepository = internalMutation({
 		const repo = await ctx.db
 			.query("repositories")
 			.withIndex("by_provider_repo", (q) =>
-				q.eq("providerType", "github").eq("providerRepoId", args.providerRepoId)
+				q
+					.eq("providerType", "github")
+					.eq("providerRepoId", args.providerRepoId),
 			)
 			.first();
 

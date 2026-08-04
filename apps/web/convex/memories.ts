@@ -1,5 +1,5 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
@@ -29,7 +29,12 @@ export const createMemory = mutation({
 		),
 		source: v.optional(
 			v.object({
-				type: literals("manual", "pr_comment", "commit_message", "auto_extracted"),
+				type: literals(
+					"manual",
+					"pr_comment",
+					"commit_message",
+					"auto_extracted",
+				),
 				reference: v.union(v.string(), v.null()),
 			}),
 		),
@@ -48,7 +53,9 @@ export const createMemory = mutation({
 		// Auto-extract keywords if not provided
 		const keywords = args.keywords || extractKeywordsFromText(args.context);
 		// Auto-generate summary if not provided (first 100 chars)
-		const summary = args.summary || args.context.slice(0, 100) + (args.context.length > 100 ? "..." : "");
+		const summary =
+			args.summary ||
+			args.context.slice(0, 100) + (args.context.length > 100 ? "..." : "");
 
 		const memoryId = await ctx.db.insert("memories", {
 			userId: args.userId,
@@ -101,16 +108,20 @@ export const updateMemory = mutation({
 		if (updates.context !== undefined) {
 			patch.context = updates.context;
 			// Re-extract keywords if context changed
-			patch.keywords = updates.keywords || extractKeywordsFromText(updates.context);
+			patch.keywords =
+				updates.keywords || extractKeywordsFromText(updates.context);
 			// Update summary if context changed and no explicit summary
 			if (!updates.summary) {
-				patch.summary = updates.context.slice(0, 100) + (updates.context.length > 100 ? "..." : "");
+				patch.summary =
+					updates.context.slice(0, 100) +
+					(updates.context.length > 100 ? "..." : "");
 			}
 		}
 		if (updates.summary !== undefined) patch.summary = updates.summary;
 		if (updates.tags !== undefined) patch.tags = updates.tags;
 		if (updates.keywords !== undefined) patch.keywords = updates.keywords;
-		if (updates.linkedFiles !== undefined) patch.linkedFiles = updates.linkedFiles;
+		if (updates.linkedFiles !== undefined)
+			patch.linkedFiles = updates.linkedFiles;
 		if (updates.memoryType !== undefined) patch.memoryType = updates.memoryType;
 		if (updates.importance !== undefined) patch.importance = updates.importance;
 
@@ -158,7 +169,7 @@ export const listMemories = query({
 		// Filter by repo if specified (only applies to repository-scoped memories)
 		if (args.repoId !== undefined) {
 			memories = memories.filter(
-				(m) => m.scope === "global" || m.repoId === args.repoId
+				(m) => m.scope === "global" || m.repoId === args.repoId,
 			);
 		}
 
@@ -175,7 +186,7 @@ export const listMemories = query({
 					...m,
 					creatorName: creator?.name || creator?.email || "Unknown",
 				};
-			})
+			}),
 		);
 
 		// Sort by creation date (newest first)
@@ -205,7 +216,7 @@ export const getMemoriesForRepo = query({
 		// - All global memories
 		// - Repository memories for this specific repo
 		const applicable = memories.filter(
-			(m) => m.scope === "global" || m.repoId === args.repoId
+			(m) => m.scope === "global" || m.repoId === args.repoId,
 		);
 
 		// Sort: repo-specific first, then by creation date
@@ -291,14 +302,17 @@ export const getMemoryStats = query({
 		const byImportance = {
 			critical: memories.filter((m) => m.importance === "critical").length,
 			high: memories.filter((m) => m.importance === "high").length,
-			normal: memories.filter((m) => m.importance === "normal" || !m.importance).length,
+			normal: memories.filter((m) => m.importance === "normal" || !m.importance)
+				.length,
 			low: memories.filter((m) => m.importance === "low").length,
 		};
 
 		// Count by type
 		const byType = {
 			lesson: memories.filter((m) => m.memoryType === "lesson").length,
-			context: memories.filter((m) => m.memoryType === "context" || !m.memoryType).length,
+			context: memories.filter(
+				(m) => m.memoryType === "context" || !m.memoryType,
+			).length,
 			decision: memories.filter((m) => m.memoryType === "decision").length,
 			pattern: memories.filter((m) => m.memoryType === "pattern").length,
 			warning: memories.filter((m) => m.memoryType === "warning").length,
@@ -323,13 +337,68 @@ export const getMemoryStats = query({
 
 // Common English stopwords to filter out
 const STOPWORDS = new Set([
-	"a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-	"has", "he", "in", "is", "it", "its", "of", "on", "or", "she",
-	"that", "the", "to", "was", "were", "will", "with", "this", "but",
-	"they", "have", "had", "what", "when", "where", "who", "which",
-	"why", "how", "all", "each", "every", "both", "few", "more", "most",
-	"other", "some", "such", "no", "not", "only", "own", "same", "so",
-	"than", "too", "very", "can", "just", "should", "now",
+	"a",
+	"an",
+	"and",
+	"are",
+	"as",
+	"at",
+	"be",
+	"by",
+	"for",
+	"from",
+	"has",
+	"he",
+	"in",
+	"is",
+	"it",
+	"its",
+	"of",
+	"on",
+	"or",
+	"she",
+	"that",
+	"the",
+	"to",
+	"was",
+	"were",
+	"will",
+	"with",
+	"this",
+	"but",
+	"they",
+	"have",
+	"had",
+	"what",
+	"when",
+	"where",
+	"who",
+	"which",
+	"why",
+	"how",
+	"all",
+	"each",
+	"every",
+	"both",
+	"few",
+	"more",
+	"most",
+	"other",
+	"some",
+	"such",
+	"no",
+	"not",
+	"only",
+	"own",
+	"same",
+	"so",
+	"than",
+	"too",
+	"very",
+	"can",
+	"just",
+	"should",
+	"now",
 ]);
 
 /**
@@ -354,7 +423,8 @@ function extractKeywordsFromText(text: string): string[] {
 		if (token.endsWith("ing") && token.length > 5) return token.slice(0, -3);
 		if (token.endsWith("ed") && token.length > 4) return token.slice(0, -2);
 		if (token.endsWith("es") && token.length > 4) return token.slice(0, -2);
-		if (token.endsWith("s") && token.length > 3 && !token.endsWith("ss")) return token.slice(0, -1);
+		if (token.endsWith("s") && token.length > 3 && !token.endsWith("ss"))
+			return token.slice(0, -1);
 		return token;
 	});
 
@@ -389,13 +459,18 @@ export const searchMemories = query({
 		// Filter by repo if specified (include global + repo-specific)
 		if (args.repoId !== undefined) {
 			memories = memories.filter(
-				(m) => m.scope === "global" || m.repoId === args.repoId
+				(m) => m.scope === "global" || m.repoId === args.repoId,
 			);
 		}
 
 		// Filter by minimum importance
 		if (args.minImportance) {
-			const importanceOrder: Record<string, number> = { critical: 4, high: 3, normal: 2, low: 1 };
+			const importanceOrder: Record<string, number> = {
+				critical: 4,
+				high: 3,
+				normal: 2,
+				low: 1,
+			};
 			const minLevel = importanceOrder[args.minImportance];
 			memories = memories.filter((m) => {
 				const memLevel = importanceOrder[m.importance || "normal"];
@@ -407,7 +482,12 @@ export const searchMemories = query({
 			// No keywords - return by importance/recency
 			return memories
 				.sort((a, b) => {
-					const importanceOrder: Record<string, number> = { critical: 4, high: 3, normal: 2, low: 1 };
+					const importanceOrder: Record<string, number> = {
+						critical: 4,
+						high: 3,
+						normal: 2,
+						low: 1,
+					};
 					const aImport = importanceOrder[a.importance || "normal"];
 					const bImport = importanceOrder[b.importance || "normal"];
 					if (aImport !== bImport) return bImport - aImport;
@@ -426,7 +506,7 @@ export const searchMemories = query({
 
 		// Increment access count for returned memories
 		const topResults = scored.slice(0, limit);
-		for (const result of topResults) {
+		for (const _result of topResults) {
 			// Note: Can't do mutations in queries - would need separate mutation
 		}
 
@@ -454,7 +534,7 @@ export const getMemoriesForFile = query({
 		// Filter by repo if specified (include global + repo-specific)
 		if (args.repoId !== undefined) {
 			memories = memories.filter(
-				(m) => m.scope === "global" || m.repoId === args.repoId
+				(m) => m.scope === "global" || m.repoId === args.repoId,
 			);
 		}
 
@@ -462,28 +542,42 @@ export const getMemoriesForFile = query({
 		const fileKeywords = extractFilePathKeywords(args.filePath);
 
 		// Score each memory
-		const scored: Array<typeof memories[0] & { score: number; matchReason: string }> = [];
+		const scored: Array<
+			(typeof memories)[0] & { score: number; matchReason: string }
+		> = [];
 
 		for (const memory of memories) {
 			let score = 0;
 			let matchReason = "";
 
 			// Direct file link (highest priority)
-			if (memory.linkedFiles.some((f: string) => args.filePath.includes(f) || f.includes(args.filePath))) {
+			if (
+				memory.linkedFiles.some(
+					(f: string) => args.filePath.includes(f) || f.includes(args.filePath),
+				)
+			) {
 				score += 100;
 				matchReason = "linked";
 			}
 
 			// Keyword match with file path
-			const memKeywords = memory.keywords || extractKeywordsFromText(memory.context);
-			const matchedKeywords = fileKeywords.filter((k) => memKeywords.includes(k));
+			const memKeywords =
+				memory.keywords || extractKeywordsFromText(memory.context);
+			const matchedKeywords = fileKeywords.filter((k) =>
+				memKeywords.includes(k),
+			);
 			if (matchedKeywords.length > 0) {
 				score += matchedKeywords.length * 10;
 				matchReason = matchReason || `keywords: ${matchedKeywords.join(", ")}`;
 			}
 
 			// Importance boost
-			const importanceBoost: Record<string, number> = { critical: 50, high: 25, normal: 0, low: -10 };
+			const importanceBoost: Record<string, number> = {
+				critical: 50,
+				high: 25,
+				normal: 0,
+				low: -10,
+			};
 			score += importanceBoost[memory.importance || "normal"];
 
 			if (score > 0) {
@@ -532,7 +626,7 @@ export const getCriticalMemories = query({
 		// Filter by repo (include global + repo-specific)
 		if (args.repoId !== undefined) {
 			memories = memories.filter(
-				(m) => m.scope === "global" || m.repoId === args.repoId
+				(m) => m.scope === "global" || m.repoId === args.repoId,
 			);
 		}
 
@@ -541,8 +635,10 @@ export const getCriticalMemories = query({
 			.filter((m) => m.importance === "critical" || m.importance === "high")
 			.sort((a, b) => {
 				// Critical first, then high
-				if (a.importance === "critical" && b.importance !== "critical") return -1;
-				if (b.importance === "critical" && a.importance !== "critical") return 1;
+				if (a.importance === "critical" && b.importance !== "critical")
+					return -1;
+				if (b.importance === "critical" && a.importance !== "critical")
+					return 1;
 				return b.createdAt - a.createdAt;
 			});
 	},
@@ -568,7 +664,10 @@ function extractFilePathKeywords(filePath: string): string[] {
 
 	for (const segment of segments) {
 		if (segment.length < 2) continue;
-		if (["src", "lib", "dist", "node_modules", "index", "main"].includes(segment)) continue;
+		if (
+			["src", "lib", "dist", "node_modules", "index", "main"].includes(segment)
+		)
+			continue;
 
 		// Split camelCase and PascalCase
 		const parts = segment

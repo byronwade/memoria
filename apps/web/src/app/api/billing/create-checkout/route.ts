@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
-import { createCustomer, createCheckoutSession } from "@/lib/stripe/server";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
+import { createCheckoutSession, createCustomer } from "@/lib/stripe/server";
 
 interface BillingPlan {
 	_id: string;
@@ -31,10 +31,7 @@ export async function POST(request: NextRequest) {
 		const { planTier, successUrl, cancelUrl } = body;
 
 		if (!planTier) {
-			return NextResponse.json(
-				{ error: "Missing planTier" },
-				{ status: 400 }
-			);
+			return NextResponse.json({ error: "Missing planTier" }, { status: 400 });
 		}
 
 		const userId = session.user._id;
@@ -44,13 +41,13 @@ export async function POST(request: NextRequest) {
 		const plan = await callQuery<BillingPlan | null>(
 			convex,
 			"billing:getPlanByTier",
-			{ tier: planTier }
+			{ tier: planTier },
 		);
 
-		if (!plan || !plan.stripePriceId) {
+		if (!plan?.stripePriceId) {
 			return NextResponse.json(
 				{ error: "Invalid plan or plan not configured for billing" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -58,7 +55,7 @@ export async function POST(request: NextRequest) {
 		const user = await callQuery<UserData | null>(
 			convex,
 			"billing:getUserBillingStatus",
-			{ userId }
+			{ userId },
 		);
 
 		if (!user) {
@@ -89,7 +86,9 @@ export async function POST(request: NextRequest) {
 		const checkoutSession = await createCheckoutSession({
 			customerId: stripeCustomerId,
 			priceId: plan.stripePriceId,
-			successUrl: successUrl || `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?upgraded=true`,
+			successUrl:
+				successUrl ||
+				`${process.env.NEXT_PUBLIC_APP_URL}/dashboard?upgraded=true`,
 			cancelUrl: cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/onboarding`,
 			trialDays: 14, // 14-day trial
 			metadata: {
@@ -103,7 +102,7 @@ export async function POST(request: NextRequest) {
 		console.error("Failed to create checkout session:", error);
 		return NextResponse.json(
 			{ error: "Failed to create checkout session" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

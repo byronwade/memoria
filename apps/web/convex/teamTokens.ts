@@ -1,5 +1,5 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
@@ -12,7 +12,7 @@ function generateToken(): string {
 	crypto.getRandomValues(bytes);
 	// Convert to base64url
 	const base64 = btoa(String.fromCharCode(...bytes));
-	return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+	return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /**
@@ -23,7 +23,7 @@ async function hashToken(token: string): Promise<string> {
 	const data = encoder.encode(token);
 	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
 	const hashArray = Array.from(new Uint8Array(hashBuffer));
-	return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+	return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -120,9 +120,9 @@ export const listTokens = query({
 					revokedAt: t.revokedAt,
 					creatorName: creator?.name || creator?.email || "Unknown",
 					// Show masked version: mem_****...****
-					maskedToken: "mem_" + "•".repeat(8) + "..." + "•".repeat(8),
+					maskedToken: `mem_${"•".repeat(8)}...${"•".repeat(8)}`,
 				};
-			})
+			}),
 		);
 
 		// Sort by creation date (newest first)
@@ -209,7 +209,7 @@ export const getTokenStats = query({
 		// Recently used (in last 7 days)
 		const sevenDaysAgo = now() - 7 * 24 * 60 * 60 * 1000;
 		const recentlyUsed = active.filter(
-			(t) => t.lastUsedAt && t.lastUsedAt > sevenDaysAgo
+			(t) => t.lastUsedAt && t.lastUsedAt > sevenDaysAgo,
 		);
 
 		// Never used

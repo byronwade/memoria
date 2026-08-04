@@ -232,7 +232,7 @@ export function SearchCommand({ variant = "default" }: SearchCommandProps) {
 				<CommandInput placeholder="Search documentation..." />
 				<CommandList>
 					<CommandEmpty>No results found.</CommandEmpty>
-					{searchData.map((group, index) => (
+					{searchData.map((group, _index) => (
 						<CommandGroup key={group.group} heading={group.group}>
 							{group.items.map((item) => (
 								<CommandItem

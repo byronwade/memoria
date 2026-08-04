@@ -18,7 +18,7 @@ export function getConvexClient(): ConvexHttpClient {
 export async function callMutation<T>(
 	client: ConvexHttpClient,
 	mutation: string,
-	args: Record<string, unknown>
+	args: Record<string, unknown>,
 ): Promise<T> {
 	// @ts-expect-error - Convex client accepts string paths
 	return client.mutation(mutation, args);
@@ -30,7 +30,7 @@ export async function callMutation<T>(
 export async function callQuery<T>(
 	client: ConvexHttpClient,
 	query: string,
-	args: Record<string, unknown>
+	args: Record<string, unknown>,
 ): Promise<T> {
 	// @ts-expect-error - Convex client accepts string paths
 	return client.query(query, args);
@@ -42,7 +42,7 @@ export async function callQuery<T>(
 export async function callAction<T>(
 	client: ConvexHttpClient,
 	action: string,
-	args: Record<string, unknown>
+	args: Record<string, unknown>,
 ): Promise<T> {
 	// @ts-expect-error - Convex client accepts string paths
 	return client.action(action, args);

@@ -1,5 +1,5 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
@@ -72,7 +72,8 @@ export const listInterventions = query({
 		const items = interventions.slice(0, limit);
 
 		// Get next cursor
-		const nextCursor = items.length === limit ? items[items.length - 1].timestamp : undefined;
+		const nextCursor =
+			items.length === limit ? items[items.length - 1].timestamp : undefined;
 
 		// Fetch related data (guardrail info, repo info)
 		const enriched = await Promise.all(
@@ -88,7 +89,7 @@ export const listInterventions = query({
 					guardrailMessage: guardrail?.message ?? null,
 					repoName: repo?.fullName ?? "Unknown",
 				};
-			})
+			}),
 		);
 
 		return {
@@ -123,16 +124,22 @@ export const getInterventionStats = query({
 
 		// Last 7 days
 		const sevenDaysAgo = now() - 7 * 24 * 60 * 60 * 1000;
-		const last7Days = interventions.filter((i) => i.timestamp > sevenDaysAgo).length;
+		const last7Days = interventions.filter(
+			(i) => i.timestamp > sevenDaysAgo,
+		).length;
 
 		// Last 30 days
 		const thirtyDaysAgo = now() - 30 * 24 * 60 * 60 * 1000;
-		const last30Days = interventions.filter((i) => i.timestamp > thirtyDaysAgo).length;
+		const last30Days = interventions.filter(
+			(i) => i.timestamp > thirtyDaysAgo,
+		).length;
 
 		// Today
 		const todayStart = new Date();
 		todayStart.setHours(0, 0, 0, 0);
-		const today = interventions.filter((i) => i.timestamp > todayStart.getTime()).length;
+		const today = interventions.filter(
+			(i) => i.timestamp > todayStart.getTime(),
+		).length;
 
 		// By AI tool
 		const byTool: Record<string, number> = {};

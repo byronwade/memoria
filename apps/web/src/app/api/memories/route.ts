@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface MemoryData {
 	_id: string;
@@ -31,7 +31,7 @@ export async function GET() {
 		const memories = await callQuery<MemoryData[]>(
 			convex,
 			"memories:listMemories",
-			{ userId }
+			{ userId },
 		);
 
 		return NextResponse.json({ memories: memories || [] });
@@ -39,7 +39,7 @@ export async function GET() {
 		console.error("Failed to fetch memories:", error);
 		return NextResponse.json(
 			{ error: "Failed to fetch memories" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
 		if (!context || typeof context !== "string" || !context.trim()) {
 			return NextResponse.json(
 				{ error: "Context is required" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
 				linkedFiles: Array.isArray(linkedFiles) ? linkedFiles : [],
 				repoId: repoId || undefined,
 				createdBy: userId,
-			}
+			},
 		);
 
 		return NextResponse.json({
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
 		console.error("Failed to create memory:", error);
 		return NextResponse.json(
 			{ error: "Failed to create memory" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
+import { type NextRequest, NextResponse } from "next/server";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface TokenValidation {
 	valid: boolean;
@@ -44,10 +44,10 @@ interface InterventionRequest {
 export async function POST(request: NextRequest) {
 	// Extract token from Authorization header
 	const authHeader = request.headers.get("Authorization");
-	if (!authHeader || !authHeader.startsWith("Bearer ")) {
+	if (!authHeader?.startsWith("Bearer ")) {
 		return NextResponse.json(
 			{ error: "Missing or invalid Authorization header" },
-			{ status: 401 }
+			{ status: 401 },
 		);
 	}
 
@@ -60,13 +60,13 @@ export async function POST(request: NextRequest) {
 		const validation = await callQuery<TokenValidation>(
 			convex,
 			"teamTokens:validateToken",
-			{ token }
+			{ token },
 		);
 
 		if (!validation.valid || !validation.userId) {
 			return NextResponse.json(
 				{ error: validation.error || "Invalid token" },
-				{ status: 401 }
+				{ status: 401 },
 			);
 		}
 
@@ -84,9 +84,10 @@ export async function POST(request: NextRequest) {
 		if (!body.repoFullName || !body.filePath || !body.action || !body.aiTool) {
 			return NextResponse.json(
 				{
-					error: "Missing required fields: repoFullName, filePath, action, aiTool",
+					error:
+						"Missing required fields: repoFullName, filePath, action, aiTool",
 				},
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -94,22 +95,20 @@ export async function POST(request: NextRequest) {
 		if (!["blocked", "warned"].includes(body.action)) {
 			return NextResponse.json(
 				{ error: "Invalid action: must be 'blocked' or 'warned'" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
 		// Look up the repository by full name
-		const repos = await callQuery<Repository[]>(
-			convex,
-			"scm:getRepositories",
-			{ userId: validation.userId }
-		);
+		const repos = await callQuery<Repository[]>(convex, "scm:getRepositories", {
+			userId: validation.userId,
+		});
 		const repo = repos.find((r) => r.fullName === body.repoFullName);
 
 		if (!repo) {
 			return NextResponse.json(
 				{ error: `Repository not found: ${body.repoFullName}` },
-				{ status: 404 }
+				{ status: 404 },
 			);
 		}
 
@@ -126,7 +125,7 @@ export async function POST(request: NextRequest) {
 				aiTool: body.aiTool,
 				aiModel: body.aiModel,
 				context: body.context,
-			}
+			},
 		);
 
 		return NextResponse.json({
@@ -138,7 +137,7 @@ export async function POST(request: NextRequest) {
 		console.error("MCP intervention recording error:", error);
 		return NextResponse.json(
 			{ error: "Failed to record intervention" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

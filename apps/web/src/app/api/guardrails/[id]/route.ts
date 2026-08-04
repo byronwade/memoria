@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface GuardrailRecord {
 	_id: string;
@@ -13,7 +13,7 @@ interface GuardrailRecord {
  */
 export async function PATCH(
 	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -32,14 +32,14 @@ export async function PATCH(
 		const guardrails = await callQuery<GuardrailRecord[]>(
 			convex,
 			"guardrails:listGuardrails",
-			{ userId, includeDisabled: true }
+			{ userId, includeDisabled: true },
 		);
 
 		const guardrail = guardrails?.find((g) => g._id === guardrailId);
 		if (!guardrail) {
 			return NextResponse.json(
 				{ error: "Guardrail not found or not authorized" },
-				{ status: 404 }
+				{ status: 404 },
 			);
 		}
 
@@ -62,7 +62,7 @@ export async function PATCH(
 		console.error("Failed to update guardrail:", error);
 		return NextResponse.json(
 			{ error: "Failed to update guardrail" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
@@ -72,8 +72,8 @@ export async function PATCH(
  * Delete a guardrail
  */
 export async function DELETE(
-	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	_request: NextRequest,
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -90,14 +90,14 @@ export async function DELETE(
 		const guardrails = await callQuery<GuardrailRecord[]>(
 			convex,
 			"guardrails:listGuardrails",
-			{ userId, includeDisabled: true }
+			{ userId, includeDisabled: true },
 		);
 
 		const guardrail = guardrails?.find((g) => g._id === guardrailId);
 		if (!guardrail) {
 			return NextResponse.json(
 				{ error: "Guardrail not found or not authorized" },
-				{ status: 404 }
+				{ status: 404 },
 			);
 		}
 
@@ -109,7 +109,7 @@ export async function DELETE(
 		console.error("Failed to delete guardrail:", error);
 		return NextResponse.json(
 			{ error: "Failed to delete guardrail" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

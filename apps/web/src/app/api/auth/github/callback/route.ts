@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { randomBytes } from "node:crypto";
+import { type NextRequest, NextResponse } from "next/server";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 import {
 	exchangeCodeForToken,
 	getGitHubUser,
@@ -7,7 +8,6 @@ import {
 	getInstallation,
 	listInstallationRepos,
 } from "@/lib/github/auth";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 		state,
 		storedState,
 		installationId,
-		setupAction
+		setupAction,
 	});
 
 	// Handle OAuth errors from GitHub
@@ -40,18 +40,21 @@ export async function GET(request: NextRequest) {
 		const errorDescription = searchParams.get("error_description") || error;
 		console.error("GitHub OAuth error:", errorDescription);
 		return NextResponse.redirect(
-			new URL(`/login?error=${encodeURIComponent(errorDescription)}`, APP_URL)
+			new URL(`/login?error=${encodeURIComponent(errorDescription)}`, APP_URL),
 		);
 	}
 
 	// Check if this is an installation-only callback (user already logged in, just installing app)
 	// This happens when user clicks "Install GitHub App" from onboarding page
 	if (installationId && !code) {
-		console.log("[oauth-callback] Installation-only flow detected, redirecting to /api/github/callback");
+		console.log(
+			"[oauth-callback] Installation-only flow detected, redirecting to /api/github/callback",
+		);
 		// Redirect to the dedicated installation callback handler
 		const installCallbackUrl = new URL("/api/github/callback", APP_URL);
 		installCallbackUrl.searchParams.set("installation_id", installationId);
-		if (setupAction) installCallbackUrl.searchParams.set("setup_action", setupAction);
+		if (setupAction)
+			installCallbackUrl.searchParams.set("setup_action", setupAction);
 		return NextResponse.redirect(installCallbackUrl);
 	}
 
@@ -60,32 +63,41 @@ export async function GET(request: NextRequest) {
 	if (installationId && (!state || state !== storedState)) {
 		const existingSessionToken = request.cookies.get("session_token")?.value;
 		if (existingSessionToken) {
-			console.log("[oauth-callback] User has existing session, redirecting to installation handler");
+			console.log(
+				"[oauth-callback] User has existing session, redirecting to installation handler",
+			);
 			// User is already logged in, just process the installation
 			const redirectUrl = new URL("/api/github/callback", APP_URL);
 			redirectUrl.searchParams.set("installation_id", installationId);
-			if (setupAction) redirectUrl.searchParams.set("setup_action", setupAction);
+			if (setupAction)
+				redirectUrl.searchParams.set("setup_action", setupAction);
 			return NextResponse.redirect(redirectUrl);
 		}
 		// No existing session - if we have code, continue with OAuth (skip state check)
 		// If no code, redirect to login
 		if (!code) {
-			console.log("[oauth-callback] No session and no code, redirecting to login");
-			return NextResponse.redirect(new URL("/login?error=missing_code", APP_URL));
+			console.log(
+				"[oauth-callback] No session and no code, redirecting to login",
+			);
+			return NextResponse.redirect(
+				new URL("/login?error=missing_code", APP_URL),
+			);
 		}
-		console.log("[oauth-callback] No session but have code, completing OAuth without state validation");
+		console.log(
+			"[oauth-callback] No session but have code, completing OAuth without state validation",
+		);
 	} else if (!installationId) {
 		// Standard OAuth flow (no installation) - validate CSRF state strictly
 		if (!code) {
 			return NextResponse.redirect(
-				new URL("/login?error=missing_code", APP_URL)
+				new URL("/login?error=missing_code", APP_URL),
 			);
 		}
 
 		if (!state || state !== storedState) {
 			console.error("OAuth state mismatch:", { state, storedState });
 			return NextResponse.redirect(
-				new URL("/login?error=invalid_state", APP_URL)
+				new URL("/login?error=invalid_state", APP_URL),
 			);
 		}
 	}
@@ -93,9 +105,7 @@ export async function GET(request: NextRequest) {
 
 	// At this point, we must have a code to continue
 	if (!code) {
-		return NextResponse.redirect(
-			new URL("/login?error=missing_code", APP_URL)
-		);
+		return NextResponse.redirect(new URL("/login?error=missing_code", APP_URL));
 	}
 
 	try {
@@ -105,7 +115,7 @@ export async function GET(request: NextRequest) {
 		if (tokenResponse.error || !tokenResponse.access_token) {
 			console.error("Token exchange failed:", tokenResponse.error_description);
 			return NextResponse.redirect(
-				new URL("/login?error=token_exchange_failed", APP_URL)
+				new URL("/login?error=token_exchange_failed", APP_URL),
 			);
 		}
 
@@ -146,7 +156,7 @@ export async function GET(request: NextRequest) {
 					login: githubUser.login,
 					scope: tokenResponse.scope,
 				},
-			}
+			},
 		);
 
 		// Generate session token
@@ -169,13 +179,17 @@ export async function GET(request: NextRequest) {
 		const installations = await callQuery<Array<{ _id: string }>>(
 			convex,
 			"scm:getInstallations",
-			{ userId }
+			{ userId },
 		);
 
 		// Check if there's a pending Memoria OAuth flow (from MCP client)
 		const memoriaOAuthState = request.cookies.get("memoria_oauth_state")?.value;
-		const memoriaClientId = request.cookies.get("memoria_oauth_client_id")?.value;
-		const memoriaRedirectUri = request.cookies.get("memoria_oauth_redirect_uri")?.value;
+		const memoriaClientId = request.cookies.get(
+			"memoria_oauth_client_id",
+		)?.value;
+		const memoriaRedirectUri = request.cookies.get(
+			"memoria_oauth_redirect_uri",
+		)?.value;
 		const memoriaScope = request.cookies.get("memoria_oauth_scope")?.value;
 
 		// Determine redirect URL
@@ -193,7 +207,10 @@ export async function GET(request: NextRequest) {
 			redirectUrl = callbackUrl.toString();
 		} else {
 			// Normal flow: Redirect to onboarding if no installations, otherwise dashboard
-			redirectUrl = (!installations || installations.length === 0) ? "/onboarding" : "/dashboard";
+			redirectUrl =
+				!installations || installations.length === 0
+					? "/onboarding"
+					: "/dashboard";
 		}
 
 		// Handle GitHub App installation if installation_id is present
@@ -201,8 +218,14 @@ export async function GET(request: NextRequest) {
 			console.log("[oauth-callback] Processing installation:", installationId);
 			try {
 				// Get installation details from GitHub
-				const installation = await getInstallation(parseInt(installationId));
-				const account = installation.account as { login?: string; name?: string; type?: string } | null;
+				const installation = await getInstallation(
+					parseInt(installationId, 10),
+				);
+				const account = installation.account as {
+					login?: string;
+					name?: string;
+					type?: string;
+				} | null;
 				const accountLogin = account?.login || "unknown";
 				const accountName = account?.name || null;
 				const accountType = account?.type === "Organization" ? "org" : "user";
@@ -225,12 +248,17 @@ export async function GET(request: NextRequest) {
 				const inst = await callQuery<{ _id: string } | null>(
 					convex,
 					"scm:getInstallationByProviderId",
-					{ providerType: "github", providerInstallationId: String(installationId) }
+					{
+						providerType: "github",
+						providerInstallationId: String(installationId),
+					},
 				);
 
 				if (inst) {
 					// Sync repositories from this installation
-					const repos = await listInstallationRepos(parseInt(installationId));
+					const repos = await listInstallationRepos(
+						parseInt(installationId, 10),
+					);
 					console.log("[oauth-callback] Syncing", repos.length, "repositories");
 
 					for (const repo of repos) {
@@ -252,7 +280,10 @@ export async function GET(request: NextRequest) {
 				// User installed app, so they should go to onboarding to select repos
 				redirectUrl = "/onboarding";
 			} catch (installError) {
-				console.error("[oauth-callback] Installation processing failed:", installError);
+				console.error(
+					"[oauth-callback] Installation processing failed:",
+					installError,
+				);
 				// Don't fail the login, just skip installation processing
 			}
 		}
@@ -287,9 +318,10 @@ export async function GET(request: NextRequest) {
 		return response;
 	} catch (error) {
 		console.error("GitHub OAuth callback error:", error);
-		const errorMessage = error instanceof Error ? error.message : "oauth_failed";
+		const errorMessage =
+			error instanceof Error ? error.message : "oauth_failed";
 		return NextResponse.redirect(
-			new URL(`/login?error=${encodeURIComponent(errorMessage)}`, APP_URL)
+			new URL(`/login?error=${encodeURIComponent(errorMessage)}`, APP_URL),
 		);
 	}
 }

@@ -1,5 +1,5 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
@@ -57,12 +57,22 @@ const PANIC_KEYWORDS: Record<string, number> = {
 };
 
 // Commit type detection patterns
-const COMMIT_TYPE_PATTERNS: Array<{ pattern: RegExp; type: "bugfix" | "feature" | "refactor" | "docs" | "chore" }> = [
+const COMMIT_TYPE_PATTERNS: Array<{
+	pattern: RegExp;
+	type: "bugfix" | "feature" | "refactor" | "docs" | "chore";
+}> = [
 	{ pattern: /^fix(\(|:|\s)|bug|patch|hotfix|revert/i, type: "bugfix" },
 	{ pattern: /^feat(\(|:|\s)|feature|add|implement|new/i, type: "feature" },
-	{ pattern: /^refactor(\(|:|\s)|refactor|clean|restructure/i, type: "refactor" },
+	{
+		pattern: /^refactor(\(|:|\s)|refactor|clean|restructure/i,
+		type: "refactor",
+	},
 	{ pattern: /^docs?(\(|:|\s)|documentation|readme|changelog/i, type: "docs" },
-	{ pattern: /^chore(\(|:|\s)|^ci(\(|:|\s)|^build(\(|:|\s)|deps?|upgrade|update/i, type: "chore" },
+	{
+		pattern:
+			/^chore(\(|:|\s)|^ci(\(|:|\s)|^build(\(|:|\s)|deps?|upgrade|update/i,
+		type: "chore",
+	},
 ];
 
 // ============================================
@@ -87,7 +97,7 @@ export const indexCommit = mutation({
 		const existing = await ctx.db
 			.query("commit_index")
 			.withIndex("by_repo_hash", (q) =>
-				q.eq("repoId", args.repoId).eq("commitHash", args.commitHash)
+				q.eq("repoId", args.repoId).eq("commitHash", args.commitHash),
 			)
 			.first();
 
@@ -147,7 +157,7 @@ export const batchIndexCommits = mutation({
 			const existing = await ctx.db
 				.query("commit_index")
 				.withIndex("by_repo_hash", (q) =>
-					q.eq("repoId", commit.repoId).eq("commitHash", commit.commitHash)
+					q.eq("repoId", commit.repoId).eq("commitHash", commit.commitHash),
 				)
 				.first();
 
@@ -251,7 +261,11 @@ export const getCommitsForFile = query({
 			.collect();
 
 		const matching = allCommits
-			.filter((c) => c.filesChanged.some((f: string) => f.includes(args.filePath) || args.filePath.includes(f)))
+			.filter((c) =>
+				c.filesChanged.some(
+					(f: string) => f.includes(args.filePath) || args.filePath.includes(f),
+				),
+			)
 			.slice(0, limit);
 
 		return matching;
@@ -290,7 +304,9 @@ export const searchCommits = query({
 	args: {
 		repoId: v.id("repositories"),
 		queryKeywords: v.array(v.string()),
-		commitType: v.optional(literals("bugfix", "feature", "refactor", "docs", "chore", "unknown")),
+		commitType: v.optional(
+			literals("bugfix", "feature", "refactor", "docs", "chore", "unknown"),
+		),
 		limit: v.optional(v.number()),
 	},
 	handler: async (ctx, args) => {
@@ -307,7 +323,9 @@ export const searchCommits = query({
 		}
 
 		if (args.queryKeywords.length === 0) {
-			return commits.sort((a, b) => b.committedAt - a.committedAt).slice(0, limit);
+			return commits
+				.sort((a, b) => b.committedAt - a.committedAt)
+				.slice(0, limit);
 		}
 
 		// Simple keyword matching (BM25 would be overkill for commit messages)
@@ -318,7 +336,11 @@ export const searchCommits = query({
 			for (const queryKeyword of args.queryKeywords) {
 				const lowerQuery = queryKeyword.toLowerCase();
 				// Check keywords array
-				if (commit.keywords.some((k: string) => k.includes(lowerQuery) || lowerQuery.includes(k))) {
+				if (
+					commit.keywords.some(
+						(k: string) => k.includes(lowerQuery) || lowerQuery.includes(k),
+					)
+				) {
 					score += 2;
 					matchedKeywords.push(queryKeyword);
 				}
@@ -370,8 +392,10 @@ export const getCommitStats = query({
 		// Panic score distribution
 		const byPanic = {
 			critical: commits.filter((c) => c.panicScore >= 75).length,
-			high: commits.filter((c) => c.panicScore >= 50 && c.panicScore < 75).length,
-			medium: commits.filter((c) => c.panicScore >= 25 && c.panicScore < 50).length,
+			high: commits.filter((c) => c.panicScore >= 50 && c.panicScore < 75)
+				.length,
+			medium: commits.filter((c) => c.panicScore >= 25 && c.panicScore < 50)
+				.length,
 			low: commits.filter((c) => c.panicScore < 25).length,
 		};
 
@@ -392,9 +416,13 @@ export const getCommitStats = query({
 			byType,
 			byPanic,
 			topAuthors,
-			avgPanicScore: commits.length > 0
-				? Math.round(commits.reduce((sum, c) => sum + c.panicScore, 0) / commits.length)
-				: 0,
+			avgPanicScore:
+				commits.length > 0
+					? Math.round(
+							commits.reduce((sum, c) => sum + c.panicScore, 0) /
+								commits.length,
+						)
+					: 0,
 		};
 	},
 });
@@ -459,7 +487,9 @@ function calculatePanicScore(message: string): number {
 /**
  * Detect commit type from message
  */
-function detectCommitType(message: string): "bugfix" | "feature" | "refactor" | "docs" | "chore" | "unknown" {
+function detectCommitType(
+	message: string,
+): "bugfix" | "feature" | "refactor" | "docs" | "chore" | "unknown" {
 	for (const { pattern, type } of COMMIT_TYPE_PATTERNS) {
 		if (pattern.test(message)) {
 			return type;
@@ -474,12 +504,65 @@ function detectCommitType(message: string): "bugfix" | "feature" | "refactor" | 
 function extractCommitKeywords(message: string): string[] {
 	// Common stopwords
 	const stopwords = new Set([
-		"a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-		"of", "with", "by", "from", "as", "is", "was", "are", "were", "been",
-		"be", "have", "has", "had", "do", "does", "did", "will", "would", "could",
-		"should", "may", "might", "must", "shall", "can", "need", "this", "that",
-		"these", "those", "i", "you", "he", "she", "it", "we", "they", "what",
-		"which", "who", "when", "where", "why", "how", "all", "each", "every",
+		"a",
+		"an",
+		"the",
+		"and",
+		"or",
+		"but",
+		"in",
+		"on",
+		"at",
+		"to",
+		"for",
+		"of",
+		"with",
+		"by",
+		"from",
+		"as",
+		"is",
+		"was",
+		"are",
+		"were",
+		"been",
+		"be",
+		"have",
+		"has",
+		"had",
+		"do",
+		"does",
+		"did",
+		"will",
+		"would",
+		"could",
+		"should",
+		"may",
+		"might",
+		"must",
+		"shall",
+		"can",
+		"need",
+		"this",
+		"that",
+		"these",
+		"those",
+		"i",
+		"you",
+		"he",
+		"she",
+		"it",
+		"we",
+		"they",
+		"what",
+		"which",
+		"who",
+		"when",
+		"where",
+		"why",
+		"how",
+		"all",
+		"each",
+		"every",
 	]);
 
 	const tokens = message
@@ -494,7 +577,9 @@ function extractCommitKeywords(message: string): string[] {
 /**
  * Classify velocity level
  */
-function getVelocityLevel(commitsPerWeek: number): "low" | "normal" | "high" | "very_high" {
+function getVelocityLevel(
+	commitsPerWeek: number,
+): "low" | "normal" | "high" | "very_high" {
 	if (commitsPerWeek < 5) return "low";
 	if (commitsPerWeek < 20) return "normal";
 	if (commitsPerWeek < 50) return "high";

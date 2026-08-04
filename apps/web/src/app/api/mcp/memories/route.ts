@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
+import { type NextRequest, NextResponse } from "next/server";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface MemoryData {
 	_id: string;
@@ -17,7 +17,7 @@ interface MemoryData {
  * Validate token from Authorization header
  */
 async function validateToken(
-	request: NextRequest
+	request: NextRequest,
 ): Promise<{ valid: boolean; userId?: string; error?: string }> {
 	const authHeader = request.headers.get("Authorization");
 	const token = authHeader?.replace("Bearer ", "");
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 		if (!auth.valid) {
 			return NextResponse.json(
 				{ error: auth.error || "Unauthorized" },
-				{ status: 401 }
+				{ status: 401 },
 			);
 		}
 
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 					userId: auth.userId!,
 					repoId,
 					filePath,
-				}
+				},
 			);
 			return NextResponse.json({ memories: memories || [] });
 		}
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
 					repoId,
 					queryKeywords: keywords,
 					limit: 20,
-				}
+				},
 			);
 			return NextResponse.json({ memories: memories || [] });
 		}
@@ -94,14 +94,14 @@ export async function GET(request: NextRequest) {
 			{
 				userId: auth.userId!,
 				repoId,
-			}
+			},
 		);
 		return NextResponse.json({ memories: memories || [] });
 	} catch (error) {
 		console.error("Failed to fetch memories:", error);
 		return NextResponse.json(
 			{ error: "Failed to fetch memories" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
 		if (!auth.valid) {
 			return NextResponse.json(
 				{ error: auth.error || "Unauthorized" },
-				{ status: 401 }
+				{ status: 401 },
 			);
 		}
 
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
 		if (!context || typeof context !== "string" || !context.trim()) {
 			return NextResponse.json(
 				{ error: "Context is required" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
 					reference: null,
 				},
 				createdBy: auth.userId!,
-			}
+			},
 		);
 
 		return NextResponse.json({
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
 		console.error("Failed to create memory:", error);
 		return NextResponse.json(
 			{ error: "Failed to create memory" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

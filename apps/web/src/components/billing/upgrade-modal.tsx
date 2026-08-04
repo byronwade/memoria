@@ -1,7 +1,7 @@
 "use client";
 
+import { Check, CreditCard, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { CreditCard, Check, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -24,13 +24,24 @@ const plans = [
 		tier: "solo",
 		name: "Solo",
 		price: 19,
-		features: ["5 repositories", "500 PR analyses/month", "Full risk reports", "Priority support"],
+		features: [
+			"5 repositories",
+			"500 PR analyses/month",
+			"Full risk reports",
+			"Priority support",
+		],
 	},
 	{
 		tier: "team",
 		name: "Team",
 		price: 49,
-		features: ["25 repositories", "2500 PR analyses/month", "Team dashboard", "API access", "Priority support"],
+		features: [
+			"25 repositories",
+			"2500 PR analyses/month",
+			"Team dashboard",
+			"API access",
+			"Priority support",
+		],
 		popular: true,
 	},
 ];
@@ -98,7 +109,7 @@ export function UpgradeModal({
 								"relative p-4 rounded-lg border-2 cursor-pointer transition-all",
 								selectedPlan === plan.tier
 									? "border-primary bg-primary/5"
-									: "border-border hover:border-primary/50"
+									: "border-border hover:border-primary/50",
 							)}
 						>
 							{plan.popular && (

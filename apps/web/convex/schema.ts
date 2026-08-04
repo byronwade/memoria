@@ -7,7 +7,9 @@ const nullableJson = v.union(v.any(), v.null());
 
 // Helper for creating union of literals
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val))) as ReturnType<
+		typeof v.literal<T>
+	>;
 
 export default defineSchema({
 	users: defineTable({
@@ -24,7 +26,9 @@ export default defineSchema({
 		planTier: v.optional(literals("free", "pro", "team")),
 		maxRepos: v.optional(v.number()),
 		maxAnalysesPerMonth: v.optional(v.number()),
-		subscriptionStatus: v.optional(literals("active", "trial", "past_due", "canceled", "suspended")),
+		subscriptionStatus: v.optional(
+			literals("active", "trial", "past_due", "canceled", "suspended"),
+		),
 		trialEndsAt: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: nullableNumber,
@@ -130,7 +134,10 @@ export default defineSchema({
 		updatedAt: nullableNumber,
 	})
 		.index("by_userId", ["userId"])
-		.index("by_providerInstallation", ["providerType", "providerInstallationId"]),
+		.index("by_providerInstallation", [
+			"providerType",
+			"providerInstallationId",
+		]),
 
 	repositories: defineTable({
 		userId: v.id("users"),
@@ -378,8 +385,7 @@ export default defineSchema({
 		attemptCount: v.number(),
 		errorMessage: nullableString,
 		createdAt: v.number(),
-	})
-		.index("by_user_status", ["userId", "status"]),
+	}).index("by_user_status", ["userId", "status"]),
 
 	feature_flags: defineTable({
 		key: v.string(),
@@ -440,7 +446,12 @@ export default defineSchema({
 		),
 		source: v.optional(
 			v.object({
-				type: literals("manual", "pr_comment", "commit_message", "auto_extracted"),
+				type: literals(
+					"manual",
+					"pr_comment",
+					"commit_message",
+					"auto_extracted",
+				),
 				reference: nullableString, // commit hash, PR URL, etc.
 			}),
 		),
@@ -513,7 +524,14 @@ export default defineSchema({
 		exports: v.array(
 			v.object({
 				name: v.string(),
-				kind: literals("function", "class", "const", "type", "interface", "variable"),
+				kind: literals(
+					"function",
+					"class",
+					"const",
+					"type",
+					"interface",
+					"variable",
+				),
 				signature: v.optional(v.string()), // function signature if available
 				line: v.number(),
 			}),
@@ -562,7 +580,14 @@ export default defineSchema({
 		authorEmail: v.string(),
 		authorName: v.string(),
 		committedAt: v.number(),
-		commitType: literals("bugfix", "feature", "refactor", "docs", "chore", "unknown"),
+		commitType: literals(
+			"bugfix",
+			"feature",
+			"refactor",
+			"docs",
+			"chore",
+			"unknown",
+		),
 		panicScore: v.number(), // 0-100 based on keywords (security, hotfix, revert, etc.)
 		keywords: v.array(v.string()), // For BM25 matching
 		filesChanged: v.array(v.string()),

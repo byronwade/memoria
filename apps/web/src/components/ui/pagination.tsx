@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 function Pagination({ className, ...props }: React.ComponentProps<"nav">) {
 	return (
 		<nav
-			role="navigation"
 			aria-label="pagination"
 			data-slot="pagination"
 			className={cn("mx-auto flex w-full justify-center", className)}
@@ -118,9 +117,9 @@ function PaginationEllipsis({
 export {
 	Pagination,
 	PaginationContent,
-	PaginationLink,
-	PaginationItem,
-	PaginationPrevious,
-	PaginationNext,
 	PaginationEllipsis,
+	PaginationItem,
+	PaginationLink,
+	PaginationNext,
+	PaginationPrevious,
 };

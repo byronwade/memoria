@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
-import { getConvexClient, callMutation, callAction } from "@/lib/convex";
+import crypto from "node:crypto";
+import { type NextRequest, NextResponse } from "next/server";
+import { callAction, callMutation, getConvexClient } from "@/lib/convex";
 
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 
@@ -16,10 +16,7 @@ function verifySignature(payload: string, signature: string | null): boolean {
 	const digest = `sha256=${hmac.update(payload).digest("hex")}`;
 
 	try {
-		return crypto.timingSafeEqual(
-			Buffer.from(digest),
-			Buffer.from(signature)
-		);
+		return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature));
 	} catch {
 		return false;
 	}
@@ -33,7 +30,8 @@ export async function POST(request: NextRequest) {
 	// Get headers
 	const signature = request.headers.get("x-hub-signature-256");
 	const eventType = request.headers.get("x-github-event") || "unknown";
-	const deliveryId = request.headers.get("x-github-delivery") || `unknown-${Date.now()}`;
+	const deliveryId =
+		request.headers.get("x-github-delivery") || `unknown-${Date.now()}`;
 
 	// Get raw body for signature verification
 	const rawBody = await request.text();
@@ -41,10 +39,7 @@ export async function POST(request: NextRequest) {
 	// Verify webhook signature (skip in development if no secret configured)
 	if (WEBHOOK_SECRET && !verifySignature(rawBody, signature)) {
 		console.error("Invalid webhook signature");
-		return NextResponse.json(
-			{ error: "Invalid signature" },
-			{ status: 401 }
-		);
+		return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
 	}
 
 	// Parse payload
@@ -54,7 +49,7 @@ export async function POST(request: NextRequest) {
 	} catch {
 		return NextResponse.json(
 			{ error: "Invalid JSON payload" },
-			{ status: 400 }
+			{ status: 400 },
 		);
 	}
 
@@ -70,7 +65,7 @@ export async function POST(request: NextRequest) {
 				externalEventId: deliveryId,
 				eventType,
 				payload,
-			}
+			},
 		);
 
 		// Log for debugging
@@ -79,7 +74,9 @@ export async function POST(request: NextRequest) {
 		// Trigger async processing via Convex action
 		try {
 			await callAction(convex, "github:processWebhook", { webhookId });
-			console.log(`Webhook processing triggered for ${eventType} (${deliveryId})`);
+			console.log(
+				`Webhook processing triggered for ${eventType} (${deliveryId})`,
+			);
 		} catch (actionError) {
 			// Log the error but don't fail the webhook - it's stored for retry
 			console.error("Webhook processing failed:", actionError);
@@ -93,14 +90,11 @@ export async function POST(request: NextRequest) {
 				eventType,
 				deliveryId,
 			},
-			{ status: 202 }
+			{ status: 202 },
 		);
 	} catch (error) {
 		console.error("Webhook processing error:", error);
-		return NextResponse.json(
-			{ error: "Processing failed" },
-			{ status: 500 }
-		);
+		return NextResponse.json({ error: "Processing failed" }, { status: 500 });
 	}
 }
 

@@ -1,6 +1,7 @@
 import { ArrowUpRight, HelpCircle } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Section } from "@/components/layout/section";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -10,7 +11,6 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Container } from "@/components/ui/container";
-import { Section } from "@/components/layout/section";
 import { siteConfig } from "@/lib/seo/constants";
 
 const faqs = [
@@ -154,4 +154,3 @@ export default function FAQPage() {
 		</div>
 	);
 }
-

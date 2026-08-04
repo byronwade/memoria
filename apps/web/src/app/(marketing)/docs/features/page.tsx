@@ -9,7 +9,14 @@ export const metadata: Metadata = generatePageMetadata({
 	description:
 		"Explore Memoria's thirteen analysis engines plus cloud memories and guardrails for teams. All local engines are 100% free.",
 	path: "/docs/features",
-	keywords: ["features", "engines", "code analysis", "git forensics", "cloud memories", "guardrails"],
+	keywords: [
+		"features",
+		"engines",
+		"code analysis",
+		"git forensics",
+		"cloud memories",
+		"guardrails",
+	],
 });
 
 export default function FeaturesPage() {
@@ -24,16 +31,23 @@ export default function FeaturesPage() {
 			<div className="docs-content">
 				<h1>Features</h1>
 				<p className="lead">
-					Thirteen local analysis engines (free forever) plus cloud memories and guardrails for teams (paid).
+					Thirteen local analysis engines (free forever) plus cloud memories and
+					guardrails for teams (paid).
 				</p>
 
 				<div className="p-4 rounded-lg border border-primary/30 bg-primary/5 mt-6 mb-8">
-					<h3 className="text-lg font-semibold text-foreground mb-2">Free vs Paid</h3>
+					<h3 className="text-lg font-semibold text-foreground mb-2">
+						Free vs Paid
+					</h3>
 					<p className="text-muted-foreground text-sm mb-3">
-						All 13 git analysis engines run <strong>100% free and locally</strong> — no account, no cloud, no limits.
+						All 13 git analysis engines run{" "}
+						<strong>100% free and locally</strong> — no account, no cloud, no
+						limits.
 					</p>
 					<p className="text-muted-foreground text-sm">
-						Paid plans add <strong>cloud memories</strong> (shared context across your team) and <strong>guardrails</strong> (file protection rules).
+						Paid plans add <strong>cloud memories</strong> (shared context
+						across your team) and <strong>guardrails</strong> (file protection
+						rules).
 					</p>
 				</div>
 

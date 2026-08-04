@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getConvexClient, callQuery } from "@/lib/convex";
+import { type NextRequest, NextResponse } from "next/server";
+import { callQuery, getConvexClient } from "@/lib/convex";
 
 interface GuardrailData {
 	_id: string;
@@ -14,7 +14,7 @@ interface GuardrailData {
  * Validate token from Authorization header
  */
 async function validateToken(
-	request: NextRequest
+	request: NextRequest,
 ): Promise<{ valid: boolean; userId?: string; error?: string }> {
 	const authHeader = request.headers.get("Authorization");
 	const token = authHeader?.replace("Bearer ", "");
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 		if (!auth.valid) {
 			return NextResponse.json(
 				{ error: auth.error || "Unauthorized" },
-				{ status: 401 }
+				{ status: 401 },
 			);
 		}
 
@@ -60,12 +60,12 @@ export async function GET(request: NextRequest) {
 			{
 				userId: auth.userId!,
 				includeDisabled: false,
-			}
+			},
 		);
 
 		// Filter to applicable guardrails (user-wide or matching repo)
 		let applicableGuardrails = allGuardrails.filter(
-			(g) => !g.repoId || g.repoId === repoId
+			(g) => !g.repoId || g.repoId === repoId,
 		);
 
 		// If filePath provided, filter to matching patterns
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
 		console.error("Failed to fetch guardrails:", error);
 		return NextResponse.json(
 			{ error: "Failed to fetch guardrails" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

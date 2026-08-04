@@ -1,15 +1,15 @@
 "use node";
 
-import { internalAction } from "../_generated/server";
-import { v } from "convex/values";
-import { api } from "../_generated/api";
-import { Octokit } from "@octokit/rest";
-import simpleGit from "simple-git";
-import fs from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { Octokit } from "@octokit/rest";
+import { v } from "convex/values";
 import jwt from "jsonwebtoken";
+import simpleGit from "simple-git";
+import { api } from "../_generated/api";
+import { internalAction } from "../_generated/server";
 
 // --- PANIC KEYWORDS WITH SEVERITY WEIGHTS (from Memoria MCP) ---
 const PANIC_KEYWORDS: Record<string, number> = {
@@ -52,7 +52,9 @@ const PANIC_KEYWORDS: Record<string, number> = {
 // --- TIME DECAY CALCULATION ---
 function calculateRecencyDecay(commitDate: Date): number {
 	const now = Date.now();
-	const daysAgo = Math.floor((now - commitDate.getTime()) / (1000 * 60 * 60 * 24));
+	const daysAgo = Math.floor(
+		(now - commitDate.getTime()) / (1000 * 60 * 60 * 24),
+	);
 	return 0.5 ** (daysAgo / 30);
 }
 
@@ -78,7 +80,7 @@ interface FileAnalysis {
 function calculateCompoundRisk(
 	volatility: { panicScore: number; commitCount: number },
 	coupled: Array<{ file: string; score: number }>,
-	importers: string[] = []
+	importers: string[] = [],
 ): { score: number; level: "low" | "medium" | "high" | "critical" } {
 	const VOLATILITY_WEIGHT = 0.35;
 	const COUPLING_WEIGHT = 0.3;
@@ -88,12 +90,18 @@ function calculateCompoundRisk(
 	const couplingScores = coupled.slice(0, 3).map((c) => c.score);
 	const couplingComponent =
 		couplingScores.length > 0
-			? Math.min(100, (couplingScores.reduce((a, b) => a + b, 0) / couplingScores.length) * 1.5)
+			? Math.min(
+					100,
+					(couplingScores.reduce((a, b) => a + b, 0) / couplingScores.length) *
+						1.5,
+				)
 			: 0;
 	const importerComponent = Math.min(100, importers.length * 10);
 
 	const score = Math.round(
-		volatilityComponent * VOLATILITY_WEIGHT + couplingComponent * COUPLING_WEIGHT + importerComponent * IMPORTER_WEIGHT
+		volatilityComponent * VOLATILITY_WEIGHT +
+			couplingComponent * COUPLING_WEIGHT +
+			importerComponent * IMPORTER_WEIGHT,
 	);
 
 	let level: "low" | "medium" | "high" | "critical";
@@ -108,7 +116,7 @@ function calculateCompoundRisk(
 // --- GET VOLATILITY FOR A FILE ---
 async function getFileVolatility(
 	git: ReturnType<typeof simpleGit>,
-	filePath: string
+	filePath: string,
 ): Promise<{ commitCount: number; panicScore: number; authors: number }> {
 	try {
 		const log = await git.log({ file: filePath, maxCount: 20 });
@@ -139,7 +147,10 @@ async function getFileVolatility(
 
 		return {
 			commitCount: log.total,
-			panicScore: Math.min(100, Math.round((weightedPanicScore / maxPossibleScore) * 100)),
+			panicScore: Math.min(
+				100,
+				Math.round((weightedPanicScore / maxPossibleScore) * 100),
+			),
 			authors: authorSet.size,
 		};
 	} catch {
@@ -151,7 +162,7 @@ async function getFileVolatility(
 async function getCoupledFiles(
 	git: ReturnType<typeof simpleGit>,
 	filePath: string,
-	analysisWindow: number = 50
+	analysisWindow: number = 50,
 ): Promise<Array<{ file: string; score: number; reason: string }>> {
 	try {
 		const log = await git.log({ file: filePath, maxCount: analysisWindow });
@@ -161,7 +172,9 @@ async function getCoupledFiles(
 		const fileName = path.basename(filePath);
 
 		for (const commit of log.all) {
-			const show = await git.show([commit.hash, "--name-only", "--format="]).catch(() => "");
+			const show = await git
+				.show([commit.hash, "--name-only", "--format="])
+				.catch(() => "");
 			const files = show
 				.split("\n")
 				.map((f) => f.trim())
@@ -172,7 +185,10 @@ async function getCoupledFiles(
 
 			for (const file of files) {
 				if (!couplingMap[file]) {
-					couplingMap[file] = { count: 0, reason: commit.message.split("\n")[0].slice(0, 60) };
+					couplingMap[file] = {
+						count: 0,
+						reason: commit.message.split("\n")[0].slice(0, 60),
+					};
 				}
 				couplingMap[file].count++;
 			}
@@ -193,11 +209,16 @@ async function getCoupledFiles(
 }
 
 // --- GET IMPORTERS ---
-async function getImporters(git: ReturnType<typeof simpleGit>, filePath: string): Promise<string[]> {
+async function getImporters(
+	git: ReturnType<typeof simpleGit>,
+	filePath: string,
+): Promise<string[]> {
 	try {
 		const fileName = path.basename(filePath, path.extname(filePath));
 		const importPattern = `(import|from|require).*['"].*${fileName}`;
-		const grepResult = await git.raw(["grep", "-l", "-E", "--", importPattern]).catch(() => "");
+		const grepResult = await git
+			.raw(["grep", "-l", "-E", "--", importPattern])
+			.catch(() => "");
 
 		return grepResult
 			.split("\n")
@@ -211,20 +232,24 @@ async function getImporters(git: ReturnType<typeof simpleGit>, filePath: string)
 
 // --- GENERATE COMMENT MARKDOWN ---
 function generateComment(
-	prNumber: number,
-	repoFullName: string,
+	_prNumber: number,
+	_repoFullName: string,
 	overallRisk: { score: number; level: string },
 	fileAnalyses: FileAnalysis[],
-	mode: "short" | "detailed"
+	mode: "short" | "detailed",
 ): string {
-	const riskEmoji = { low: "✅", medium: "⚠️", high: "🔥", critical: "🚨" }[overallRisk.level] || "❓";
+	const riskEmoji =
+		{ low: "✅", medium: "⚠️", high: "🔥", critical: "🚨" }[overallRisk.level] ||
+		"❓";
 
 	let comment = `## ${riskEmoji} Memoria Risk Analysis\n\n`;
 	comment += `**Overall Risk: ${overallRisk.score}/100 (${overallRisk.level.toUpperCase()})**\n\n`;
 
 	if (mode === "short") {
 		// Short mode - just summary
-		const highRiskFiles = fileAnalyses.filter((f) => f.riskLevel === "high" || f.riskLevel === "critical");
+		const highRiskFiles = fileAnalyses.filter(
+			(f) => f.riskLevel === "high" || f.riskLevel === "critical",
+		);
 		if (highRiskFiles.length > 0) {
 			comment += `### ⚠️ High-Risk Files\n`;
 			for (const file of highRiskFiles.slice(0, 5)) {
@@ -249,7 +274,10 @@ function generateComment(
 		// Detailed mode - full breakdown
 		comment += `### File Analysis\n\n`;
 		for (const file of fileAnalyses.slice(0, 10)) {
-			const emoji = { low: "✅", medium: "⚠️", high: "🔥", critical: "🚨" }[file.riskLevel] || "❓";
+			const emoji =
+				{ low: "✅", medium: "⚠️", high: "🔥", critical: "🚨" }[
+					file.riskLevel
+				] || "❓";
 			comment += `#### ${emoji} \`${file.file}\`\n`;
 			comment += `- Risk: ${file.riskScore}/100 (${file.riskLevel})\n`;
 			comment += `- Volatility: ${file.volatility.panicScore}% panic score, ${file.volatility.commitCount} commits\n`;
@@ -319,19 +347,34 @@ export const runPRAnalysis = internalAction({
 		repoFullName: v.string(),
 		prNumber: v.number(),
 	},
-	handler: async (ctx, args): Promise<{ success: boolean; error?: string; analysisId?: string; riskScore?: number; riskLevel?: string; filesAnalyzed?: number; commentUrl?: string }> => {
+	handler: async (
+		ctx,
+		args,
+	): Promise<{
+		success: boolean;
+		error?: string;
+		analysisId?: string;
+		riskScore?: number;
+		riskLevel?: string;
+		filesAnalyzed?: number;
+		commentUrl?: string;
+	}> => {
 		const startTime = Date.now();
 		let tempDir: string | null = null;
 
 		try {
 			// 1. Get PR and repo from database
-			const pr = await ctx.runQuery(api.scm.getPullRequest, { pullRequestId: args.pullRequestId });
+			const pr = await ctx.runQuery(api.scm.getPullRequest, {
+				pullRequestId: args.pullRequestId,
+			});
 			if (!pr) {
 				console.error("PR not found:", args.pullRequestId);
 				return { success: false, error: "PR not found" };
 			}
 
-			const repo = await ctx.runQuery(api.scm.getRepository, { repoId: pr.repoId });
+			const repo = await ctx.runQuery(api.scm.getRepository, {
+				repoId: pr.repoId,
+			});
 			if (!repo) {
 				console.error("Repository not found:", pr.repoId);
 				return { success: false, error: "Repository not found" };
@@ -362,12 +405,20 @@ export const runPRAnalysis = internalAction({
 			const cloneUrl = `https://x-access-token:${token}@github.com/${args.repoFullName}.git`;
 			const git = simpleGit(tempDir);
 
-			await git.clone(cloneUrl, tempDir, ["--depth", "100", "--single-branch", "--branch", pr.targetBranch]);
+			await git.clone(cloneUrl, tempDir, [
+				"--depth",
+				"100",
+				"--single-branch",
+				"--branch",
+				pr.targetBranch,
+			]);
 
 			// Fetch the PR branch too for comparison
-			await git.fetch("origin", pr.sourceBranch, ["--depth", "100"]).catch(() => {
-				// May not exist if PR is from fork
-			});
+			await git
+				.fetch("origin", pr.sourceBranch, ["--depth", "100"])
+				.catch(() => {
+					// May not exist if PR is from fork
+				});
 
 			// 6. Analyze each changed file
 			const fileAnalyses: FileAnalysis[] = [];
@@ -404,13 +455,20 @@ export const runPRAnalysis = internalAction({
 			// 7. Calculate overall PR risk
 			const avgRisk =
 				fileAnalyses.length > 0
-					? Math.round(fileAnalyses.reduce((sum, f) => sum + f.riskScore, 0) / fileAnalyses.length)
+					? Math.round(
+							fileAnalyses.reduce((sum, f) => sum + f.riskScore, 0) /
+								fileAnalyses.length,
+						)
 					: 0;
-			const maxRisk = fileAnalyses.length > 0 ? Math.max(...fileAnalyses.map((f) => f.riskScore)) : 0;
+			const maxRisk =
+				fileAnalyses.length > 0
+					? Math.max(...fileAnalyses.map((f) => f.riskScore))
+					: 0;
 			const overallScore = Math.round(avgRisk * 0.6 + maxRisk * 0.4);
 
 			let overallLevel: "low" | "medium" | "high" | "informational";
-			if (overallScore >= 75) overallLevel = "high"; // Schema uses "high" as max, "informational" is for info-only
+			if (overallScore >= 75)
+				overallLevel = "high"; // Schema uses "high" as max, "informational" is for info-only
 			else if (overallScore >= 50) overallLevel = "high";
 			else if (overallScore >= 25) overallLevel = "medium";
 			else overallLevel = "low";
@@ -421,7 +479,7 @@ export const runPRAnalysis = internalAction({
 				args.repoFullName,
 				{ score: overallScore, level: overallLevel },
 				fileAnalyses,
-				commentMode
+				commentMode,
 			);
 
 			const { data: comment } = await octokit.issues.createComment({
@@ -442,30 +500,36 @@ export const runPRAnalysis = internalAction({
 				}
 			}
 			const missingCoChangedFiles = Array.from(allCoupled.entries())
-				.map(([file, probability]) => ({ file, probability: probability / 100 }))
+				.map(([file, probability]) => ({
+					file,
+					probability: probability / 100,
+				}))
 				.sort((a, b) => b.probability - a.probability)
 				.slice(0, 10);
 
 			// 10. Record analysis in database
 			const durationMs = Date.now() - startTime;
-			const { analysisId } = await ctx.runMutation(api.analyses.recordAnalysis, {
-				userId: repo.userId,
-				repoId: repo._id,
-				pullRequestId: pr._id,
-				commitSha: (pr.metadata as { headSha?: string })?.headSha || null,
-				analysisType: "pull_request",
-				engineVersion: "1.0.0",
-				riskLevel: overallLevel,
-				score: overallScore,
-				changedFiles,
-				missingCoChangedFiles,
-				suggestedTests: [],
-				summary: `Analyzed ${fileAnalyses.length} files. Overall risk: ${overallScore}/100 (${overallLevel}).`,
-				rawResult: { fileAnalyses: fileAnalyses.slice(0, 20) },
-				commentPosted: true,
-				commentUrl: comment.html_url,
-				durationMs,
-			});
+			const { analysisId } = await ctx.runMutation(
+				api.analyses.recordAnalysis,
+				{
+					userId: repo.userId,
+					repoId: repo._id,
+					pullRequestId: pr._id,
+					commitSha: (pr.metadata as { headSha?: string })?.headSha || null,
+					analysisType: "pull_request",
+					engineVersion: "1.0.0",
+					riskLevel: overallLevel,
+					score: overallScore,
+					changedFiles,
+					missingCoChangedFiles,
+					suggestedTests: [],
+					summary: `Analyzed ${fileAnalyses.length} files. Overall risk: ${overallScore}/100 (${overallLevel}).`,
+					rawResult: { fileAnalyses: fileAnalyses.slice(0, 20) },
+					commentPosted: true,
+					commentUrl: comment.html_url,
+					durationMs,
+				},
+			);
 
 			// 11. Update file risk stats
 			const today = new Date().toISOString().split("T")[0];
@@ -486,7 +550,9 @@ export const runPRAnalysis = internalAction({
 				riskScore: overallScore,
 			});
 
-			console.log(`Analysis complete for PR #${args.prNumber}: ${overallScore}/100 (${overallLevel})`);
+			console.log(
+				`Analysis complete for PR #${args.prNumber}: ${overallScore}/100 (${overallLevel})`,
+			);
 
 			return {
 				success: true,
@@ -497,7 +563,8 @@ export const runPRAnalysis = internalAction({
 				commentUrl: comment.html_url,
 			};
 		} catch (error: unknown) {
-			const errorMessage = error instanceof Error ? error.message : "Unknown error";
+			const errorMessage =
+				error instanceof Error ? error.message : "Unknown error";
 			console.error("PR analysis failed:", errorMessage);
 			return { success: false, error: errorMessage };
 		} finally {

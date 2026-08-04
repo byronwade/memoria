@@ -42,7 +42,10 @@ describe("AnalysisContext (Performance Optimization)", () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 			const ctx = await createAnalysisContext(filePath);
 
-			expect(ctx.repoRoot).toContain("memoria");
+			// Repo root is the git workspace root (clone directory name varies in CI).
+			expect(typeof ctx.repoRoot).toBe("string");
+			expect(ctx.repoRoot.length).toBeGreaterThan(0);
+			expect(filePath.startsWith(ctx.repoRoot)).toBe(true);
 		});
 
 		it("should have a git instance with log method", async () => {

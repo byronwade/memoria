@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface GuardrailData {
 	_id: string;
@@ -32,7 +32,7 @@ export async function GET() {
 		const guardrails = await callQuery<GuardrailData[]>(
 			convex,
 			"guardrails:listGuardrails",
-			{ userId, includeDisabled: true }
+			{ userId, includeDisabled: true },
 		);
 
 		return NextResponse.json({ guardrails: guardrails || [] });
@@ -40,7 +40,7 @@ export async function GET() {
 		console.error("Failed to fetch guardrails:", error);
 		return NextResponse.json(
 			{ error: "Failed to fetch guardrails" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
@@ -62,21 +62,21 @@ export async function POST(request: NextRequest) {
 		if (!pattern || typeof pattern !== "string" || !pattern.trim()) {
 			return NextResponse.json(
 				{ error: "Pattern is required" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
 		if (!level || !["warn", "block"].includes(level)) {
 			return NextResponse.json(
 				{ error: "Level must be 'warn' or 'block'" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
 		if (!message || typeof message !== "string" || !message.trim()) {
 			return NextResponse.json(
 				{ error: "Message is required" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
 				message: message.trim(),
 				repoId: repoId || undefined,
 				createdBy: userId,
-			}
+			},
 		);
 
 		return NextResponse.json({
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
 		console.error("Failed to create guardrail:", error);
 		return NextResponse.json(
 			{ error: "Failed to create guardrail" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
