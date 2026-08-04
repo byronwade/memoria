@@ -4549,7 +4549,7 @@ export function generateAiInstructions(
 // --- SERVER FACTORY (for Smithery) ---
 export default function createServer(_options?: { config?: Record<string, unknown> }) {
 	const server = new Server(
-		{ name: "memoria", version: "1.1.0" },
+		{ name: "memoria", version: "1.1.1" },
 		{ capabilities: { tools: {}, prompts: {}, resources: {} } },
 	);
 
