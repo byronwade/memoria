@@ -175,11 +175,13 @@ ${chalk.bold.cyan("Account Commands:")}
   memoria status                 Show current device/account status
 
 ${chalk.bold.cyan("Analysis Commands:")}
-  memoria analyze <file>         Full forensic analysis of a file
+  memoria analyze <file>         Forensic analysis of a file
   memoria risk <file>            Show risk score breakdown
   memoria coupled <file>         Show files coupled to target
   memoria importers <file>       Show files that import target
   memoria history <query> [file] Search git history for context
+  memoria diff [base]            Analyze files changed since base (default HEAD~1)
+  memoria pack                   Precompute workspace pack for hot files
 
 ${chalk.bold.cyan("Setup Commands:")}
   memoria init                   Install Memoria rules for AI tools
@@ -197,6 +199,11 @@ ${chalk.dim("Init Options:")}
 ${chalk.dim("Analysis Options:")}
   --json       Output as JSON (for scripting)
   --no-color   Disable colored output
+  --fast       Core engines only (volatility, git, importers, tests)
+  --full       All engines (default for analyze)
+  --symbol <s> Symbol-level coupling for an exported name
+  --budget <ms> Soft time budget; skip expensive engines when exceeded
+  --min-confidence <0-1>  Drop low-confidence heuristic couplings
 
 ${chalk.dim("History Search Options:")} ${chalk.dim("(accept --flag=value or --flag value)")}
   --type <t>         Search type: message, diff, or both (default)
@@ -210,6 +217,10 @@ ${chalk.dim("History Search Options:")} ${chalk.dim("(accept --flag=value or --f
 ${chalk.dim("Examples:")}
   memoria login                               Link device to your account
   memoria analyze src/index.ts                Full analysis with risk score
+  memoria analyze src/index.ts --fast         Budgeted core analysis
+  memoria analyze src/utils.ts --symbol=foo   Who references symbol foo?
+  memoria diff HEAD~1                         Analyze files in the last commit
+  memoria pack                                Warm .memoria/pack.json
   memoria risk src/api/route.ts               Quick risk assessment
   memoria coupled src/auth.ts                 See what files change together
   memoria importers src/types.ts              Find all files importing this
@@ -506,6 +517,12 @@ interface CliOptions {
 	author?: string;
 	diff?: boolean;
 	commitTypes?: CommitType[];
+	// Budgeted / symbol analysis
+	fast?: boolean;
+	full?: boolean;
+	symbol?: string;
+	budgetMs?: number;
+	minConfidence?: number;
 }
 
 // Raised by the parser for an invalid flag value; carries a user-facing message.
@@ -528,10 +545,13 @@ const VALUE_FLAGS = new Set([
 	"until",
 	"author",
 	"commit-type",
+	"symbol",
+	"budget",
+	"min-confidence",
 ]);
 
 // Boolean flags (no value).
-const BOOL_FLAGS = new Set(["json", "no-color", "diff"]);
+const BOOL_FLAGS = new Set(["json", "no-color", "diff", "fast", "full"]);
 
 interface ParsedArgs {
 	command: string | undefined;
@@ -583,6 +603,25 @@ function applyOption(options: CliOptions, key: string, value: string): void {
 			options.commitTypes = types as CommitType[];
 			break;
 		}
+		case "symbol":
+			options.symbol = value;
+			break;
+		case "budget": {
+			const n = Number(value);
+			if (!Number.isFinite(n) || n <= 0) {
+				throw new CliError(`--budget must be a positive number of ms (got "${value}")`);
+			}
+			options.budgetMs = n;
+			break;
+		}
+		case "min-confidence": {
+			const n = Number(value);
+			if (!Number.isFinite(n) || n < 0 || n > 1) {
+				throw new CliError(`--min-confidence must be between 0 and 1 (got "${value}")`);
+			}
+			options.minConfidence = n;
+			break;
+		}
 	}
 }
 
@@ -624,6 +663,8 @@ function parseArgs(argv: string[]): ParsedArgs {
 			if (key === "no-color") options.noColor = true;
 			else if (key === "json") options.json = true;
 			else if (key === "diff") options.diff = true;
+			else if (key === "fast") options.fast = true;
+			else if (key === "full") options.full = true;
 			continue;
 		}
 
@@ -720,6 +761,20 @@ async function runWithErrorHandling(fn: () => Promise<void>): Promise<void> {
 	}
 }
 
+function analyzeOptsFromCli(options: CliOptions): {
+	mode?: "fast" | "full";
+	symbol?: string;
+	budgetMs?: number;
+	confidenceMin?: number;
+} {
+	return {
+		mode: options.fast ? "fast" : options.full ? "full" : "full",
+		symbol: options.symbol,
+		budgetMs: options.budgetMs,
+		confidenceMin: options.minConfidence,
+	};
+}
+
 async function runAnalyze(filePath: string, options: CliOptions): Promise<void> {
 	const absolutePath = requireExistingFile(filePath, "Usage: memoria analyze <file>");
 
@@ -727,8 +782,8 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 	const memoria = await loadEngine();
 
 	// Run the SAME orchestrator the MCP `analyze_file` tool uses, so terminal
-	// output and AI output can never disagree (all 13 engines, merged coupling).
-	const analysis = await memoria.analyzeFile(absolutePath);
+	// output and AI output can never disagree.
+	const analysis = await memoria.analyzeFile(absolutePath, null, analyzeOptsFromCli(options));
 	const {
 		volatility,
 		coupled,
@@ -736,6 +791,9 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 		importers,
 		siblingGuidance,
 		risk: riskAssessment,
+		mode,
+		kind,
+		enginesRun,
 	} = analysis;
 
 	const duration = Date.now() - startTime;
@@ -752,6 +810,9 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 			driftFiles,
 			importers,
 			siblingGuidance,
+			mode,
+			kind,
+			enginesRun,
 			analysisTime: `${duration}ms`,
 		}, null, 2));
 		return;
@@ -768,6 +829,9 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 
 	if (riskAssessment.factors.length > 0) {
 		console.log(chalk.dim(`Risk factors: ${riskAssessment.factors.join(" • ")}`));
+	}
+	if (mode || kind) {
+		console.log(chalk.dim(`Mode: ${mode ?? "full"} | Kind: ${kind ?? "unknown"} | Engines: ${(enginesRun ?? []).length}`));
 	}
 	console.log();
 
@@ -787,7 +851,11 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 		console.log(chalk.bold.cyan("COUPLED FILES"));
 		for (const cf of coupled) {
 			const sourceLabel = cf.source && cf.source !== "git" ? chalk.cyan(` [${cf.source}]`) : "";
-			console.log(chalk.blue(`  ${cf.file} — ${cf.score}%`) + sourceLabel);
+			const conf =
+				typeof cf.confidence === "number" && cf.confidence < 0.7
+					? chalk.dim(` ~${Math.round(cf.confidence * 100)}%`)
+					: "";
+			console.log(chalk.blue(`  ${cf.file} — ${cf.score}%`) + sourceLabel + conf);
 			if (cf.reason) {
 				console.log(chalk.dim(`    ${cf.reason}`));
 			}
@@ -824,6 +892,56 @@ async function runAnalyze(filePath: string, options: CliOptions): Promise<void> 
 	}
 
 	console.log(chalk.dim(`Analysis completed in ${duration}ms`));
+}
+
+async function runDiff(base: string | undefined, options: CliOptions): Promise<void> {
+	const diffBase = base || "HEAD~1";
+	const memoria = await loadEngine();
+	const result = await memoria.analyzeDiff(process.cwd(), diffBase, {
+		...analyzeOptsFromCli(options),
+		mode: options.full ? "full" : "fast",
+	});
+
+	if (options.json) {
+		console.log(JSON.stringify(result, null, 2));
+		return;
+	}
+
+	console.log();
+	console.log(chalk.bold(`Diff analysis vs ${diffBase}`));
+	console.log(chalk.dim(`${result.files.length} files · ${result.elapsedMs}ms`));
+	console.log();
+	for (const f of result.files.slice(0, 20)) {
+		const riskColor = getRiskColor(f.risk.score);
+		console.log(
+			riskColor(`${String(f.risk.score).padStart(3)} `) +
+				chalk.blue(path.relative(process.cwd(), f.filePath)) +
+				chalk.dim(` · ${f.coupled.length} coupled · ${f.importers.length} importers`),
+		);
+	}
+	if (result.files.length > 20) {
+		console.log(chalk.dim(`  ... and ${result.files.length - 20} more`));
+	}
+	console.log();
+}
+
+async function runPack(options: CliOptions): Promise<void> {
+	const memoria = await loadEngine();
+	const limit = options.limit ?? 40;
+	console.log(chalk.dim(`Building workspace pack (hot files ≤ ${limit})…`));
+	const pack = await memoria.buildWorkspacePack(process.cwd(), {
+		limit,
+		mode: options.full ? "full" : "fast",
+	});
+	if (options.json) {
+		console.log(JSON.stringify(pack, null, 2));
+		return;
+	}
+	console.log(
+		chalk.green(
+			`Packed ${Object.keys(pack.files).length} files → .memoria/pack.json (HEAD ${pack.headSha.slice(0, 7)})`,
+		),
+	);
 }
 
 async function runRisk(filePath: string, options: CliOptions): Promise<void> {
@@ -1405,6 +1523,12 @@ async function main() {
 			await runWithErrorHandling(() => runHistory(query, positionals[1], options));
 			return;
 		}
+		case "diff":
+			await runWithErrorHandling(() => runDiff(positionals[0], options));
+			return;
+		case "pack":
+			await runWithErrorHandling(() => runPack(options));
+			return;
 
 		// ========== Setup Commands ==========
 		case "init":

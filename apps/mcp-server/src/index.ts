@@ -23,11 +23,56 @@ import { ensureAuthenticated } from "./auth.js";
 import { extractFromCode, extractFromCommitMessage, type ExtractedMemory } from "./auto-librarian.js";
 import { searchBM25, extractKeywords, extractFileKeywords, extractCodeKeywords, combineKeywords } from "./bm25.js";
 import { buildRiskAssessment as buildRiskAssessmentHelper } from "./context-response.js";
+import {
+	type AnalyzeMode,
+	type AnalyzeOptions,
+	type AnalyzeProgressEvent,
+	type EngineName,
+	type FileKind,
+	classifyFileKind,
+	planEngines,
+	sourceConfidence,
+	codeGrepPathspecs,
+	grepThreadArgs,
+	multiplexGrep,
+	detectLanguage,
+	importGrepPatterns,
+	importerPathspecs,
+	getHeadSha,
+	loadWorkspacePack,
+	saveWorkspacePack,
+	lookupPackedFile,
+	discoverHotFiles,
+	getSymbolCoupling,
+	extractSymbols,
+	listChangedFiles,
+	toAbsolutePaths,
+	type WorkspacePack,
+	EXCLUDE_PATHSPECS,
+} from "./perf/index.js";
+
+// Re-export perf surface for CLI / tests
+export {
+	classifyFileKind,
+	planEngines,
+	sourceConfidence,
+	extractSymbols,
+	getSymbolCoupling,
+	listChangedFiles,
+	detectLanguage,
+	importGrepPatterns,
+	type AnalyzeMode,
+	type AnalyzeOptions,
+	type AnalyzeProgressEvent,
+	type FileKind,
+	type EngineName,
+	type WorkspacePack,
+};
 
 // --- CONFIGURATION & CACHE ---
-// Cache results for 5 minutes
+// Larger cache: headSha-scoped keys + whole-file analysis results
 export const cache = new LRUCache<string, any>({
-	max: 100,
+	max: 500,
 	ttl: 1000 * 60 * 5,
 });
 
@@ -171,7 +216,8 @@ export type CouplingSource =
 	| "env" // Engine 10: Environment variable coupling
 	| "schema" // Engine 11: Database schema coupling
 	| "api" // Engine 12: API endpoint coupling
-	| "transitive"; // Engine 13: Re-export chain coupling
+	| "transitive" // Engine 13: Re-export chain coupling
+	| "symbol"; // Engine 14: Symbol-level references
 
 export interface EnhancedCoupledFile {
 	file: string;
@@ -180,6 +226,8 @@ export interface EnhancedCoupledFile {
 	reason: string;
 	evidence?: DiffSummary | string;
 	lastHash?: string;
+	/** 0–1 confidence; heuristic engines score lower than git/imports. */
+	confidence?: number;
 }
 
 // --- DIRECTORY SCANNER (for memory extraction) ---
@@ -239,6 +287,14 @@ export interface AnalysisContext {
 	};
 	/** Lazily cached source text for targetPath (avoids N× disk reads across engines). */
 	sourceContent?: string;
+	/** HEAD sha for cache invalidation / pack freshness. */
+	headSha?: string;
+	/** Optional precomputed workspace pack. */
+	pack?: WorkspacePack | null;
+	/** Active analyze options for this run. */
+	analyzeOptions?: AnalyzeOptions;
+	/** Classified file kind (set during analyze). */
+	fileKind?: FileKind;
 }
 
 /** Generic basenames that match too many imports/tests across a monorepo. */
@@ -518,6 +574,7 @@ export const UNIVERSAL_IGNORE_PATTERNS = [
 	"release/",
 	"debug/",
 	".turbo/",
+	".memoria/",
 	"*.tar",
 	"*.tar.gz",
 	"*.tar.zst",
@@ -977,6 +1034,7 @@ export function shouldIgnoreFile(
 // Create an AnalysisContext for a given file path (initializes git, config, etc. ONCE)
 export async function createAnalysisContext(
 	targetPath: string,
+	options?: AnalyzeOptions,
 ): Promise<AnalysisContext> {
 	// Discover repo root via a temporary git instance at the file's directory,
 	// then re-initialize at the repo root so that git grep and other commands
@@ -989,10 +1047,13 @@ export async function createAnalysisContext(
 
 	// getIgnoreFilter depends on config, but getProjectMetrics does not
 	// Run them in parallel for faster context creation
-	const [ig, metrics] = await Promise.all([
+	const [ig, metrics, headSha] = await Promise.all([
 		getIgnoreFilter(repoRoot, config),
 		getProjectMetrics(repoRoot),
+		getHeadSha(git),
 	]);
+
+	const pack = await loadWorkspacePack(repoRoot, headSha);
 
 	return {
 		targetPath,
@@ -1001,6 +1062,9 @@ export async function createAnalysisContext(
 		config,
 		ig,
 		metrics,
+		headSha,
+		pack,
+		analyzeOptions: options,
 	};
 }
 
@@ -1018,7 +1082,11 @@ export async function getCoupledFiles(
 
 	// Include config in cache key if relevant settings are specified
 	const configKey = getStableConfigKey(config);
-	const cacheKey = `coupling:${filePath}:${configKey}`;
+	const skipEvidence =
+		ctx?.analyzeOptions?.skipEvidence === true ||
+		ctx?.analyzeOptions?.mode === "fast";
+	const head = ctx?.headSha ?? "";
+	const cacheKey = `coupling:${head}:${filePath}:${configKey}:${skipEvidence ? "lite" : "full"}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
@@ -1031,10 +1099,15 @@ export async function getCoupledFiles(
 		// Load ignore filter (with config patterns)
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot, config);
 
+		// Fast mode: smaller window
+		const window = skipEvidence
+			? Math.min(thresholds.analysisWindow, 25)
+			: thresholds.analysisWindow;
+
 		// Use adaptive analysis window
 		const log = await git.log({
 			file: filePath,
-			maxCount: thresholds.analysisWindow,
+			maxCount: window,
 		});
 		if (log.total === 0) return [];
 
@@ -1051,8 +1124,8 @@ export async function getCoupledFiles(
 		// Get max files per commit threshold (default: 15)
 		const maxFilesPerCommit = config?.thresholds?.maxFilesPerCommit ?? 15;
 
-		// Process all commits to find co-changes (limited to 5 concurrent git operations)
-		await mapConcurrent(log.all, 5, async (commit) => {
+		// Process commits to find co-changes (higher concurrency in lite mode)
+		await mapConcurrent(log.all, skipEvidence ? 8 : 5, async (commit) => {
 			const show = await git.show([commit.hash, "--name-only", "--format="]).catch(() => "");
 			const allFiles = show
 				.split("\n")
@@ -1095,22 +1168,26 @@ export async function getCoupledFiles(
 			}))
 			.filter((x) => x.score > thresholds.couplingThreshold);
 
-		// Fetch diff evidence for all coupled files and parse into structured summaries
+		// Evidence parsing is expensive — skip in fast/lite mode; lazy-load for high scores only
 		const result = await Promise.all(
 			topCoupled.map(async (item) => {
+				const base = {
+					file: item.file,
+					score: item.score,
+					reason: item.reason,
+					lastHash: item.lastHash,
+					source: "git" as const,
+					confidence: sourceConfidence("git"),
+				};
+				if (skipEvidence || item.score < 40) {
+					return base;
+				}
 				const rawDiff = await getDiffSnippet(
 					repoRoot,
 					item.file,
 					item.lastHash,
 				);
-				const evidence = parseDiffToSummary(rawDiff);
-				return {
-					file: item.file,
-					score: item.score,
-					reason: item.reason,
-					lastHash: item.lastHash,
-					evidence, // Now a structured DiffSummary instead of raw string
-				};
+				return { ...base, evidence: parseDiffToSummary(rawDiff) };
 			}),
 		);
 
@@ -1190,43 +1267,48 @@ export async function getImporters(
 
 		// Get the filename without extension for import matching
 		const fileName = path.basename(filePath, path.extname(filePath));
-		const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 		const relativePath = path.relative(repoRoot, filePath).replace(/\\/g, "/");
+
+		// Pack hit: skip grep entirely when pack is fresh for this HEAD
+		if (ctx?.pack && ctx.headSha && ctx.pack.headSha === ctx.headSha) {
+			const packed = lookupPackedFile(ctx.pack, relativePath);
+			if (packed?.importers) {
+				cache.set(cacheKey, packed.importers);
+				return packed.importers;
+			}
+		}
 
 		// Load ignore filter
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
 		// Helper to detect test files
-		const isTestFile = (f: string) => /\.(test|spec)\.[jt]sx?$/.test(f);
+		const isTestFile = (f: string) =>
+			/\.(test|spec)\.[jt]sx?$/.test(f) || /_test\.(py|go)$/.test(f);
 		const targetIsTestFile = isTestFile(filePath);
 
-		// Generic names like "index" match half the monorepo — require a path hint
-		// (parent/basename) or a same-directory relative import.
-		const parentDir = path.basename(path.dirname(filePath)).replace(
-			/[.*+?^${}()|[\]\\]/g,
-			"\\$&",
-		);
-		const importPattern = GENERIC_FILE_BASENAMES.has(fileName.toLowerCase())
-			? `(import|from|require).*['"](\\.\\/${escapedFileName}(\\.[jt]sx?)?|[^'"]*${parentDir}\\/${escapedFileName}(\\.[jt]sx?)?)['"]`
-			: `(import|from|require).*['"].*${escapedFileName}`;
+		// Language-aware import patterns (TS/JS/Python/Go/Rust/Java)
+		const language = detectLanguage(filePath);
+		const parentDir = path.basename(path.dirname(filePath));
+		const generic = GENERIC_FILE_BASENAMES.has(fileName.toLowerCase());
+		const patterns = importGrepPatterns({
+			fileName,
+			parentDir,
+			generic,
+			language,
+		});
+		const importPattern = patterns.join("|");
+		const langSpecs = importerPathspecs(language);
 
 		const grepResult = await git
 			.raw([
 				"grep",
+				...grepThreadArgs(4),
 				"-l",
 				"-E",
 				"--",
 				importPattern,
-				"*.ts",
-				"*.tsx",
-				"*.js",
-				"*.jsx",
-				"*.mjs",
-				"*.cjs",
-				":!**/node_modules/**",
-				":!**/_generated/**",
-				":!**/.next/**",
-				":!**/dist/**",
+				...langSpecs,
+				...EXCLUDE_PATHSPECS,
 			])
 			.catch(() => "");
 
@@ -1416,53 +1498,25 @@ export async function getTypeCoupling(
 		const fileTypeMap: Map<string, string[]> = new Map();
 		const topTypes = types.slice(0, 5); // Limit to 5 types for performance
 
-		// One combined grep (vs N full-repo greps) then attribute types locally
-		const typePattern = topTypes
-			.map((typeName) => {
-				const esc = typeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-				return `(import.*${esc}|:\\s*${esc}[^a-zA-Z]|<${esc}>|extends\\s+${esc}|implements\\s+${esc})`;
-			})
-			.join("|");
-
-		const grepResult = await git
-			.raw([
-				"--no-optional-locks",
-				"grep",
-				"-l",
-				"-E",
-				typePattern,
-				"--",
-				"*.ts",
-				"*.tsx",
-				"*.js",
-				"*.jsx",
-				":!**/node_modules/**",
-				":!**/.next/**",
-				":!**/dist/**",
-				":!**/_generated/**",
-			])
-			.catch(() => "");
-
-		const candidateFiles = grepResult
-			.split("\n")
-			.map((f) => f.trim())
-			.filter((f) => f && f !== relativePath)
-			.slice(0, 40);
-
-		await mapConcurrent(candidateFiles, 8, async (file) => {
-			const content = await fs
-				.readFile(path.join(repoRoot, file), "utf8")
-				.catch(() => "");
-			const shared = topTypes.filter((typeName) => {
-				const esc = typeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-				return new RegExp(
-					`(import.*${esc}|:\\s*${esc}[^a-zA-Z]|<${esc}>|extends\\s+${esc}|implements\\s+${esc})`,
-				).test(content);
-			});
-			if (shared.length > 0) {
-				fileTypeMap.set(file, shared);
-			}
+		// Multiplexed grep: one process, many type patterns
+		const muxPatterns = topTypes.map((typeName) => {
+			const esc = typeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			return {
+				id: typeName,
+				pattern: `(import.*${esc}|:\\s*${esc}[^a-zA-Z]|<${esc}>|extends\\s+${esc}|implements\\s+${esc})`,
+			};
 		});
+		const hits = await multiplexGrep(
+			git,
+			muxPatterns,
+			codeGrepPathspecs({ includeTests: true }),
+			{ threads: 4, maxFiles: 40 },
+		);
+
+		for (const hit of hits) {
+			if (hit.file === relativePath) continue;
+			fileTypeMap.set(hit.file, hit.ids);
+		}
 
 		// Convert to results
 		const results: EnhancedCoupledFile[] = [];
@@ -1472,6 +1526,7 @@ export async function getTypeCoupling(
 				score: Math.min(65, 35 + sharedTypes.length * 15), // Base 35, +15 per type, max 65
 				source: "type",
 				reason: `Shares types: ${sharedTypes.join(", ")}`,
+				confidence: sourceConfidence("type"),
 			});
 		}
 
@@ -2365,88 +2420,41 @@ export function mergeCouplingResults(
 	schemaCoupled: EnhancedCoupledFile[] = [],
 	apiCoupled: EnhancedCoupledFile[] = [],
 	transitiveCoupled: EnhancedCoupledFile[] = [],
+	symbolCoupled: EnhancedCoupledFile[] = [],
+	confidenceMin = 0,
 ): EnhancedCoupledFile[] {
 	const merged: EnhancedCoupledFile[] = [];
 	const seenFiles = new Set<string>();
 
-	// Add git coupling (highest priority, existing format with source tag)
+	const push = (c: EnhancedCoupledFile) => {
+		if (seenFiles.has(c.file)) return;
+		const confidence = c.confidence ?? sourceConfidence(c.source);
+		if (confidence < confidenceMin) return;
+		seenFiles.add(c.file);
+		merged.push({ ...c, confidence });
+	};
+
+	// Priority order: git → test → symbol → api → schema → env → docs → type → transitive → content
 	for (const c of gitCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push({
-				file: c.file,
-				score: c.score,
-				source: "git",
-				reason: c.reason,
-				evidence: c.evidence,
-				lastHash: c.lastHash,
-			});
-		}
+		push({
+			file: c.file,
+			score: c.score,
+			source: "git",
+			reason: c.reason,
+			evidence: c.evidence,
+			lastHash: c.lastHash,
+			confidence: c.confidence ?? sourceConfidence("git"),
+		});
 	}
-
-	// Add test coupling (high priority - tests should be updated)
-	for (const c of testCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add API coupling (response changes break consumers)
-	for (const c of apiCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add schema coupling (data integrity critical)
-	for (const c of schemaCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add env coupling (runtime errors if mismatched)
-	for (const c of envCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add docs coupling
-	for (const c of docsCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add type coupling
-	for (const c of typeCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add transitive coupling (barrel re-exports)
-	for (const c of transitiveCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add content coupling (lowest priority)
-	for (const c of contentCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
+	for (const c of testCoupled) push(c);
+	for (const c of symbolCoupled) push(c);
+	for (const c of apiCoupled) push(c);
+	for (const c of schemaCoupled) push(c);
+	for (const c of envCoupled) push(c);
+	for (const c of docsCoupled) push(c);
+	for (const c of typeCoupled) push(c);
+	for (const c of transitiveCoupled) push(c);
+	for (const c of contentCoupled) push(c);
 
 	// Git co-change files are the most reliable signal and must always survive the
 	// cap.  Other engines fill the remaining slots with their highest-scoring
@@ -3475,7 +3483,7 @@ export interface DriftAlert {
 export interface FileAnalysis {
 	filePath: string;
 	volatility: VolatilityResult;
-	// Unified coupling list (all 13 engines merged + de-duplicated).
+	// Unified coupling list (all engines merged + de-duplicated).
 	coupled: EnhancedCoupledFile[];
 	// Raw git co-change coupling only — drift detection keys off this subset
 	// (file modification times only make sense for historically-coupled files).
@@ -3485,18 +3493,93 @@ export interface FileAnalysis {
 	siblingGuidance: SiblingGuidance | null;
 	risk: RiskAssessment;
 	config: MemoriaConfig | null;
+	/** Analyze mode used for this run. */
+	mode?: AnalyzeMode;
+	/** Classified file kind. */
+	kind?: FileKind;
+	/** Engines that actually ran. */
+	enginesRun?: EngineName[];
+	/** Wall-clock duration in ms. */
+	elapsedMs?: number;
+}
+
+function emptyCoupled(): EnhancedCoupledFile[] {
+	return [];
 }
 
 export async function analyzeFile(
 	targetPath: string,
-	ctx?: AnalysisContext,
+	ctx?: AnalysisContext | null,
+	options?: AnalyzeOptions,
 ): Promise<FileAnalysis> {
-	// Reuse a caller-provided context (so we don't re-init git/config) or build one.
-	const context = ctx ?? (await createAnalysisContext(targetPath));
-	// Warm the shared source cache once before engines fan out.
-	await readTargetSource(targetPath, context);
+	const started = Date.now();
+	const opts: AnalyzeOptions = {
+		mode: "full",
+		...ctx?.analyzeOptions,
+		...options,
+	};
+	const mode: AnalyzeMode = opts.mode ?? "full";
+	const progress = opts.onProgress;
 
-	// Run every engine in parallel — identical set to the MCP analyze_file tool.
+	const emit = (
+		phase: AnalyzeProgressEvent["phase"],
+		message: string,
+		engine?: EngineName,
+	) => {
+		progress?.({ phase, engine, message, elapsedMs: Date.now() - started });
+	};
+
+	emit("start", `analyze ${mode}`);
+
+	// Reuse a caller-provided context (so we don't re-init git/config) or build one.
+	const context =
+		ctx ?? (await createAnalysisContext(targetPath, opts));
+	context.analyzeOptions = { ...opts, skipEvidence: opts.skipEvidence ?? mode === "fast" };
+	context.targetPath = targetPath;
+
+	// Warm the shared source cache once before engines fan out.
+	const sourceContent = await readTargetSource(targetPath, context);
+	const kind = classifyFileKind(targetPath, sourceContent);
+	context.fileKind = kind;
+
+	const plan = planEngines(kind, mode, {
+		includeTransitive: opts.includeTransitive,
+		skipEvidence: context.analyzeOptions.skipEvidence,
+		hasSymbol: Boolean(opts.symbol) || mode === "full",
+	});
+
+	// Whole-analysis cache keyed by HEAD + path + mode
+	const analysisCacheKey = `analyze:${context.headSha ?? ""}:${targetPath}:${mode}:${opts.symbol ?? ""}:${opts.confidenceMin ?? 0}`;
+	if (cache.has(analysisCacheKey)) {
+		emit("done", "cache hit");
+		return cache.get(analysisCacheKey);
+	}
+
+	const run = plan.run;
+	const enginesRun: EngineName[] = [];
+	const budgetMs = opts.budgetMs;
+	const withinBudget = () =>
+		budgetMs === undefined || Date.now() - started < budgetMs;
+
+	const runEngine = async <T>(
+		name: EngineName,
+		fn: () => Promise<T>,
+		fallback: T,
+	): Promise<T> => {
+		if (!run.has(name)) {
+			emit("skip", `skip ${name} (plan)`, name);
+			return fallback;
+		}
+		if (!withinBudget()) {
+			emit("skip", `skip ${name} (budget)`, name);
+			return fallback;
+		}
+		emit("engine", `run ${name}`, name);
+		enginesRun.push(name);
+		return fn();
+	};
+
+	// Core fan-out (transitive deferred unless plan says otherwise)
 	const [
 		volatility,
 		gitCoupled,
@@ -3508,21 +3591,64 @@ export async function analyzeFile(
 		envCoupled,
 		schemaCoupled,
 		apiCoupled,
-		transitiveCoupled,
+		symbolCoupled,
 	] = await Promise.all([
-		getVolatility(targetPath, context),
-		getCoupledFiles(targetPath, context),
-		getImporters(targetPath, context),
-		getDocsCoupling(targetPath, context),
-		getTypeCoupling(targetPath, context),
-		getContentCoupling(targetPath, context),
-		getTestCoupling(targetPath, context),
-		getEnvCoupling(targetPath, context),
-		getSchemaCoupling(targetPath, context),
-		getApiCoupling(targetPath, context),
-		getTransitiveCoupling(targetPath, context),
+		runEngine("volatility", () => getVolatility(targetPath, context), {
+			commitCount: 0,
+			panicScore: 0,
+			panicCommits: [],
+			lastCommitDate: undefined,
+			authors: 0,
+			authorDetails: [],
+			topAuthor: null,
+			recencyDecay: { oldestCommitDays: 0, newestCommitDays: 0, decayFactor: 1 },
+		} satisfies VolatilityResult),
+		runEngine("git", () => getCoupledFiles(targetPath, context), emptyCoupled()),
+		runEngine("importers", () => getImporters(targetPath, context), [] as string[]),
+		runEngine("docs", () => getDocsCoupling(targetPath, context), emptyCoupled()),
+		runEngine("type", () => getTypeCoupling(targetPath, context), emptyCoupled()),
+		runEngine("content", () => getContentCoupling(targetPath, context), emptyCoupled()),
+		runEngine("test", () => getTestCoupling(targetPath, context), emptyCoupled()),
+		runEngine("env", () => getEnvCoupling(targetPath, context), emptyCoupled()),
+		runEngine("schema", () => getSchemaCoupling(targetPath, context), emptyCoupled()),
+		runEngine("api", () => getApiCoupling(targetPath, context), emptyCoupled()),
+		runEngine(
+			"symbol",
+			async () => {
+				const hits = await getSymbolCoupling({
+					git: context.git,
+					repoRoot: context.repoRoot,
+					filePath: targetPath,
+					sourceContent,
+					symbol: opts.symbol,
+					relativePath: path.relative(context.repoRoot, targetPath),
+				});
+				return hits as EnhancedCoupledFile[];
+			},
+			emptyCoupled(),
+		),
 	]);
 
+	// Transitive on demand: only when not deferred, or when barrels suspected
+	let transitiveCoupled: EnhancedCoupledFile[] = [];
+	const wantsTransitive =
+		run.has("transitive") &&
+		!plan.deferTransitive &&
+		withinBudget();
+	const maybeBarrel =
+		/\/index\.[jt]sx?$/.test(targetPath.replace(/\\/g, "/")) ||
+		importers.some((i) => /\/index\.[jt]sx?$/.test(i));
+	if (wantsTransitive || (mode === "full" && maybeBarrel && withinBudget())) {
+		emit("engine", "run transitive", "transitive");
+		enginesRun.push("transitive");
+		transitiveCoupled = await getTransitiveCoupling(targetPath, context);
+	} else {
+		emit("skip", "defer transitive", "transitive");
+	}
+
+	emit("merge", "merge coupling results");
+
+	const confidenceMin = opts.confidenceMin ?? 0;
 	const coupled = mergeCouplingResults(
 		gitCoupled,
 		docsCoupled,
@@ -3533,6 +3659,8 @@ export async function analyzeFile(
 		schemaCoupled,
 		apiCoupled,
 		transitiveCoupled,
+		symbolCoupled,
+		confidenceMin,
 	);
 
 	const drift = await checkDrift(targetPath, gitCoupled, context);
@@ -3551,7 +3679,7 @@ export async function analyzeFile(
 		context.config,
 	);
 
-	return {
+	const analysis: FileAnalysis = {
 		filePath: targetPath,
 		volatility,
 		coupled,
@@ -3561,7 +3689,92 @@ export async function analyzeFile(
 		siblingGuidance,
 		risk,
 		config: context.config,
+		mode,
+		kind,
+		enginesRun,
+		elapsedMs: Date.now() - started,
 	};
+
+	cache.set(analysisCacheKey, analysis);
+	emit("done", `complete in ${analysis.elapsedMs}ms`);
+	return analysis;
+}
+
+/**
+ * Analyze every file changed since `diffBase` (PR / diff mode).
+ */
+export async function analyzeDiff(
+	repoRootOrFile: string,
+	diffBase: string,
+	options?: AnalyzeOptions,
+): Promise<{ base: string; files: FileAnalysis[]; elapsedMs: number }> {
+	const started = Date.now();
+	const probe = getGitForFile(repoRootOrFile);
+	const repoRoot = (await probe.revparse(["--show-toplevel"])).trim();
+	const git = simpleGit(repoRoot);
+	const changed = await listChangedFiles(git, diffBase);
+	const abs = toAbsolutePaths(repoRoot, changed);
+
+	const opts: AnalyzeOptions = { mode: "fast", ...options };
+	const files: FileAnalysis[] = [];
+	await mapConcurrent(abs, 4, async (filePath) => {
+		try {
+			await fs.access(filePath);
+			const analysis = await analyzeFile(filePath, null, opts);
+			files.push(analysis);
+		} catch {
+			/* skip missing */
+		}
+	});
+
+	files.sort((a, b) => b.risk.score - a.risk.score);
+	return { base: diffBase, files, elapsedMs: Date.now() - started };
+}
+
+/**
+ * Precompute a workspace pack for hot files (daemon warm-start).
+ */
+export async function buildWorkspacePack(
+	repoRootOrFile: string,
+	opts?: { limit?: number; mode?: AnalyzeMode },
+): Promise<WorkspacePack> {
+	const probe = getGitForFile(repoRootOrFile);
+	const repoRoot = (await probe.revparse(["--show-toplevel"])).trim();
+	const git = simpleGit(repoRoot);
+	const headSha = await getHeadSha(git);
+	const hot = await discoverHotFiles(git, repoRoot, opts?.limit ?? 40);
+	const mode = opts?.mode ?? "fast";
+
+	const pack: WorkspacePack = {
+		version: 1,
+		headSha,
+		repoRoot,
+		createdAt: new Date().toISOString(),
+		files: {},
+	};
+
+	await mapConcurrent(hot, 3, async (rel) => {
+		const abs = path.join(repoRoot, rel);
+		try {
+			const analysis = await analyzeFile(abs, null, { mode });
+			pack.files[rel] = {
+				importers: analysis.importers,
+				coupled: analysis.coupled.map((c) => ({
+					file: c.file,
+					score: c.score,
+					source: c.source,
+					reason: c.reason,
+				})),
+				riskScore: analysis.risk.score,
+				updatedAt: new Date().toISOString(),
+			};
+		} catch {
+			/* skip */
+		}
+	});
+
+	await saveWorkspacePack(pack);
+	return pack;
 }
 
 // Helper for get_context tool - uses shared risk assessment from context-response.ts
@@ -3642,6 +3855,7 @@ export function generateAiInstructions(
 			schema: "schema",  // Engine 11: Schema/model coupling
 			api: "api",        // Engine 12: API endpoint coupling
 			transitive: "transitive", // Engine 13: Re-export chain coupling
+			symbol: "symbol", // Engine 14: Symbol-level references
 		};
 
 		// Source-specific instructions
@@ -3654,6 +3868,7 @@ export function generateAiInstructions(
 			schema: "References same schema/model. Changes may break queries.",
 			api: "Calls endpoints from this file. Response changes will break this.",
 			transitive: "Imports via barrel/re-export. Indirect dependency.",
+			symbol: "References exported symbols from this file. Signature changes will break callers.",
 		};
 
 		coupled.forEach((c) => {
@@ -3667,12 +3882,16 @@ export function generateAiInstructions(
 				relationship = evidence.changeType;
 			}
 
-			// File name with coupling percentage and source label
+			// File name with coupling percentage, source label, and confidence
 			output += `**\`${c.file}\`** — ${c.score}%`;
 			if (sourceLabel) {
 				output += ` [${sourceLabel}]`;
 			} else if (relationship !== "unknown") {
 				output += ` (${relationship})`;
+			}
+			const conf = c.confidence ?? sourceConfidence(source);
+			if (conf < 0.7) {
+				output += ` _(confidence ${Math.round(conf * 100)}%)_`;
 			}
 			output += `\n`;
 
@@ -3843,7 +4062,7 @@ function setupServer(server: Server): Server {
 			{
 				name: "analyze_file",
 				description:
-					"Returns forensic history, hidden dependencies, and risk assessment. USE THIS before modifying files.",
+					"Returns forensic history, hidden dependencies, and risk assessment. USE THIS before modifying files. Defaults to fast mode; pass mode=full for all engines.",
 				inputSchema: {
 					type: "object",
 					properties: {
@@ -3851,6 +4070,27 @@ function setupServer(server: Server): Server {
 							type: "string",
 							description:
 								"The ABSOLUTE path to the file (e.g. C:/dev/project/src/file.ts)",
+						},
+						mode: {
+							type: "string",
+							enum: ["fast", "full"],
+							description:
+								"fast = core engines (~volatility/git/importers/tests). full = all engines. Default: fast.",
+						},
+						symbol: {
+							type: "string",
+							description:
+								"Optional exported symbol to resolve callers for (symbol-level coupling).",
+						},
+						budgetMs: {
+							type: "number",
+							description:
+								"Soft time budget in ms; expensive engines may be skipped when exceeded.",
+						},
+						confidenceMin: {
+							type: "number",
+							description:
+								"Drop coupled results below this confidence (0–1). Heuristic sources score lower.",
 						},
 					},
 					required: ["path"],
@@ -4102,9 +4342,24 @@ function setupServer(server: Server): Server {
 		],
 	}));
 
-	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+	server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 		if (request.params.name === "analyze_file") {
 			const rawPath = String(request.params.arguments?.path);
+			const modeArg = request.params.arguments?.mode;
+			const mode: AnalyzeMode =
+				modeArg === "full" || modeArg === "fast" ? modeArg : "fast";
+			const symbol =
+				typeof request.params.arguments?.symbol === "string"
+					? request.params.arguments.symbol
+					: undefined;
+			const budgetMs =
+				typeof request.params.arguments?.budgetMs === "number"
+					? request.params.arguments.budgetMs
+					: undefined;
+			const confidenceMin =
+				typeof request.params.arguments?.confidenceMin === "number"
+					? request.params.arguments.confidenceMin
+					: undefined;
 
 			// 1. Sanitize Path (Handle Windows/Unix differences)
 			const targetPath = path.resolve(rawPath);
@@ -4130,11 +4385,33 @@ function setupServer(server: Server): Server {
 			}
 
 			try {
-				// 3. Run the shared analysis orchestrator. This is the exact same
-				// code path the `memoria analyze` CLI command uses, so the AI tool
-				// and the terminal can never disagree on results. It creates the
-				// AnalysisContext once and runs all 13 engines in parallel.
-				const analysis = await analyzeFile(targetPath);
+				// Stream progress via MCP logging notifications when the client supports it.
+				const progressLines: string[] = [];
+				const onProgress = async (event: AnalyzeProgressEvent) => {
+					const line = `[${event.elapsedMs}ms] ${event.phase}${event.engine ? `:${event.engine}` : ""} — ${event.message}`;
+					progressLines.push(line);
+					try {
+						await extra?.sendNotification?.({
+							method: "notifications/message",
+							params: {
+								level: "info",
+								logger: "memoria",
+								data: line,
+							},
+						});
+					} catch {
+						/* client may not support notifications */
+					}
+				};
+
+				// Shared orchestrator with CLI — default fast for AI latency.
+				const analysis = await analyzeFile(targetPath, null, {
+					mode,
+					symbol,
+					budgetMs,
+					confidenceMin,
+					onProgress,
+				});
 
 				const report = generateAiInstructions(
 					targetPath,
@@ -4146,7 +4423,19 @@ function setupServer(server: Server): Server {
 					analysis.siblingGuidance,
 				);
 
-				return { content: [{ type: "text", text: report }] };
+				const meta =
+					`\n\n---\n_Mode: ${analysis.mode} · Kind: ${analysis.kind} · ` +
+					`Engines: ${(analysis.enginesRun ?? []).join(", ") || "none"} · ` +
+					`${analysis.elapsedMs ?? 0}ms_\n`;
+
+				const streamTail =
+					progressLines.length > 0
+						? `\n<details><summary>Progress</summary>\n\n\`\`\`\n${progressLines.join("\n")}\n\`\`\`\n</details>\n`
+						: "";
+
+				return {
+					content: [{ type: "text", text: report + meta + streamTail }],
+				};
 			} catch (error: any) {
 				// Check for common git-related errors
 				const errorMsg = error.message || String(error);
