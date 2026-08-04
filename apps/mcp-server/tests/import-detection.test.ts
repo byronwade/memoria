@@ -68,6 +68,22 @@ describe("Import Detection Engine (getImporters)", () => {
 				expect(file).not.toBe("src/index.ts");
 			});
 		});
+
+		it("should not treat unrelated */index imports as importers of this index", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getImporters(filePath);
+
+			// apps/api/.../github/index.js must not match mcp-server/src/index.ts
+			expect(
+				result.some(
+					(f) => f.includes("github/index") || f.includes("_generated/api.d.ts"),
+				),
+			).toBe(false);
+			// Real importer of this package entrypoint
+			expect(
+				result.some((f) => f.replace(/\\/g, "/").endsWith("src/cli.ts")),
+			).toBe(true);
+		});
 	});
 
 	describe("Ignore Patterns", () => {

@@ -79,6 +79,29 @@ describe("Environment Variable Coupling Engine (getEnvCoupling)", () => {
 			expect(vars).toContain("API_KEY");
 		});
 
+		it("should ignore env names that only appear inside comments or strings", () => {
+			const code = `
+				// Must contain underscore (API_KEY, DATABASE_URL)
+				const msg = "set MEMORIA_API_URL";
+				const real = process.env.STRIPE_SECRET;
+			`;
+			const vars = extractEnvVars(code);
+			expect(vars).not.toContain("API_KEY");
+			expect(vars).not.toContain("DATABASE_URL");
+			expect(vars).toContain("STRIPE_SECRET");
+		});
+
+		it("should ignore ubiquitous runtime env vars like NODE_ENV", () => {
+			const code = `
+				const isTest = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+				const key = process.env.STRIPE_SECRET;
+			`;
+			const vars = extractEnvVars(code);
+			expect(vars).not.toContain("NODE_ENV");
+			expect(vars).not.toContain("VITEST");
+			expect(vars).toContain("STRIPE_SECRET");
+		});
+
 		it("should deduplicate variables", () => {
 			const code = `
 				const a = API_KEY;

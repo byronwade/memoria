@@ -237,7 +237,31 @@ export interface AnalysisContext {
 		commitsPerWeek: number;
 		avgFilesPerCommit: number;
 	};
+	/** Lazily cached source text for targetPath (avoids N× disk reads across engines). */
+	sourceContent?: string;
 }
+
+/** Generic basenames that match too many imports/tests across a monorepo. */
+export const GENERIC_FILE_BASENAMES = new Set([
+	"index",
+	"utils",
+	"util",
+	"helpers",
+	"helper",
+	"types",
+	"type",
+	"main",
+	"mod",
+	"lib",
+	"common",
+	"shared",
+	"constants",
+	"constant",
+	"config",
+	"hooks",
+	"components",
+	"component",
+]);
 
 // --- AUTHOR CONTRIBUTION (Bus Factor) ---
 export interface AuthorContribution {
@@ -767,6 +791,31 @@ export function stripCommentsForScan(sourceCode: string): string {
 		.replace(/(^|[^:\\\w])\/\/.*$/gm, "$1");
 }
 
+/**
+ * Strip comments and quoted strings so identifier heuristics ignore docs/examples.
+ */
+export function stripCommentsAndStringsForScan(sourceCode: string): string {
+	return stripCommentsForScan(sourceCode).replace(
+		/(['"`])(?:\\.|(?!\1)[\s\S])*?\1/g,
+		'""',
+	);
+}
+
+/** Read target file once per analysis context. */
+export async function readTargetSource(
+	filePath: string,
+	ctx?: AnalysisContext | null,
+): Promise<string> {
+	if (ctx?.sourceContent !== undefined && ctx.targetPath === filePath) {
+		return ctx.sourceContent;
+	}
+	const content = await fs.readFile(filePath, "utf8").catch(() => "");
+	if (ctx && ctx.targetPath === filePath) {
+		ctx.sourceContent = content;
+	}
+	return content;
+}
+
 // --- BINARY FILE DETECTION ---
 // Known binary file extensions to skip during diff analysis
 export const BINARY_EXTENSIONS = new Set([
@@ -1141,7 +1190,8 @@ export async function getImporters(
 
 		// Get the filename without extension for import matching
 		const fileName = path.basename(filePath, path.extname(filePath));
-		const relativePath = path.relative(repoRoot, filePath);
+		const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const relativePath = path.relative(repoRoot, filePath).replace(/\\/g, "/");
 
 		// Load ignore filter
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
@@ -1150,12 +1200,34 @@ export async function getImporters(
 		const isTestFile = (f: string) => /\.(test|spec)\.[jt]sx?$/.test(f);
 		const targetIsTestFile = isTestFile(filePath);
 
-		// Use git grep to find files that actually import this file
-		// Match import/require/from statements with the filename in quotes
-		// This is more precise than just searching for the filename
-		const importPattern = `(import|from|require).*['"].*${fileName}`;
+		// Generic names like "index" match half the monorepo — require a path hint
+		// (parent/basename) or a same-directory relative import.
+		const parentDir = path.basename(path.dirname(filePath)).replace(
+			/[.*+?^${}()|[\]\\]/g,
+			"\\$&",
+		);
+		const importPattern = GENERIC_FILE_BASENAMES.has(fileName.toLowerCase())
+			? `(import|from|require).*['"](\\.\\/${escapedFileName}(\\.[jt]sx?)?|[^'"]*${parentDir}\\/${escapedFileName}(\\.[jt]sx?)?)['"]`
+			: `(import|from|require).*['"].*${escapedFileName}`;
+
 		const grepResult = await git
-			.raw(["grep", "-l", "-E", "--", importPattern])
+			.raw([
+				"grep",
+				"-l",
+				"-E",
+				"--",
+				importPattern,
+				"*.ts",
+				"*.tsx",
+				"*.js",
+				"*.jsx",
+				"*.mjs",
+				"*.cjs",
+				":!**/node_modules/**",
+				":!**/_generated/**",
+				":!**/.next/**",
+				":!**/dist/**",
+			])
 			.catch(() => "");
 
 		// Parse results and filter
@@ -1164,8 +1236,9 @@ export async function getImporters(
 			.map((line) => line.trim())
 			.filter((f) => {
 				if (!f) return false;
+				const normalized = f.replace(/\\/g, "/");
 				// Exclude the file itself (check both relative path and basename)
-				if (f === relativePath) return false;
+				if (normalized === relativePath) return false;
 				if (path.basename(f) === path.basename(filePath)) return false;
 				// Exclude ignored files
 				if (shouldIgnoreFile(f, ig)) return false;
@@ -1230,7 +1303,7 @@ export async function getDocsCoupling(
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Read source file and extract exports
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const exports = extractExports(sourceContent);
 
 		if (exports.length === 0) {
@@ -1331,7 +1404,7 @@ export async function getTypeCoupling(
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Read source and extract type names
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const types = extractTypeDefinitions(sourceContent);
 
 		if (types.length === 0) {
@@ -1343,34 +1416,51 @@ export async function getTypeCoupling(
 		const fileTypeMap: Map<string, string[]> = new Map();
 		const topTypes = types.slice(0, 5); // Limit to 5 types for performance
 
-		// Search for each type using git grep
-		await mapConcurrent(topTypes, 3, async (typeName) => {
-			// Match type usage patterns: import, extends, implements, type annotation
-			const grepResult = await git
-				.raw([
-					"--no-optional-locks",
-					"grep",
-					"-l",
-					"-E",
-					`(import.*${typeName}|:\\s*${typeName}[^a-zA-Z]|<${typeName}>|extends\\s+${typeName}|implements\\s+${typeName})`,
-					"--",
-					"*.ts",
-					"*.tsx",
-					"*.js",
-					"*.jsx",
-				])
+		// One combined grep (vs N full-repo greps) then attribute types locally
+		const typePattern = topTypes
+			.map((typeName) => {
+				const esc = typeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+				return `(import.*${esc}|:\\s*${esc}[^a-zA-Z]|<${esc}>|extends\\s+${esc}|implements\\s+${esc})`;
+			})
+			.join("|");
+
+		const grepResult = await git
+			.raw([
+				"--no-optional-locks",
+				"grep",
+				"-l",
+				"-E",
+				typePattern,
+				"--",
+				"*.ts",
+				"*.tsx",
+				"*.js",
+				"*.jsx",
+				":!**/node_modules/**",
+				":!**/.next/**",
+				":!**/dist/**",
+				":!**/_generated/**",
+			])
+			.catch(() => "");
+
+		const candidateFiles = grepResult
+			.split("\n")
+			.map((f) => f.trim())
+			.filter((f) => f && f !== relativePath)
+			.slice(0, 40);
+
+		await mapConcurrent(candidateFiles, 8, async (file) => {
+			const content = await fs
+				.readFile(path.join(repoRoot, file), "utf8")
 				.catch(() => "");
-
-			const files = grepResult
-				.split("\n")
-				.map((f) => f.trim())
-				.filter((f) => f && f !== relativePath);
-
-			for (const file of files) {
-				if (!fileTypeMap.has(file)) {
-					fileTypeMap.set(file, []);
-				}
-				fileTypeMap.get(file)!.push(typeName);
+			const shared = topTypes.filter((typeName) => {
+				const esc = typeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+				return new RegExp(
+					`(import.*${esc}|:\\s*${esc}[^a-zA-Z]|<${esc}>|extends\\s+${esc}|implements\\s+${esc})`,
+				).test(content);
+			});
+			if (shared.length > 0) {
+				fileTypeMap.set(file, shared);
 			}
 		});
 
@@ -1445,7 +1535,7 @@ export async function getContentCoupling(
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
 		// Read source and extract strings
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const strings = extractStringLiterals(sourceContent);
 
 		if (strings.length === 0) {
@@ -1457,7 +1547,7 @@ export async function getContentCoupling(
 		const fileStringMap: Map<string, string[]> = new Map();
 
 		// Search for each string using git grep -F (fixed string)
-		await mapConcurrent(strings, 3, async (str) => {
+		await mapConcurrent(strings, 5, async (str) => {
 			// Escape for grep and truncate
 			const searchStr = str.slice(0, 50);
 			const grepResult = await git
@@ -1472,6 +1562,10 @@ export async function getContentCoupling(
 					"*.tsx",
 					"*.js",
 					"*.jsx",
+					":!**/node_modules/**",
+					":!**/.next/**",
+					":!**/dist/**",
+					":!**/_generated/**",
 				])
 				.catch(() => "");
 
@@ -1556,14 +1650,24 @@ export async function getTestCoupling(
 		// Search by file PATH (not content) via git ls-files glob patterns.
 		// Using `git grep` on content causes false positives when docs/READMEs
 		// mention test file names in code examples.
-		const lsFilesPatterns = [
-			`*${escapedBasename}.test.*`,
-			`*${escapedBasename}.spec.*`,
-			`*${escapedBasename}_test.*`,
-			`*test_${escapedBasename}.*`,
-			`*${escapedBasename}-test.*`,
-			`*${escapedBasename}-spec.*`,
-		];
+		// Generic basenames (index, utils) are scoped to the same directory.
+		const sameDir = path.dirname(relativePath).replace(/\\/g, "/");
+		const isGeneric = GENERIC_FILE_BASENAMES.has(basename.toLowerCase());
+		const lsFilesPatterns = isGeneric
+			? [
+					`${sameDir}/${escapedBasename}.test.*`,
+					`${sameDir}/${escapedBasename}.spec.*`,
+					`${sameDir}/${escapedBasename}_test.*`,
+					`${sameDir}/test_${escapedBasename}.*`,
+				]
+			: [
+					`*${escapedBasename}.test.*`,
+					`*${escapedBasename}.spec.*`,
+					`*${escapedBasename}_test.*`,
+					`*test_${escapedBasename}.*`,
+					`*${escapedBasename}-test.*`,
+					`*${escapedBasename}-spec.*`,
+				];
 		const grepResult = await git
 			.raw(["ls-files", "--", ...lsFilesPatterns])
 			.catch(() => "");
@@ -1585,16 +1689,21 @@ export async function getTestCoupling(
 			});
 		}
 
-		// Also look for mock/fixture files by searching for the class/function names
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		// Mock/fixture scan is expensive on barrel files with dozens of exports —
+		// skip for generic basenames and huge export surfaces.
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const exports = extractExports(sourceContent);
 
-		if (exports.length > 0) {
+		if (exports.length > 0 && exports.length <= 20 && !isGeneric) {
 			const topExports = exports.slice(0, 5);
 			const mockPattern = topExports
-				.map((e) => `mock.*${e}|${e}.*[Mm]ock|fake.*${e}|${e}.*[Ff]ake|stub.*${e}`)
+				.map((e) => {
+					const esc = e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+					return `mock.*${esc}|${esc}.*[Mm]ock|fake.*${esc}|${esc}.*[Ff]ake|stub.*${esc}`;
+				})
 				.join("|");
 
+			// Restrict to test/mock paths — full-repo regex over every export is O(repo).
 			const mockResult = await git
 				.raw([
 					"--no-optional-locks",
@@ -1603,6 +1712,14 @@ export async function getTestCoupling(
 					"-i",
 					"-E",
 					mockPattern,
+					"--",
+					"*test*",
+					"*spec*",
+					"*mock*",
+					"*fixture*",
+					"**/__mocks__/**",
+					"**/fixtures/**",
+					"**/mocks/**",
 				])
 				.catch(() => "");
 
@@ -1635,44 +1752,77 @@ export async function getTestCoupling(
  * Extract environment variable names from source code
  * Uses universal ALL_CAPS_UNDERSCORE pattern
  */
-export function extractEnvVars(sourceCode: string): string[] {
-	// Match ALL_CAPS_UNDERSCORE pattern (common env var convention)
-	const envVarRegex = /\b([A-Z][A-Z0-9_]{3,})\b/g;
-	const matches: string[] = [];
-	let match: RegExpExecArray | null;
+/** Env vars present in nearly every Node/CI process — useless for coupling. */
+export const UBIQUITOUS_ENV_VARS = new Set([
+	"NODE_ENV",
+	"VITEST",
+	"CI",
+	"PATH",
+	"HOME",
+	"USER",
+	"SHELL",
+	"TMPDIR",
+	"TEMP",
+	"TMP",
+	"PWD",
+	"LANG",
+	"TERM",
+	"HOSTNAME",
+	"NODE_OPTIONS",
+	"DEBUG",
+	"TZ",
+	"OS",
+	"APPDATA",
+	"XDG_CONFIG_HOME",
+]);
 
-	while ((match = envVarRegex.exec(sourceCode)) !== null) {
-		matches.push(match[1]);
+export function extractEnvVars(sourceCode: string): string[] {
+	const found = new Set<string>();
+
+	// Prefer real env access sites (process.env.X, Deno.env.get("X"), …)
+	const accessPatterns = [
+		/process\.env(?:\.([A-Z][A-Z0-9_]{2,})|\[['"`]([A-Z][A-Z0-9_]{2,})['"`]\])/g,
+		/Deno\.env\.get\(\s*['"`]([A-Z][A-Z0-9_]{2,})['"`]/g,
+		/os\.(?:Getenv|LookupEnv)\(\s*['"`]([A-Z][A-Z0-9_]{2,})['"`]/g,
+		/\benv(?:ironment)?\(['"`]([A-Z][A-Z0-9_]{2,})['"`]\)/gi,
+	];
+	for (const pattern of accessPatterns) {
+		let match: RegExpExecArray | null;
+		while ((match = pattern.exec(sourceCode)) !== null) {
+			const name = match[1] || match[2];
+			if (name && !UBIQUITOUS_ENV_VARS.has(name)) found.add(name);
+		}
 	}
 
-	// Filter to likely env vars
-	const filtered = matches.filter((v) => {
-		// Must contain underscore (API_KEY, DATABASE_URL)
-		if (!v.includes("_")) return false;
-		// Reject incomplete prefixes listed in this file's own keepPrefixes
-		// (e.g. bare "API_" matching the prefix string itself)
-		if (v.endsWith("_")) return false;
-		// Skip common non-env constants
+	// Also pick bare ALL_CAPS identifiers, ignoring comments/string examples
+	const code = stripCommentsAndStringsForScan(sourceCode);
+	const envVarRegex = /\b([A-Z][A-Z0-9_]{3,})\b/g;
+	let match: RegExpExecArray | null;
+	while ((match = envVarRegex.exec(code)) !== null) {
+		const v = match[1];
+		if (!v.includes("_") || v.endsWith("_")) continue;
+		if (UBIQUITOUS_ENV_VARS.has(v)) continue;
 		const skipPatterns = [
 			"HTTP_", "HTML_", "CSS_", "JSON_", "XML_", "UTF_",
 			"CONTENT_TYPE", "STATUS_",
 		];
-		if (skipPatterns.some((p) => v.startsWith(p))) return false;
-		// Keep common env prefixes
+		if (skipPatterns.some((p) => v.startsWith(p))) continue;
 		const keepPrefixes = [
 			"API_", "DATABASE_", "DB_", "STRIPE_", "AUTH_", "JWT_",
 			"AWS_", "GOOGLE_", "GITHUB_", "REDIS_", "MONGO_",
 			"POSTGRES_", "MYSQL_", "SECRET_", "PRIVATE_", "PUBLIC_",
-			"NEXT_", "VITE_", "REACT_APP_", "VUE_APP_",
+			"NEXT_", "VITE_", "REACT_APP_", "VUE_APP_", "MEMORIA_",
 		];
-		if (keepPrefixes.some((p) => v.startsWith(p))) return true;
-		// Keep if ends with common env suffixes
 		const keepSuffixes = ["_KEY", "_SECRET", "_TOKEN", "_URL", "_URI", "_HOST", "_PORT", "_PASSWORD"];
-		if (keepSuffixes.some((s) => v.endsWith(s))) return true;
-		return false;
-	});
+		if (
+			keepPrefixes.some((p) => v.startsWith(p)) ||
+			keepSuffixes.some((s) => v.endsWith(s))
+		) {
+			found.add(v);
+		}
+	}
 
-	return [...new Set(filtered)].slice(0, 10);
+	return [...found].slice(0, 10);
 }
 
 /**
@@ -1689,7 +1839,7 @@ export async function getEnvCoupling(
 		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const envVars = extractEnvVars(sourceContent);
 
 		if (envVars.length === 0) {
@@ -1697,10 +1847,12 @@ export async function getEnvCoupling(
 			return [];
 		}
 
-		// Build regex pattern for env vars
-		const envPattern = envVars.join("|");
+		// Build regex pattern for env vars (escape for safety)
+		const envPattern = envVars
+			.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+			.join("|");
 
-		// Search all tracked files for these env vars
+		// Search source files only — skip docs/tests that mention vars as examples
 		const grepResult = await git
 			.raw([
 				"--no-optional-locks",
@@ -1708,6 +1860,22 @@ export async function getEnvCoupling(
 				"-l",
 				"-E",
 				envPattern,
+				"--",
+				"*.ts",
+				"*.tsx",
+				"*.js",
+				"*.jsx",
+				"*.mjs",
+				"*.cjs",
+				"*.py",
+				"*.go",
+				"*.rs",
+				"*.env*",
+				":!**/node_modules/**",
+				":!**/.next/**",
+				":!**/dist/**",
+				":!**/*test*",
+				":!**/*spec*",
 			])
 			.catch(() => "");
 
@@ -1755,36 +1923,38 @@ export async function getEnvCoupling(
  */
 export function extractSchemaNames(sourceCode: string): string[] {
 	const names: string[] = [];
+	// Ignore doc comments that demonstrate CREATE TABLE / model User { patterns
+	const code = stripCommentsForScan(sourceCode);
 
 	// SQL: CREATE TABLE users, ALTER TABLE orders
 	const sqlPattern = /(?:CREATE|ALTER|DROP)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?["`]?(\w+)["`]?/gi;
 	let match: RegExpExecArray | null;
-	while ((match = sqlPattern.exec(sourceCode)) !== null) {
+	while ((match = sqlPattern.exec(code)) !== null) {
 		names.push(match[1]);
 	}
 
 	// ORM Models: class User extends Model, class OrderModel
 	const classPattern = /class\s+(\w+)(?:Model)?\s+(?:extends|implements)/gi;
-	while ((match = classPattern.exec(sourceCode)) !== null) {
+	while ((match = classPattern.exec(code)) !== null) {
 		const name = match[1].replace(/Model$/, "");
 		if (name.length > 2) names.push(name);
 	}
 
 	// Prisma: model User {
 	const prismaPattern = /model\s+(\w+)\s*\{/gi;
-	while ((match = prismaPattern.exec(sourceCode)) !== null) {
+	while ((match = prismaPattern.exec(code)) !== null) {
 		names.push(match[1]);
 	}
 
 	// TypeORM/Hibernate decorators: @Entity("users")
 	const decoratorPattern = /@(?:Entity|Table)\s*\(\s*["'](\w+)["']/gi;
-	while ((match = decoratorPattern.exec(sourceCode)) !== null) {
+	while ((match = decoratorPattern.exec(code)) !== null) {
 		names.push(match[1]);
 	}
 
 	// Mongoose: new Schema({ ... }), mongoose.model("User"
 	const mongoosePattern = /mongoose\.model\s*\(\s*["'](\w+)["']/gi;
-	while ((match = mongoosePattern.exec(sourceCode)) !== null) {
+	while ((match = mongoosePattern.exec(code)) !== null) {
 		names.push(match[1]);
 	}
 
@@ -1802,16 +1972,21 @@ export function extractSchemaNames(sourceCode: string): string[] {
  * Detect if a file contains schema-related content
  */
 export function isSchemaFile(sourceCode: string): boolean {
+	// Strip comments, strings, and regex literals so this engine's own
+	// pattern source (e.g. /@Entity|@Table/) cannot self-match.
+	const code = stripCommentsAndStringsForScan(sourceCode).replace(
+		/\/(?:\\\/|[^/\n])+\/[gimsuy]*/g,
+		" ",
+	);
 	const schemaIndicators = [
-		/CREATE\s+TABLE/i,
-		/ALTER\s+TABLE/i,
-		/@Entity|@Table|@Column/,
-		/model\s+\w+\s*\{/,
-		/mongoose\.Schema/,
-		/db\.Column|db\.relationship/i,
-		/sequelize\.define/i,
+		/(?:CREATE|ALTER|DROP)\s+TABLE\s+\w/i,
+		/@Entity\b|@Table\b|@Column\b/,
+		/\bmodel\s+[A-Za-z_]\w*\s*\{/,
+		/\bmongoose\.Schema\b/,
+		/\bdb\.(?:Column|relationship)\b/i,
+		/\bsequelize\.define\b/i,
 	];
-	return schemaIndicators.some((p) => p.test(sourceCode));
+	return schemaIndicators.some((p) => p.test(code));
 }
 
 /**
@@ -1828,7 +2003,7 @@ export async function getSchemaCoupling(
 		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 
 		// Only analyze if file has schema-related content
 		if (!isSchemaFile(sourceContent)) {
@@ -1844,11 +2019,14 @@ export async function getSchemaCoupling(
 		}
 
 		// Build search pattern for table/model references
-		const patterns = schemaNames.flatMap((name) => [
-			`\\b${name}\\b`,
-			`["'\`]${name.toLowerCase()}["'\`]`,
-			`["'\`]${name}["'\`]`,
-		]);
+		const patterns = schemaNames.flatMap((name) => {
+			const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			return [
+				`\\b${esc}\\b`,
+				`["'\`]${esc.toLowerCase()}["'\`]`,
+				`["'\`]${esc}["'\`]`,
+			];
+		});
 		const searchPattern = patterns.join("|");
 
 		const grepResult = await git
@@ -1858,6 +2036,21 @@ export async function getSchemaCoupling(
 				"-l",
 				"-E",
 				searchPattern,
+				"--",
+				"*.ts",
+				"*.tsx",
+				"*.js",
+				"*.jsx",
+				"*.prisma",
+				"*.sql",
+				"*.py",
+				"*.go",
+				":!**/node_modules/**",
+				":!**/.next/**",
+				":!**/dist/**",
+				":!**/_generated/**",
+				":!**/*test*",
+				":!**/*spec*",
 			])
 			.catch(() => "");
 
@@ -1975,7 +2168,7 @@ export async function getApiCoupling(
 		const relativePath = path.relative(repoRoot, filePath);
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 
 		// Only analyze if file defines API routes
 		if (!isApiDefinitionFile(sourceContent)) {
@@ -3300,6 +3493,8 @@ export async function analyzeFile(
 ): Promise<FileAnalysis> {
 	// Reuse a caller-provided context (so we don't re-init git/config) or build one.
 	const context = ctx ?? (await createAnalysisContext(targetPath));
+	// Warm the shared source cache once before engines fan out.
+	await readTargetSource(targetPath, context);
 
 	// Run every engine in parallel — identical set to the MCP analyze_file tool.
 	const [

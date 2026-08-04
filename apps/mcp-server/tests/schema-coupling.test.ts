@@ -144,6 +144,29 @@ describe("Schema/Model Coupling Engine (getSchemaCoupling)", () => {
 			const code = "function hello() { return 'world'; }";
 			expect(isSchemaFile(code)).toBe(false);
 		});
+
+		it("should ignore schema examples that only appear in comments", () => {
+			const code = `
+				// SQL: CREATE TABLE users, ALTER TABLE orders
+				// Prisma: model User {
+				// TypeORM: @Entity("users")
+				export function extractSchemaNames() { return []; }
+			`;
+			expect(isSchemaFile(code)).toBe(false);
+			expect(extractSchemaNames(code)).toEqual([]);
+		});
+
+		it("should not treat RegExp literals documenting schema patterns as schema code", () => {
+			const code = `
+				const schemaIndicators = [
+					/CREATE\\s+TABLE/i,
+					/@Entity|@Table|@Column/,
+					/model\\s+\\w+\\s*\\{/,
+				];
+				export function isSchemaFile() { return schemaIndicators; }
+			`;
+			expect(isSchemaFile(code)).toBe(false);
+		});
 	});
 
 	describe("getSchemaCoupling", () => {
