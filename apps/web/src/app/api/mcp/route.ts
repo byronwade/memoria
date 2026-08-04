@@ -21,7 +21,7 @@ const APP_URL =
 
 // CORS headers for MCP clients
 const corsHeaders = {
-	"Access-Control-Allow-Origin": "*",
+	"Access-Control-Allow-Origin": process.env.MEMORIA_ALLOWED_ORIGIN || "*",
 	"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 	"Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id",
 	"Access-Control-Expose-Headers": "Mcp-Session-Id",

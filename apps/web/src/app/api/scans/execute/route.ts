@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,13 @@ import { getInstallationToken } from "@/lib/github/auth";
 
 // Internal API key for server-to-server auth (fail closed if unset)
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
+
+function safeKeyEqual(provided: string, expected: string): boolean {
+	const a = Buffer.from(provided);
+	const b = Buffer.from(expected);
+	if (a.length !== b.length) return false;
+	return crypto.timingSafeEqual(a, b);
+}
 
 // Source code file extensions to analyze
 const SOURCE_EXTENSIONS = new Set([
@@ -101,9 +109,16 @@ interface FileAnalysisResult {
  * Execute a repository scan (called by Convex action or directly)
  */
 export async function POST(request: NextRequest) {
-	// Verify internal API key (reject if env unset or mismatch)
+	if (!INTERNAL_API_KEY) {
+		console.error("INTERNAL_API_KEY is not set; refusing to execute scan.");
+		return NextResponse.json(
+			{ error: "Server misconfigured" },
+			{ status: 503 },
+		);
+	}
+
 	const apiKey = request.headers.get("X-Internal-Key");
-	if (!INTERNAL_API_KEY || apiKey !== INTERNAL_API_KEY) {
+	if (!apiKey || !safeKeyEqual(apiKey, INTERNAL_API_KEY)) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
