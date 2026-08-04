@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -132,6 +132,48 @@ describe("API Endpoint Coupling Engine (getApiCoupling)", () => {
 			const code = "fetch('/api/users').then(res => res.json());";
 			expect(isApiDefinitionFile(code)).toBe(false);
 		});
+
+		it("should return false for Map/cache .get calls", () => {
+			const code = `
+				const cache = new Map();
+				if (cache.has(key)) return cache.get(key);
+				cache.set(key, value);
+			`;
+			expect(isApiDefinitionFile(code)).toBe(false);
+		});
+
+		it("should ignore route examples that only appear in comments", () => {
+			const code = `
+				// Also match route definitions: app.get("/users", ...), router.post("/auth"
+				export function extractApiEndpoints(sourceCode: string): string[] {
+					return [];
+				}
+			`;
+			expect(isApiDefinitionFile(code)).toBe(false);
+		});
+
+		it("should not treat Next.js useRouter as an API definition", () => {
+			const code = `
+				import { useRouter } from "next/navigation";
+				export function Nav() {
+					const router = useRouter();
+					return null;
+				}
+			`;
+			expect(isApiDefinitionFile(code)).toBe(false);
+		});
+	});
+
+	describe("extractApiEndpoints comment filtering", () => {
+		it("should not extract endpoints that only appear in comments", () => {
+			const code = `
+				// Match endpoint strings: "/api/users", "/v1/auth"
+				const handler = () => null;
+			`;
+			const endpoints = extractApiEndpoints(code);
+			expect(endpoints).not.toContain("/api/users");
+			expect(endpoints).not.toContain("/v1/auth");
+		});
 	});
 
 	describe("getApiCoupling", () => {
@@ -213,7 +255,15 @@ describe("API Endpoint Coupling Engine (getApiCoupling)", () => {
 
 			result.forEach((coupling: any) => {
 				expect(coupling.file).not.toBe("src/index.ts");
+				expect(path.basename(coupling.file)).not.toBe("index.ts");
 			});
+		});
+
+		it("should return empty for non-route engine source (no false API coupling)", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const result = await getApiCoupling(filePath);
+			// index.ts documents API patterns in comments/helpers but is not a route file
+			expect(result).toEqual([]);
 		});
 	});
 });

@@ -731,9 +731,40 @@ export function parseDiffToSummary(rawDiff: string): DiffSummary {
 }
 
 // Helper: Get a git instance for the specific file's directory
+// Prefer resolveGitContext() for grep-based engines — git grep paths are CWD-relative.
 export function getGitForFile(filePath: string) {
 	const dir = path.dirname(filePath);
 	return simpleGit(dir);
+}
+
+/**
+ * Resolve a git instance rooted at the repository (not the file's directory).
+ * git grep returns paths relative to CWD; they must be repo-root-relative so
+ * self-exclusion and ignore checks compare correctly.
+ */
+export async function resolveGitContext(
+	filePath: string,
+	ctx?: AnalysisContext | null,
+): Promise<{
+	git: ReturnType<typeof simpleGit>;
+	repoRoot: string;
+}> {
+	if (ctx) {
+		return { git: ctx.git, repoRoot: ctx.repoRoot };
+	}
+	const tempGit = getGitForFile(filePath);
+	const repoRoot = (await tempGit.revparse(["--show-toplevel"])).trim();
+	return { git: simpleGit(repoRoot), repoRoot };
+}
+
+/**
+ * Strip // and block comments for heuristic scanners (not a full parser).
+ * Avoids treating documentation examples as live API/route definitions.
+ */
+export function stripCommentsForScan(sourceCode: string): string {
+	return sourceCode
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/(^|[^:\\\w])\/\/.*$/gm, "$1");
 }
 
 // --- BINARY FILE DETECTION ---
@@ -942,11 +973,7 @@ export async function getCoupledFiles(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		// Use context if provided, otherwise initialize (backward compatibility)
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 
 		// Get project metrics and adaptive thresholds (with config overrides)
 		const metrics = ctx ? ctx.metrics : await getProjectMetrics(repoRoot);
@@ -1062,11 +1089,7 @@ export async function checkDrift(
 	try {
 		const sourceStats = await fs.stat(sourceFile);
 
-		// Use context if provided, otherwise initialize (backward compatibility)
-		const git = ctx ? ctx.git : getGitForFile(sourceFile);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(sourceFile, ctx);
 
 		// Get adaptive drift threshold (with config overrides)
 		const metrics = ctx ? ctx.metrics : await getProjectMetrics(repoRoot);
@@ -1114,11 +1137,7 @@ export async function getImporters(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		// Use context if provided, otherwise initialize (backward compatibility)
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 
 		// Get the filename without extension for import matching
 		const fileName = path.basename(filePath, path.extname(filePath));
@@ -1207,10 +1226,7 @@ export async function getDocsCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Read source file and extract exports
@@ -1311,10 +1327,7 @@ export async function getTypeCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Read source and extract type names
@@ -1427,10 +1440,7 @@ export async function getContentCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
@@ -1518,10 +1528,7 @@ export async function getTestCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Get basename without extension (login.ts -> login)
@@ -1642,6 +1649,9 @@ export function extractEnvVars(sourceCode: string): string[] {
 	const filtered = matches.filter((v) => {
 		// Must contain underscore (API_KEY, DATABASE_URL)
 		if (!v.includes("_")) return false;
+		// Reject incomplete prefixes listed in this file's own keepPrefixes
+		// (e.g. bare "API_" matching the prefix string itself)
+		if (v.endsWith("_")) return false;
 		// Skip common non-env constants
 		const skipPatterns = [
 			"HTTP_", "HTML_", "CSS_", "JSON_", "XML_", "UTF_",
@@ -1676,10 +1686,7 @@ export async function getEnvCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
@@ -1818,10 +1825,7 @@ export async function getSchemaCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
@@ -1911,11 +1915,13 @@ export async function getSchemaCoupling(
  */
 export function extractApiEndpoints(sourceCode: string): string[] {
 	const endpoints: string[] = [];
+	// Ignore comment examples like: // Match "/api/users", app.get("/users", ...)
+	const code = stripCommentsForScan(sourceCode);
 
 	// Match endpoint strings: "/api/users", "/v1/auth"
 	const endpointPattern = /["'`](\/(?:api|v\d+)\/[^"'`\s]+)["'`]/g;
 	let match: RegExpExecArray | null;
-	while ((match = endpointPattern.exec(sourceCode)) !== null) {
+	while ((match = endpointPattern.exec(code)) !== null) {
 		// Clean up dynamic segments: /api/users/:id -> /api/users/
 		const clean = match[1].replace(/:\w+/g, "").replace(/\/+$/, "");
 		if (clean.length > 4) endpoints.push(clean);
@@ -1923,14 +1929,14 @@ export function extractApiEndpoints(sourceCode: string): string[] {
 
 	// Also match route definitions: app.get("/users", ...), router.post("/auth"
 	const routePattern = /\.(get|post|put|delete|patch)\s*\(\s*["'`](\/[^"'`]+)["'`]/gi;
-	while ((match = routePattern.exec(sourceCode)) !== null) {
+	while ((match = routePattern.exec(code)) !== null) {
 		const clean = match[2].replace(/:\w+/g, "").replace(/\/+$/, "");
 		if (clean.length > 1) endpoints.push(clean);
 	}
 
 	// Decorator routes: @Get("/users"), @Post("/auth")
 	const decoratorPattern = /@(?:Get|Post|Put|Delete|Patch)\s*\(\s*["'`](\/[^"'`]*)["'`]/gi;
-	while ((match = decoratorPattern.exec(sourceCode)) !== null) {
+	while ((match = decoratorPattern.exec(code)) !== null) {
 		const clean = match[1].replace(/:\w+/g, "").replace(/\/+$/, "");
 		if (clean.length > 0) endpoints.push(clean || "/");
 	}
@@ -1942,15 +1948,16 @@ export function extractApiEndpoints(sourceCode: string): string[] {
  * Detect if a file defines API routes
  */
 export function isApiDefinitionFile(sourceCode: string): boolean {
+	const code = stripCommentsForScan(sourceCode);
+	// Avoid matching Map/cache .get( — require a route host (app/router/server)
+	// or an HTTP-method decorator / Next.js route export.
 	const apiIndicators = [
-		/\.(get|post|put|delete|patch)\s*\(/i,
+		/\b(?:app|router|server)\.(get|post|put|delete|patch)\s*\(/i,
 		/@(Get|Post|Put|Delete|Patch)\s*\(/,
-		/router\.(get|post|put|delete)/i,
-		/app\.(get|post|put|delete)/i,
-		/createRouter|useRouter/,
+		/\bcreateRouter\b/,
 		/export\s+(?:async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH)\b/, // Next.js API routes
 	];
-	return apiIndicators.some((p) => p.test(sourceCode));
+	return apiIndicators.some((p) => p.test(code));
 }
 
 /**
@@ -1964,10 +1971,7 @@ export async function getApiCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
@@ -2005,7 +2009,15 @@ export async function getApiCoupling(
 				.split("\n")
 				.map((f) => f.trim())
 				// Exclude docs/config — they mention API paths as examples, not as callers
-				.filter((f) => f && f !== relativePath && !shouldIgnoreFile(f, ig) && !/\.(md|txt|rst|mdc|mdx|json|ya?ml|toml)$/i.test(f));
+				// Exclude tests — they often hardcode example endpoints from fixtures/docs
+				.filter(
+					(f) =>
+						f &&
+						f !== relativePath &&
+						!shouldIgnoreFile(f, ig) &&
+						!/\.(md|txt|rst|mdc|mdx|json|ya?ml|toml)$/i.test(f) &&
+						!/\.(test|spec)\.[jt]sx?$/i.test(f),
+				);
 
 			for (const file of files) {
 				if (!allConsumers.has(file)) {
@@ -2017,8 +2029,10 @@ export async function getApiCoupling(
 
 		const results: EnhancedCoupledFile[] = [];
 		for (const [file, endpoints] of allConsumers) {
-			// Skip the source file itself and other route definition files
-			const fileContent = await fs.readFile(path.join(repoRoot, file), "utf8").catch(() => "");
+			// Skip unreadable paths and other route definition files
+			const absoluteConsumer = path.join(repoRoot, file);
+			const fileContent = await fs.readFile(absoluteConsumer, "utf8").catch(() => null);
+			if (fileContent === null) continue;
 			if (isApiDefinitionFile(fileContent)) continue;
 
 			results.push({
@@ -2051,10 +2065,7 @@ export async function getTransitiveCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Get filename without extension
@@ -3037,8 +3048,7 @@ export async function getVolatility(
 	const cacheKey = `volatility:${filePath}:${configKey}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
-	// Use context if provided, otherwise initialize (backward compatibility)
-	const git = ctx ? ctx.git : getGitForFile(filePath);
+	const { git } = await resolveGitContext(filePath, ctx);
 
 	// git.log throws on a repo with no commits yet ("does not have any commits
 	// yet"). Treat that — and any other log failure — as zero history, matching

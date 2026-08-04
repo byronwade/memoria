@@ -67,6 +67,18 @@ describe("Environment Variable Coupling Engine (getEnvCoupling)", () => {
 			expect(vars).toContain("API_KEY");
 		});
 
+		it("should reject incomplete prefix tokens like API_", () => {
+			const code = `
+				const keepPrefixes = ["API_", "DATABASE_", "DB_"];
+				const real = API_KEY;
+			`;
+			const vars = extractEnvVars(code);
+			expect(vars).not.toContain("API_");
+			expect(vars).not.toContain("DATABASE_");
+			expect(vars).not.toContain("DB_");
+			expect(vars).toContain("API_KEY");
+		});
+
 		it("should deduplicate variables", () => {
 			const code = `
 				const a = API_KEY;

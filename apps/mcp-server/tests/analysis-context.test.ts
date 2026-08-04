@@ -55,6 +55,28 @@ describe("AnalysisContext (Performance Optimization)", () => {
 			expect(typeof ctx.git.log).toBe("function");
 		});
 
+		it("should root git at repoRoot so grep paths are repo-relative", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const ctx = await createAnalysisContext(filePath);
+
+			const grepResult = await ctx.git
+				.raw(["--no-optional-locks", "grep", "-l", "-F", "createAnalysisContext"])
+				.catch(() => "");
+			const hits = grepResult
+				.split("\n")
+				.map((line: string) => line.trim())
+				.filter(Boolean);
+
+			expect(hits.length).toBeGreaterThan(0);
+			// Must not return bare basenames like "index.ts" (file-dir CWD bug)
+			expect(hits.every((f: string) => f.includes("/") || f.includes("\\"))).toBe(
+				true,
+			);
+			expect(hits.some((f: string) => f.endsWith("src/index.ts") || f.endsWith("src\\index.ts"))).toBe(
+				true,
+			);
+		});
+
 		it("should have ignore filter with ignores method", async () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 			const ctx = await createAnalysisContext(filePath);
