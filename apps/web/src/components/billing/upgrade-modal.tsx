@@ -68,6 +68,10 @@ export function UpgradeModal({
 				}),
 			});
 
+			if (!response.ok) {
+				throw new Error(`Checkout failed (${response.status})`);
+			}
+
 			const data = await response.json();
 			if (data.url) {
 				window.location.href = data.url;
@@ -79,7 +83,7 @@ export function UpgradeModal({
 		}
 	};
 
-	const getMessage = () => {
+	const getPlanPrompt = () => {
 		switch (reason) {
 			case "repo_limit":
 				return "You've reached your repository limit. Upgrade to add more repositories.";
@@ -97,16 +101,22 @@ export function UpgradeModal({
 			<DialogContent className="max-w-2xl">
 				<DialogHeader>
 					<DialogTitle>Upgrade Your Plan</DialogTitle>
-					<DialogDescription>{getMessage()}</DialogDescription>
+					<DialogDescription>
+						<span role="status" aria-live="polite">
+							{getPlanPrompt()}
+						</span>
+					</DialogDescription>
 				</DialogHeader>
 
 				<div className="grid md:grid-cols-2 gap-4 py-4">
 					{plans.map((plan) => (
-						<div
+						<button
+							type="button"
 							key={plan.tier}
 							onClick={() => setSelectedPlan(plan.tier)}
+							aria-pressed={selectedPlan === plan.tier}
 							className={cn(
-								"relative p-4 rounded-lg border-2 cursor-pointer transition-all",
+								"relative p-4 rounded-lg border-2 cursor-pointer transition-all text-left",
 								selectedPlan === plan.tier
 									? "border-primary bg-primary/5"
 									: "border-border hover:border-primary/50",
@@ -138,7 +148,7 @@ export function UpgradeModal({
 									</li>
 								))}
 							</ul>
-						</div>
+						</button>
 					))}
 				</div>
 
@@ -148,9 +158,12 @@ export function UpgradeModal({
 					</Button>
 					<Button onClick={handleUpgrade} disabled={isLoading}>
 						{isLoading ? (
-							<Loader2 className="w-4 h-4 mr-2 animate-spin" />
+							<Loader2
+								data-icon="inline-start"
+								className="w-4 h-4 mr-2 animate-spin"
+							/>
 						) : (
-							<CreditCard className="w-4 h-4 mr-2" />
+							<CreditCard data-icon="inline-start" className="w-4 h-4 mr-2" />
 						)}
 						Continue to Payment
 					</Button>

@@ -286,6 +286,11 @@ export default function GuardrailsPage() {
 
 	return (
 		<div className="pb-16">
+			<div className="sr-only" role="status" aria-live="polite">
+				{guardrailStats
+					? `${guardrailStats.total} guardrails, ${guardrailStats.enabled ?? 0} enabled`
+					: "Guardrails"}
+			</div>
 			{/* Header */}
 			<div className="max-w-6xl mx-auto px-4 md:px-6 pt-8">
 				<div className="flex items-center justify-between">
@@ -298,7 +303,7 @@ export default function GuardrailsPage() {
 						</p>
 					</div>
 					<Button onClick={handleOpenCreate}>
-						<Plus className="h-4 w-4 mr-2" />
+						<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 						Add Guardrail
 					</Button>
 				</div>
@@ -437,7 +442,7 @@ export default function GuardrailsPage() {
 								setFilterRepo(null);
 							}}
 						>
-							<X className="h-3.5 w-3.5 mr-1" />
+							<X data-icon="inline-start" className="h-3.5 w-3.5 mr-1" />
 							Clear
 						</Button>
 					)}
@@ -514,7 +519,7 @@ export default function GuardrailsPage() {
 								: "Create your first guardrail to protect critical files from AI modifications."}
 						</p>
 						<Button onClick={handleOpenCreate}>
-							<Plus className="h-4 w-4 mr-2" />
+							<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 							Create Guardrail
 						</Button>
 					</div>
@@ -535,8 +540,8 @@ export default function GuardrailsPage() {
 						setPattern={setFormPattern}
 						level={formLevel}
 						setLevel={setFormLevel}
-						message={formMessage}
-						setMessage={setFormMessage}
+						warningText={formMessage}
+						setWarningText={setFormMessage}
 						repoId={formRepoId}
 						setRepoId={setFormRepoId}
 						enabled={formEnabled}
@@ -549,7 +554,10 @@ export default function GuardrailsPage() {
 						</Button>
 						<Button onClick={handleCreate} disabled={isSubmitting}>
 							{isSubmitting && (
-								<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
 							)}
 							Create Guardrail
 						</Button>
@@ -574,8 +582,8 @@ export default function GuardrailsPage() {
 						setPattern={setFormPattern}
 						level={formLevel}
 						setLevel={setFormLevel}
-						message={formMessage}
-						setMessage={setFormMessage}
+						warningText={formMessage}
+						setWarningText={setFormMessage}
 						repoId={formRepoId}
 						setRepoId={setFormRepoId}
 						enabled={formEnabled}
@@ -588,7 +596,10 @@ export default function GuardrailsPage() {
 						</Button>
 						<Button onClick={handleUpdate} disabled={isSubmitting}>
 							{isSubmitting && (
-								<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
 							)}
 							Save Changes
 						</Button>
@@ -632,7 +643,10 @@ export default function GuardrailsPage() {
 							disabled={isSubmitting}
 						>
 							{isSubmitting && (
-								<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
 							)}
 							Delete Guardrail
 						</Button>
@@ -696,7 +710,10 @@ function GuardrailRow({
 						</span>
 					)}
 					{!guardrail.isEnabled && (
-						<span className="px-1.5 py-0.5 text-[10px] bg-secondary/50 text-muted-foreground rounded-sm">
+						<span
+							role="status"
+							className="px-1.5 py-0.5 text-[10px] bg-secondary/50 text-muted-foreground rounded-sm"
+						>
 							DISABLED
 						</span>
 					)}
@@ -719,7 +736,12 @@ function GuardrailRow({
 					onCheckedChange={() => onToggle(guardrail)}
 					aria-label={`Toggle ${guardrail.pattern}`}
 				/>
-				<Button variant="ghost" size="sm" onClick={() => onEdit(guardrail)}>
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={() => onEdit(guardrail)}
+					aria-label={`Edit guardrail ${guardrail.pattern}`}
+				>
 					<Edit2 className="h-4 w-4" />
 				</Button>
 				<Button
@@ -727,6 +749,7 @@ function GuardrailRow({
 					size="sm"
 					className="text-destructive hover:text-destructive hover:bg-destructive/10"
 					onClick={() => onDelete(guardrail)}
+					aria-label={`Delete guardrail ${guardrail.pattern}`}
 				>
 					<Trash2 className="h-4 w-4" />
 				</Button>
@@ -741,8 +764,8 @@ interface GuardrailFormProps {
 	setPattern: (v: string) => void;
 	level: GuardrailLevel;
 	setLevel: (v: GuardrailLevel) => void;
-	message: string;
-	setMessage: (v: string) => void;
+	warningText: string;
+	setWarningText: (v: string) => void;
 	repoId: string | undefined;
 	setRepoId: (v: string | undefined) => void;
 	enabled: boolean;
@@ -755,8 +778,8 @@ function GuardrailForm({
 	setPattern,
 	level,
 	setLevel,
-	message,
-	setMessage,
+	warningText,
+	setWarningText,
 	repoId,
 	setRepoId,
 	enabled,
@@ -813,11 +836,11 @@ function GuardrailForm({
 			</div>
 
 			<div className="space-y-2">
-				<Label htmlFor="message">Message</Label>
+				<Label htmlFor="warningText">Message</Label>
 				<Textarea
-					id="message"
-					value={message}
-					onChange={(e) => setMessage(e.target.value)}
+					id="warningText"
+					value={warningText}
+					onChange={(e) => setWarningText(e.target.value)}
 					placeholder="Explain why this pattern is protected..."
 					rows={3}
 				/>
@@ -866,7 +889,11 @@ function GuardrailForm({
 						This guardrail is currently active
 					</div>
 				</div>
-				<Switch checked={enabled} onCheckedChange={setEnabled} />
+				<Switch
+					checked={enabled}
+					onCheckedChange={setEnabled}
+					aria-label="Enable guardrail"
+				/>
 			</div>
 		</div>
 	);

@@ -27,6 +27,11 @@ export const triggerScan = internalAction({
 				status: "running",
 			});
 
+			const internalApiKey = process.env.INTERNAL_API_KEY;
+			if (!internalApiKey) {
+				throw new Error("INTERNAL_API_KEY is not configured");
+			}
+
 			// Call the web API to perform the actual scan
 			// The API will clone the repo, run analysis, and store results via Convex
 			const response = await fetch(`${apiBaseUrl}/api/scans/execute`, {
@@ -34,7 +39,7 @@ export const triggerScan = internalAction({
 				headers: {
 					"Content-Type": "application/json",
 					// Internal API key for server-to-server auth
-					"X-Internal-Key": process.env.INTERNAL_API_KEY || "memoria-internal",
+					"X-Internal-Key": internalApiKey,
 				},
 				body: JSON.stringify({
 					scanId,

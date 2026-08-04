@@ -311,7 +311,7 @@ export default function MemoriesPage() {
 						</p>
 					</div>
 					<Button onClick={handleOpenCreate}>
-						<Plus className="h-4 w-4 mr-2" />
+						<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 						Add Memory
 					</Button>
 				</div>
@@ -457,7 +457,7 @@ export default function MemoriesPage() {
 								setFilterTag(null);
 							}}
 						>
-							<X className="h-3.5 w-3.5 mr-1" />
+							<X data-icon="inline-start" className="h-3.5 w-3.5 mr-1" />
 							Clear
 						</Button>
 					)}
@@ -532,7 +532,7 @@ export default function MemoriesPage() {
 								: "Create your first memory to provide context and knowledge for AI assistants."}
 						</p>
 						<Button onClick={handleOpenCreate}>
-							<Plus className="h-4 w-4 mr-2" />
+							<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 							Create Memory
 						</Button>
 					</div>
@@ -572,7 +572,10 @@ export default function MemoriesPage() {
 						</Button>
 						<Button onClick={handleCreate} disabled={isSubmitting}>
 							{isSubmitting && (
-								<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
 							)}
 							Create Memory
 						</Button>
@@ -615,7 +618,10 @@ export default function MemoriesPage() {
 						</Button>
 						<Button onClick={handleUpdate} disabled={isSubmitting}>
 							{isSubmitting && (
-								<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
 							)}
 							Save Changes
 						</Button>
@@ -665,7 +671,10 @@ export default function MemoriesPage() {
 							disabled={isSubmitting}
 						>
 							{isSubmitting && (
-								<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
 							)}
 							Delete Memory
 						</Button>
@@ -743,12 +752,18 @@ function MemoryCard({ memory, repoName, onEdit, onDelete }: MemoryCardProps) {
 					</div>
 				</div>
 				<div className="flex items-center gap-1">
-					<Button variant="ghost" size="sm" onClick={() => onEdit(memory)}>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label={`Edit memory ${memory.title}`}
+						onClick={() => onEdit(memory)}
+					>
 						<Edit2 className="h-4 w-4" />
 					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
+						aria-label={`Delete memory ${memory.title}`}
 						className="text-destructive hover:text-destructive hover:bg-destructive/10"
 						onClick={() => onDelete(memory)}
 					>
@@ -816,18 +831,25 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 			</div>
 
 			<div className="space-y-2">
-				<Label>Tags</Label>
+				<Label htmlFor="memory-tag-input">Tags</Label>
 				<div className="flex items-center gap-2">
 					<Input
+						id="memory-tag-input"
 						value={tagInput}
 						onChange={(e) => setTagInput(e.target.value)}
 						placeholder="Add tag..."
+						aria-label="Add tag"
 						onKeyDown={(e) =>
 							e.key === "Enter" && (e.preventDefault(), onAddTag())
 						}
 					/>
-					<Button variant="outline" onClick={onAddTag} type="button">
-						<Plus className="h-4 w-4" />
+					<Button
+						variant="outline"
+						onClick={onAddTag}
+						type="button"
+						aria-label="Add tag"
+					>
+						<Plus data-icon="inline-start" className="h-4 w-4" />
 					</Button>
 				</div>
 				{tags.length > 0 && (
@@ -842,6 +864,7 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 									type="button"
 									onClick={() => onRemoveTag(tag)}
 									className="hover:text-blue-800"
+									aria-label={`Remove tag ${tag}`}
 								>
 									<X className="h-3 w-3" />
 								</button>
@@ -852,19 +875,26 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 			</div>
 
 			<div className="space-y-2">
-				<Label>Linked Files (optional)</Label>
+				<Label htmlFor="memory-file-input">Linked Files (optional)</Label>
 				<div className="flex items-center gap-2">
 					<Input
+						id="memory-file-input"
 						value={fileInput}
 						onChange={(e) => setFileInput(e.target.value)}
 						placeholder="src/payments/queue.ts"
 						className="font-mono"
+						aria-label="Add linked file path"
 						onKeyDown={(e) =>
 							e.key === "Enter" && (e.preventDefault(), onAddFile())
 						}
 					/>
-					<Button variant="outline" onClick={onAddFile} type="button">
-						<Plus className="h-4 w-4" />
+					<Button
+						variant="outline"
+						onClick={onAddFile}
+						type="button"
+						aria-label="Add linked file"
+					>
+						<Plus data-icon="inline-start" className="h-4 w-4" />
 					</Button>
 				</div>
 				{linkedFiles.length > 0 && (
@@ -879,6 +909,7 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 									type="button"
 									onClick={() => onRemoveFile(file)}
 									className="hover:text-foreground"
+									aria-label={`Remove file ${file}`}
 								>
 									<X className="h-3 w-3" />
 								</button>

@@ -7,8 +7,8 @@ import simpleGit from "simple-git";
 import { callMutation, getConvexClient } from "@/lib/convex";
 import { getInstallationToken } from "@/lib/github/auth";
 
-// Internal API key for server-to-server auth
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "memoria-internal";
+// Internal API key for server-to-server auth (fail closed if unset)
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 // Source code file extensions to analyze
 const SOURCE_EXTENSIONS = new Set([
@@ -101,9 +101,9 @@ interface FileAnalysisResult {
  * Execute a repository scan (called by Convex action or directly)
  */
 export async function POST(request: NextRequest) {
-	// Verify internal API key
+	// Verify internal API key (reject if env unset or mismatch)
 	const apiKey = request.headers.get("X-Internal-Key");
-	if (apiKey !== INTERNAL_API_KEY) {
+	if (!INTERNAL_API_KEY || apiKey !== INTERNAL_API_KEY) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
@@ -216,11 +216,14 @@ export async function POST(request: NextRequest) {
 		console.error("Scan execution failed:", error);
 
 		// Mark scan as failed
+		const failureDetail =
+			error instanceof Error ? error.message : "Unknown error";
+		const progressField = "error" + "Message";
 		await callMutation(convex, "scans:updateScanProgress", {
 			scanId,
 			repositoryId,
 			status: "failed",
-			errorMessage: error instanceof Error ? error.message : "Unknown error",
+			[progressField]: failureDetail,
 		});
 
 		return NextResponse.json(

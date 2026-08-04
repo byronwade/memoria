@@ -418,7 +418,10 @@ export function OnboardingFlow({
 										className="w-full"
 										onClick={handleConnectGitHub}
 									>
-										<ExternalLink className="w-4 h-4 mr-2" />
+										<ExternalLink
+											data-icon="inline-start"
+											className="w-4 h-4 mr-2"
+										/>
 										Reopen GitHub Tab
 									</Button>
 								</div>
@@ -431,7 +434,10 @@ export function OnboardingFlow({
 								>
 									<Github className="w-4 h-4 mr-2" />
 									Install GitHub App
-									<ExternalLink className="w-4 h-4 ml-2" />
+									<ExternalLink
+										data-icon="inline-end"
+										className="w-4 h-4 ml-2"
+									/>
 								</Button>
 							)}
 
@@ -448,7 +454,10 @@ export function OnboardingFlow({
 										onClick={() => setCurrentStep("plan")}
 										className="w-full"
 									>
-										<ChevronLeft className="w-4 h-4 mr-2" />
+										<ChevronLeft
+											data-icon="inline-start"
+											className="w-4 h-4 mr-2"
+										/>
 										Change Plan
 									</Button>
 								</div>
@@ -479,6 +488,7 @@ export function OnboardingFlow({
 									<div className="relative">
 										<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
 										<Input
+											aria-label="Search repositories"
 											placeholder="Search repositories..."
 											value={repoSearch}
 											onChange={(e) => setRepoSearch(e.target.value)}
@@ -506,15 +516,17 @@ export function OnboardingFlow({
 													.includes(repoSearch.toLowerCase()),
 											)
 											.map((repo) => (
-												<div
+												<button
+													type="button"
 													key={repo._id}
 													onClick={() => handleToggleRepo(repo._id)}
 													className={cn(
-														"flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+														"flex w-full items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors text-left",
 														selectedRepos.has(repo._id)
 															? "border-primary bg-primary/5"
 															: "border-border hover:border-primary/50",
 													)}
+													aria-pressed={selectedRepos.has(repo._id)}
 												>
 													<div
 														className={cn(
@@ -538,7 +550,7 @@ export function OnboardingFlow({
 															)}
 														</div>
 													</div>
-												</div>
+												</button>
 											))}
 									</div>
 								</>
@@ -550,10 +562,17 @@ export function OnboardingFlow({
 									onClick={() => setCurrentStep("connect")}
 									disabled={isLoading}
 								>
-									<ChevronLeft className="w-4 h-4 mr-2" />
+									<ChevronLeft
+										data-icon="inline-start"
+										className="w-4 h-4 mr-2"
+									/>
 									Back
 								</Button>
-								<span className="text-sm text-muted-foreground">
+								<span
+									className="text-sm text-muted-foreground"
+									role="status"
+									aria-live="polite"
+								>
 									{selectedRepos.size} / {getPlanRepoLimit()} selected
 								</span>
 								<Button
@@ -561,10 +580,16 @@ export function OnboardingFlow({
 									disabled={selectedRepos.size === 0 || isLoading}
 								>
 									{isLoading ? (
-										<Loader2 className="w-4 h-4 mr-2 animate-spin" />
+										<Loader2
+											data-icon="inline-start"
+											className="w-4 h-4 mr-2 animate-spin"
+										/>
 									) : null}
 									Complete Setup
-									<ChevronRight className="w-4 h-4 ml-2" />
+									<ChevronRight
+										data-icon="inline-end"
+										className="w-4 h-4 ml-2"
+									/>
 								</Button>
 							</div>
 						</CardContent>
@@ -724,16 +749,22 @@ export function OnboardingFlow({
 								disabled={isLoading}
 							>
 								{isLoading ? (
-									<Loader2 className="w-4 h-4 mr-2 animate-spin" />
+									<Loader2
+										data-icon="inline-start"
+										className="w-4 h-4 mr-2 animate-spin"
+									/>
 								) : selectedPlan === "free" ? (
 									<Rocket className="w-4 h-4 mr-2" />
 								) : (
-									<CreditCard className="w-4 h-4 mr-2" />
+									<CreditCard
+										data-icon="inline-start"
+										className="w-4 h-4 mr-2"
+									/>
 								)}
 								{selectedPlan === "free"
 									? "Continue with Free"
 									: "Continue to Payment"}
-								<ChevronRight className="w-4 h-4 ml-2" />
+								<ChevronRight data-icon="inline-end" className="w-4 h-4 ml-2" />
 							</Button>
 						</div>
 

@@ -1312,6 +1312,8 @@ function Pagination({
 			</div>
 			<div className="flex items-center gap-2">
 				<button
+					type="button"
+					aria-label="Previous page"
 					onClick={() => onPageChange(currentPage - 1)}
 					disabled={currentPage === 1}
 					className={cn(
@@ -1321,7 +1323,7 @@ function Pagination({
 							: "hover:bg-secondary hover:border-border",
 					)}
 				>
-					<ChevronLeft className="h-4 w-4" />
+					<ChevronLeft data-icon="inline-start" className="h-4 w-4" />
 				</button>
 				<div className="flex items-center gap-1">
 					{/* Show first page */}
@@ -1374,6 +1376,8 @@ function Pagination({
 					)}
 				</div>
 				<button
+					type="button"
+					aria-label="Next page"
 					onClick={() => onPageChange(currentPage + 1)}
 					disabled={currentPage === totalPages}
 					className={cn(
@@ -1665,49 +1669,54 @@ export default function RepositoryDetailPage() {
 	useEffect(() => {
 		if (!contextRepo?._id) return;
 
+		let cancelled = false;
+
 		const fetchScanStatus = async () => {
 			try {
 				const response = await fetch(
 					`/api/repositories/${contextRepo._id}/scan`,
 				);
-				if (response.ok) {
-					const data = await response.json();
-					const newStatus = data.status || "none";
+				if (!response.ok || cancelled) return;
+				const data = await response.json();
+				if (cancelled) return;
+				const newStatus = data.status || "none";
 
-					// Detect when scan just completed - reload page to get fresh data
-					if (
-						(prevScanStatusRef.current === "running" ||
-							prevScanStatusRef.current === "pending") &&
-						newStatus === "completed"
-					) {
-						// Short delay to ensure database is updated, then reload
-						setTimeout(() => {
-							window.location.reload();
-						}, 500);
-					}
-
-					prevScanStatusRef.current = newStatus;
-					setScanStatus({
-						status: newStatus,
-						progress: data.progress || 0,
-						processedFiles: data.processedFiles || 0,
-						totalFiles: data.totalFiles || 0,
-					});
+				// Detect when scan just completed - reload page to get fresh data
+				if (
+					(prevScanStatusRef.current === "running" ||
+						prevScanStatusRef.current === "pending") &&
+					newStatus === "completed"
+				) {
+					window.location.reload();
+					return;
 				}
+
+				prevScanStatusRef.current = newStatus;
+				setScanStatus({
+					status: newStatus,
+					progress: data.progress || 0,
+					processedFiles: data.processedFiles || 0,
+					totalFiles: data.totalFiles || 0,
+				});
 			} catch (error) {
-				console.error("Failed to fetch scan status:", error);
+				if (!cancelled) {
+					console.error("Failed to fetch scan status:", error);
+				}
 			}
 		};
 
 		// Initial fetch
-		fetchScanStatus();
+		void fetchScanStatus();
 
 		// Poll every 2 seconds while scanning
 		const interval = setInterval(() => {
-			fetchScanStatus();
+			void fetchScanStatus();
 		}, 2000);
 
-		return () => clearInterval(interval);
+		return () => {
+			cancelled = true;
+			clearInterval(interval);
+		};
 	}, [contextRepo?._id]);
 
 	// Stop polling when scan completes
@@ -2115,7 +2124,7 @@ export default function RepositoryDetailPage() {
 								</EmptyHeader>
 								<Button variant="default" className="mt-4" asChild>
 									<a href="/dashboard/guardrails">
-										<Plus className="h-4 w-4 mr-2" />
+										<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 										Add Guardrail
 									</a>
 								</Button>
@@ -2196,7 +2205,10 @@ export default function RepositoryDetailPage() {
 								<div className="pt-4 border-t border-border/50 mt-6">
 									<Button variant="outline" size="sm" asChild>
 										<a href="/dashboard/guardrails">
-											<Plus className="h-4 w-4 mr-1.5" />
+											<Plus
+												data-icon="inline-start"
+												className="h-4 w-4 mr-1.5"
+											/>
 											Add Guardrail
 										</a>
 									</Button>
@@ -2224,7 +2236,7 @@ export default function RepositoryDetailPage() {
 								</EmptyHeader>
 								<Button variant="default" className="mt-4" asChild>
 									<a href="/dashboard/memories/new">
-										<Plus className="h-4 w-4 mr-2" />
+										<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 										Add Memory
 									</a>
 								</Button>
@@ -2310,7 +2322,10 @@ export default function RepositoryDetailPage() {
 								<div className="pt-4 border-t border-border/50 mt-6">
 									<Button variant="outline" size="sm" asChild>
 										<a href="/dashboard/memories/new">
-											<Plus className="h-4 w-4 mr-1.5" />
+											<Plus
+												data-icon="inline-start"
+												className="h-4 w-4 mr-1.5"
+											/>
 											Add Memory
 										</a>
 									</Button>

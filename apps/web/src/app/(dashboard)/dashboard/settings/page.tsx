@@ -65,6 +65,7 @@ export default function SettingsPage() {
 	const [newTokenName, setNewTokenName] = useState("");
 	const [showNewToken, setShowNewToken] = useState<string | null>(null);
 	const [_copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
+	const [copyingToken, setCopyingToken] = useState(false);
 	const [revokingTokenId, setRevokingTokenId] = useState<string | null>(null);
 	const newTokenRef = useRef<HTMLInputElement>(null);
 
@@ -72,7 +73,7 @@ export default function SettingsPage() {
 	const [loadingInstallations, setLoadingInstallations] = useState(true);
 	const [updatingRepo, setUpdatingRepo] = useState<string | null>(null);
 	const [repoStatuses, setRepoStatuses] = useState<Record<string, boolean>>({});
-	const [isRefreshing, startRefreshTransition] = useTransition();
+	const [isPending, startTransition] = useTransition();
 
 	// Initialize repo statuses from repositories
 	useEffect(() => {
@@ -169,6 +170,7 @@ export default function SettingsPage() {
 	// Copy token to clipboard
 	const handleCopyToken = useCallback(
 		async (token: string, tokenId?: string) => {
+			setCopyingToken(true);
 			try {
 				await navigator.clipboard.writeText(token);
 				if (tokenId) {
@@ -179,6 +181,8 @@ export default function SettingsPage() {
 			} catch (error) {
 				console.error("Failed to copy:", error);
 				toast.error("Failed to copy");
+			} finally {
+				setCopyingToken(false);
 			}
 		},
 		[],
@@ -254,7 +258,7 @@ export default function SettingsPage() {
 						},
 					);
 					// Refresh the page to get updated context with transition
-					startRefreshTransition(() => {
+					startTransition(() => {
 						router.refresh();
 					});
 				}
@@ -368,6 +372,7 @@ export default function SettingsPage() {
 								<Input
 									id="email"
 									type="email"
+									autoComplete="email"
 									defaultValue={user.email}
 									disabled
 								/>
@@ -566,7 +571,7 @@ export default function SettingsPage() {
 													</div>
 												</div>
 												<div className="flex items-center gap-3">
-													{isUpdating || isRefreshing ? (
+													{isUpdating || isPending ? (
 														<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
 													) : (
 														<Switch
@@ -578,7 +583,9 @@ export default function SettingsPage() {
 																	repo.fullName,
 																)
 															}
-															disabled={cannotActivate || isRefreshing}
+															disabled={
+																cannotActivate || isPending || isUpdating
+															}
 															aria-label={`Toggle monitoring for ${repo.fullName}`}
 														/>
 													)}
@@ -617,9 +624,15 @@ export default function SettingsPage() {
 													target="_blank"
 													rel="noopener noreferrer"
 												>
-													<Plus className="h-4 w-4 mr-1.5" />
+													<Plus
+														data-icon="inline-start"
+														className="h-4 w-4 mr-1.5"
+													/>
 													Add More Repositories
-													<ExternalLink className="h-3 w-3 ml-1.5 opacity-50" />
+													<ExternalLink
+														data-icon="inline-end"
+														className="h-3 w-3 ml-1.5 opacity-50"
+													/>
 												</a>
 											</Button>
 											<p className="text-xs text-muted-foreground mt-2">
@@ -688,7 +701,7 @@ export default function SettingsPage() {
 							<div className="flex flex-col gap-2">
 								<Button size="sm" asChild>
 									<a href="/pricing">
-										<Zap className="h-4 w-4 mr-1.5" />
+										<Zap data-icon="inline-start" className="h-4 w-4 mr-1.5" />
 										Upgrade Plan
 									</a>
 								</Button>
@@ -829,7 +842,11 @@ export default function SettingsPage() {
 									</div>
 								</div>
 							</div>
-							<Switch defaultChecked disabled />
+							<Switch
+								defaultChecked
+								disabled
+								aria-label="Email Notifications"
+							/>
 						</div>
 
 						<div className="h-px bg-border/50" />
@@ -845,7 +862,7 @@ export default function SettingsPage() {
 									</div>
 								</div>
 							</div>
-							<Switch defaultChecked disabled />
+							<Switch defaultChecked disabled aria-label="PR Comments" />
 						</div>
 
 						<div className="h-px bg-border/50" />
@@ -861,7 +878,7 @@ export default function SettingsPage() {
 									</div>
 								</div>
 							</div>
-							<Switch disabled />
+							<Switch disabled aria-label="Weekly Digest" />
 						</div>
 
 						<div className="h-px bg-border/50" />
@@ -877,7 +894,7 @@ export default function SettingsPage() {
 									</div>
 								</div>
 							</div>
-							<Switch disabled />
+							<Switch disabled aria-label="Product Updates" />
 						</div>
 					</div>
 				</section>
@@ -953,7 +970,7 @@ export default function SettingsPage() {
 								disabled
 							>
 								Manage
-								<ChevronRight className="h-4 w-4 ml-1" />
+								<ChevronRight data-icon="inline-end" className="h-4 w-4 ml-1" />
 							</Button>
 						</div>
 					</div>
@@ -1012,6 +1029,7 @@ export default function SettingsPage() {
 										ref={newTokenRef}
 										value={showNewToken}
 										readOnly
+										aria-label="Newly created API token"
 										className="font-mono text-sm bg-background"
 										onClick={() => newTokenRef.current?.select()}
 									/>
@@ -1019,8 +1037,14 @@ export default function SettingsPage() {
 										variant="outline"
 										size="sm"
 										onClick={() => handleCopyToken(showNewToken)}
+										disabled={copyingToken}
+										aria-label="Copy token"
 									>
-										<Copy className="h-4 w-4" />
+										{copyingToken ? (
+											<Loader2 className="h-4 w-4 animate-spin" />
+										) : (
+											<Copy className="h-4 w-4" />
+										)}
 									</Button>
 								</div>
 								<div className="mt-3 p-2 bg-background/50 border border-border/50 rounded-sm">
@@ -1058,12 +1082,13 @@ export default function SettingsPage() {
 									onClick={handleCreateToken}
 									disabled={creatingToken || !newTokenName.trim()}
 									size="sm"
+									aria-busy={creatingToken}
 								>
 									{creatingToken ? (
 										<Loader2 className="h-4 w-4 animate-spin" />
 									) : (
 										<>
-											<Plus className="h-4 w-4 mr-1" />
+											<Plus data-icon="inline-start" className="h-4 w-4 mr-1" />
 											Create
 										</>
 									)}
@@ -1137,6 +1162,8 @@ export default function SettingsPage() {
 														handleRevokeToken(token._id, token.name)
 													}
 													disabled={revokingTokenId === token._id}
+													aria-label={`Revoke token ${token.name}`}
+													aria-busy={revokingTokenId === token._id}
 												>
 													{revokingTokenId === token._id ? (
 														<Loader2 className="h-4 w-4 animate-spin" />

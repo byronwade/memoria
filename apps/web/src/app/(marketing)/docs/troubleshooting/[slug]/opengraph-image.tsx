@@ -7,9 +7,14 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const alt = "Memoria Troubleshooting";
 
-export default async function Image({ params }: { params: { slug: string } }) {
+export default async function Image({
+	params,
+}: {
+	params: Promise<{ slug: string }>;
+}) {
+	const { slug } = await params;
 	const geistFont = await loadGeistFont();
-	const item = getTroubleshootingBySlug(params.slug);
+	const item = getTroubleshootingBySlug(slug);
 
 	const title = item?.shortTitle || "Troubleshooting";
 	const description = item?.description || "Common issues and solutions";

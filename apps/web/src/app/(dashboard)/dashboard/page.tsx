@@ -39,9 +39,9 @@ export default async function DashboardPage() {
 			</p>
 			<Button asChild size="lg">
 				<Link href="/onboarding">
-					<Plus className="h-5 w-5 mr-2" />
+					<Plus data-icon="inline-start" className="h-5 w-5 mr-2" />
 					Connect Repository
-					<ArrowRight className="h-4 w-4 ml-2" />
+					<ArrowRight data-icon="inline-end" className="h-4 w-4 ml-2" />
 				</Link>
 			</Button>
 		</div>

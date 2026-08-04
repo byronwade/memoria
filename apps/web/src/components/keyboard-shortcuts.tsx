@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useTheme } from "next-themes";
+import { useEffect, useMemo, useState } from "react";
 import {
 	Dialog,
 	DialogContent,
@@ -25,48 +26,75 @@ export function KeyboardShortcuts({
 	shortcuts: customShortcuts = [],
 }: KeyboardShortcutsProps) {
 	const router = useRouter();
+	const { resolvedTheme, setTheme } = useTheme();
 	const [showHelp, setShowHelp] = useState(false);
 
-	const defaultShortcuts: Shortcut[] = [
-		{
-			key: "g",
-			description: "Go to dashboard",
-			modifiers: ["meta"],
-			action: () => router.push("/dashboard"),
-		},
-		{
-			key: "s",
-			description: "Go to settings",
-			modifiers: ["meta"],
-			action: () => router.push("/dashboard/settings"),
-		},
-		{
-			key: "/",
-			description: "Show keyboard shortcuts",
-			action: () => setShowHelp(true),
-		},
-		{
-			key: "Escape",
-			description: "Close dialogs",
-			action: () => setShowHelp(false),
-		},
-	];
+	const allShortcuts = useMemo(() => {
+		const defaultShortcuts: Shortcut[] = [
+			{
+				key: "g",
+				description: "Go to dashboard",
+				modifiers: ["meta"],
+				action: () => router.push("/dashboard"),
+			},
+			{
+				key: "s",
+				description: "Go to settings",
+				modifiers: ["meta"],
+				action: () => router.push("/dashboard/settings"),
+			},
+			{
+				key: "d",
+				description: "Toggle theme",
+				modifiers: ["meta", "shift"],
+				action: () => setTheme(resolvedTheme === "dark" ? "light" : "dark"),
+			},
+			{
+				key: "/",
+				description: "Show keyboard shortcuts",
+				action: () => setShowHelp(true),
+			},
+			{
+				key: "Escape",
+				description: "Close dialogs",
+				action: () => setShowHelp(false),
+			},
+		];
+		return [...defaultShortcuts, ...customShortcuts];
+	}, [customShortcuts, router, resolvedTheme, setTheme]);
 
-	const allShortcuts = [...defaultShortcuts, ...customShortcuts];
-
-	const handleKeyDown = useCallback(
-		(event: KeyboardEvent) => {
-			// Don't trigger shortcuts when typing in inputs
-			const target = event.target as HTMLElement;
+	useEffect(() => {
+		function onKeyDown(event: KeyboardEvent) {
+			// Skip when focus is in form fields or contenteditable
+			const target = event.target as HTMLElement | null;
 			if (
-				target.tagName === "INPUT" ||
-				target.tagName === "TEXTAREA" ||
-				target.isContentEditable
+				target?.tagName === "INPUT" ||
+				target?.tagName === "TEXTAREA" ||
+				target?.tagName === "SELECT" ||
+				target?.isContentEditable
 			) {
 				return;
 			}
 
+			const key = event.key.toLowerCase();
+
+			// Theme toggle: bare "d" or Cmd/Ctrl+Shift+D
+			if (key === "d") {
+				const bareD =
+					!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+				const modShiftD = (event.metaKey || event.ctrlKey) && event.shiftKey;
+				if (bareD || modShiftD) {
+					event.preventDefault();
+					setTheme(resolvedTheme === "dark" ? "light" : "dark");
+					return;
+				}
+			}
+
 			for (const shortcut of allShortcuts) {
+				if (shortcut.key.toLowerCase() === "d") {
+					continue;
+				}
+
 				const modifiersMatch =
 					!shortcut.modifiers ||
 					shortcut.modifiers.length === 0 ||
@@ -85,23 +113,17 @@ export function KeyboardShortcuts({
 						}
 					});
 
-				if (
-					modifiersMatch &&
-					event.key.toLowerCase() === shortcut.key.toLowerCase()
-				) {
+				if (modifiersMatch && key === shortcut.key.toLowerCase()) {
 					event.preventDefault();
 					shortcut.action();
 					return;
 				}
 			}
-		},
-		[allShortcuts],
-	);
+		}
 
-	useEffect(() => {
-		window.addEventListener("keydown", handleKeyDown);
-		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [handleKeyDown]);
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [allShortcuts, resolvedTheme, setTheme]);
 
 	const formatShortcut = (shortcut: Shortcut) => {
 		const parts: string[] = [];
@@ -138,6 +160,12 @@ export function KeyboardShortcuts({
 								</kbd>
 							</div>
 						))}
+					<div className="flex items-center justify-between">
+						<span className="text-sm text-muted-foreground">Toggle theme</span>
+						<kbd className="px-2 py-1 text-xs font-mono bg-muted rounded-md border">
+							D
+						</kbd>
+					</div>
 				</div>
 				<div className="text-xs text-muted-foreground text-center border-t pt-4">
 					Press{" "}

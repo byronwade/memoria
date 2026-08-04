@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth/session";
 import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "memoria-internal";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 interface Repository {
 	_id: string;
@@ -69,6 +69,24 @@ export async function POST(request: NextRequest) {
 		}
 
 		// Trigger scans for newly activated repos (async, don't block response)
+		if (newlyActivatedRepos.length === 0) {
+			return NextResponse.json({
+				success: true,
+				scansTriggered: 0,
+				scansAlreadyRunning: 0,
+				scansFailed: 0,
+			});
+		}
+
+		if (!INTERNAL_API_KEY) {
+			return NextResponse.json(
+				{ error: "INTERNAL_API_KEY is not configured" },
+				{ status: 500 },
+			);
+		}
+
+		const internalApiKey: string = INTERNAL_API_KEY;
+
 		const scanPromises = newlyActivatedRepos.map(async (repo) => {
 			try {
 				// Get installation details for the providerInstallationId
@@ -106,7 +124,7 @@ export async function POST(request: NextRequest) {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
-						"X-Internal-Key": INTERNAL_API_KEY,
+						"X-Internal-Key": internalApiKey,
 					},
 					body: JSON.stringify({
 						scanId,

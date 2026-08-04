@@ -100,7 +100,8 @@ export default function TourPage() {
 					<div className="flex flex-wrap items-center gap-3">
 						<Button asChild size="lg" variant="cta">
 							<Link href="/pricing">
-								Start free trial <ArrowUpRight className="size-4" />
+								Start free trial{" "}
+								<ArrowUpRight data-icon="inline-end" className="size-4" />
 							</Link>
 						</Button>
 						<Button asChild size="lg" variant="outline">
@@ -110,7 +111,8 @@ export default function TourPage() {
 							href={siteConfig.github}
 							className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-2"
 						>
-							View on GitHub <ArrowUpRight className="size-4" />
+							View on GitHub{" "}
+							<ArrowUpRight data-icon="inline-end" className="size-4" />
 						</Link>
 					</div>
 				</Container>
@@ -126,7 +128,7 @@ export default function TourPage() {
 							<CardHeader className="space-y-2">
 								<div className="flex items-center justify-between">
 									<div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-primary">
-										<ArrowUpRight className="size-4" />
+										<ArrowUpRight data-icon="inline-end" className="size-4" />
 										{flow.label}
 									</div>
 									<span
@@ -221,7 +223,8 @@ export default function TourPage() {
 					<CardContent className="flex flex-wrap items-center justify-center gap-3">
 						<Button asChild size="lg" variant="cta">
 							<Link href="/pricing">
-								Start free trial <ArrowUpRight className="size-4" />
+								Start free trial{" "}
+								<ArrowUpRight data-icon="inline-end" className="size-4" />
 							</Link>
 						</Button>
 						<Button asChild size="lg" variant="outline">

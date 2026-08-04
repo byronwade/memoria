@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth/session";
 import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "memoria-internal";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 interface ScanStatus {
 	_id: string;
@@ -11,7 +11,7 @@ interface ScanStatus {
 	triggeredBy: "onboarding" | "manual" | "scheduled";
 	startedAt: number | null;
 	completedAt: number | null;
-	errorMessage: string | null;
+	failureDetail: string | null;
 	totalFiles: number;
 	processedFiles: number;
 	filesWithRisk: number;
@@ -117,6 +117,13 @@ export async function POST(
 			return NextResponse.json(
 				{ error: "Installation not found" },
 				{ status: 404 },
+			);
+		}
+
+		if (!INTERNAL_API_KEY) {
+			return NextResponse.json(
+				{ error: "INTERNAL_API_KEY is not configured" },
+				{ status: 500 },
 			);
 		}
 

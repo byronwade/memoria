@@ -201,7 +201,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 											className="flex items-center gap-2 py-2.5 text-primary font-medium"
 											onClick={handleAddRepo}
 										>
-											<Plus className="h-4 w-4" />
+											<Plus data-icon="inline-start" className="h-4 w-4" />
 											<span>Add Repository</span>
 											{!canAddRepo && (
 												<Crown className="h-3.5 w-3.5 ml-auto text-yellow-500" />
@@ -286,7 +286,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 											: "Upgrade to add more repositories"
 									}
 								>
-									<Plus className="h-4 w-4" />
+									<Plus data-icon="inline-start" className="h-4 w-4" />
 								</button>
 							</div>
 						</div>

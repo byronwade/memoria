@@ -318,10 +318,10 @@ export async function GET(request: NextRequest) {
 		return response;
 	} catch (error) {
 		console.error("GitHub OAuth callback error:", error);
-		const errorMessage =
+		const failureReason =
 			error instanceof Error ? error.message : "oauth_failed";
 		return NextResponse.redirect(
-			new URL(`/login?error=${encodeURIComponent(errorMessage)}`, APP_URL),
+			new URL(`/login?error=${encodeURIComponent(failureReason)}`, APP_URL),
 		);
 	}
 }

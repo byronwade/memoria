@@ -255,14 +255,23 @@ function FAQItem({
 					/>
 				</m.div>
 			</button>
-			<m.div
-				initial={false}
-				animate={{ height: isOpen ? "auto" : 0, opacity: isOpen ? 1 : 0 }}
-				transition={{ duration: 0.3 }}
-				className="overflow-hidden"
+			<div
+				className={cn(
+					"grid transition-[grid-template-rows] duration-300 ease-out",
+					isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+				)}
 			>
-				<p className="pb-5 text-muted-foreground leading-relaxed">{answer}</p>
-			</m.div>
+				<div className="overflow-hidden">
+					<p
+						className={cn(
+							"pb-5 text-muted-foreground leading-relaxed transition-opacity duration-300",
+							isOpen ? "opacity-100" : "opacity-0",
+						)}
+					>
+						{answer}
+					</p>
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -552,7 +561,10 @@ export default function Home() {
 								>
 									<Link href="/pricing">
 										Start free trial
-										<ArrowRight className="w-4 h-4 ml-2" />
+										<ArrowRight
+											data-icon="inline-end"
+											className="w-4 h-4 ml-2"
+										/>
 									</Link>
 								</Button>
 								<Button
@@ -1245,7 +1257,7 @@ export default function Home() {
 }`);
 										}}
 									>
-										<Copy className="w-4 h-4 mr-2" />
+										<Copy data-icon="inline-start" className="w-4 h-4 mr-2" />
 										Copy
 									</Button>
 								</div>
@@ -1275,7 +1287,7 @@ export default function Home() {
 							<Button variant="cta" size="lg" asChild>
 								<Link href="/docs/installation">
 									Full installation guide
-									<ArrowRight className="w-4 h-4 ml-2" />
+									<ArrowRight data-icon="inline-end" className="w-4 h-4 ml-2" />
 								</Link>
 							</Button>
 							<Button variant="outline" size="lg" asChild>
@@ -1568,7 +1580,7 @@ export default function Home() {
 							>
 								<Link href="/pricing">
 									Start free trial
-									<ArrowRight className="w-4 h-4 ml-2" />
+									<ArrowRight data-icon="inline-end" className="w-4 h-4 ml-2" />
 								</Link>
 							</Button>
 							<Button

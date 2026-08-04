@@ -82,7 +82,8 @@ export default function FAQPage() {
 					<div className="flex flex-wrap items-center gap-3">
 						<Button asChild size="lg" variant="cta">
 							<a href={siteConfig.github} target="_blank" rel="noreferrer">
-								View on GitHub <ArrowUpRight className="size-4" />
+								View on GitHub{" "}
+								<ArrowUpRight data-icon="inline-end" className="size-4" />
 							</a>
 						</Button>
 						<Button asChild size="lg" variant="outline">
@@ -139,7 +140,8 @@ export default function FAQPage() {
 					<CardContent className="flex flex-wrap items-center justify-center gap-3">
 						<Button asChild size="lg" variant="cta">
 							<a href={siteConfig.github} target="_blank" rel="noreferrer">
-								View on GitHub <ArrowUpRight className="size-4" />
+								View on GitHub{" "}
+								<ArrowUpRight data-icon="inline-end" className="size-4" />
 							</a>
 						</Button>
 						<Button asChild size="lg" variant="outline">

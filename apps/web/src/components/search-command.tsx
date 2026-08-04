@@ -183,7 +183,7 @@ const searchData: {
 ];
 
 interface SearchCommandProps {
-	variant?: "default" | "mobile";
+	variant?: "default" | "mobile" | "hotkey-only";
 }
 
 export function SearchCommand({ variant = "default" }: SearchCommandProps) {
@@ -191,15 +191,15 @@ export function SearchCommand({ variant = "default" }: SearchCommandProps) {
 	const router = useRouter();
 
 	useEffect(() => {
-		const down = (e: KeyboardEvent) => {
-			if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-				e.preventDefault();
-				setOpen((open) => !open);
+		function onCommandMenuKeyDown(event: KeyboardEvent) {
+			if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
+				event.preventDefault();
+				setOpen((isOpen) => !isOpen);
 			}
-		};
+		}
 
-		document.addEventListener("keydown", down);
-		return () => document.removeEventListener("keydown", down);
+		document.addEventListener("keydown", onCommandMenuKeyDown);
+		return () => document.removeEventListener("keydown", onCommandMenuKeyDown);
 	}, []);
 
 	const runCommand = useCallback((command: () => void) => {
@@ -209,30 +209,38 @@ export function SearchCommand({ variant = "default" }: SearchCommandProps) {
 
 	return (
 		<>
-			<button
-				onClick={() => setOpen(true)}
-				className={
-					variant === "mobile"
-						? "flex items-center justify-center w-9 h-9 text-muted-foreground hover:text-foreground transition-colors rounded-md"
-						: "flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md border border-card-border hover:border-foreground/20 bg-background/50"
-				}
-				aria-label="Search documentation"
+			{variant !== "hotkey-only" && (
+				<button
+					type="button"
+					onClick={() => setOpen(true)}
+					className={
+						variant === "mobile"
+							? "flex items-center justify-center w-9 h-9 text-muted-foreground hover:text-foreground transition-colors rounded-md"
+							: "flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md border border-card-border hover:border-foreground/20 bg-background/50"
+					}
+					aria-label="Search documentation"
+				>
+					<Search className="w-4 h-4" />
+					{variant === "default" && (
+						<>
+							<span className="hidden lg:inline">Search</span>
+							<kbd className="hidden lg:inline-flex h-5 items-center gap-1 rounded border border-card-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+								<span className="text-xs">⌘</span>K
+							</kbd>
+						</>
+					)}
+				</button>
+			)}
+			<CommandDialog
+				open={open}
+				onOpenChange={setOpen}
+				title="Command Menu"
+				description="Search documentation and navigate the site"
 			>
-				<Search className="w-4 h-4" />
-				{variant === "default" && (
-					<>
-						<span className="hidden lg:inline">Search</span>
-						<kbd className="hidden lg:inline-flex h-5 items-center gap-1 rounded border border-card-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-							<span className="text-xs">⌘</span>K
-						</kbd>
-					</>
-				)}
-			</button>
-			<CommandDialog open={open} onOpenChange={setOpen}>
 				<CommandInput placeholder="Search documentation..." />
 				<CommandList>
 					<CommandEmpty>No results found.</CommandEmpty>
-					{searchData.map((group, _index) => (
+					{searchData.map((group) => (
 						<CommandGroup key={group.group} heading={group.group}>
 							{group.items.map((item) => (
 								<CommandItem
