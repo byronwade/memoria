@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface TokenData {
 	_id: string;
@@ -30,7 +30,7 @@ export async function GET() {
 		const tokens = await callQuery<TokenData[]>(
 			convex,
 			"teamTokens:listTokens",
-			{ userId }
+			{ userId },
 		);
 
 		return NextResponse.json({ tokens: tokens || [] });
@@ -38,7 +38,7 @@ export async function GET() {
 		console.error("Failed to fetch team tokens:", error);
 		return NextResponse.json(
 			{ error: "Failed to fetch team tokens" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 		if (!name || typeof name !== "string" || !name.trim()) {
 			return NextResponse.json(
 				{ error: "Token name is required" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
 				userId,
 				name: name.trim(),
 				createdBy: userId,
-			}
+			},
 		);
 
 		return NextResponse.json({
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
 		console.error("Failed to create team token:", error);
 		return NextResponse.json(
 			{ error: "Failed to create team token" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

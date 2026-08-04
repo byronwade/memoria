@@ -1,9 +1,8 @@
-import { Github } from "lucide-react";
-import Link from "next/link";
+import { HeaderAuth, HeaderAuthMobileNav } from "@/components/auth/header-auth";
+import { Github } from "@/components/icons/brand";
 import { SearchCommand } from "@/components/search-command";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { siteConfig } from "@/lib/seo/constants";
-import { HeaderAuth } from "@/components/auth/header-auth";
 import { HeaderClient } from "./header-client";
 
 const navLinks = [
@@ -16,7 +15,7 @@ const navLinks = [
 
 export async function Header() {
 	return (
-		<HeaderClient navLinks={navLinks}>
+		<HeaderClient navLinks={navLinks} mobileAuth={<HeaderAuthMobileNav />}>
 			{/* Search */}
 			<div className="hidden md:block">
 				<SearchCommand />

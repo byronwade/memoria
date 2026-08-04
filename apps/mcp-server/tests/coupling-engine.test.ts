@@ -69,12 +69,14 @@ describe("Coupling Engine (Entanglement)", () => {
 		it("should cache results for subsequent calls", async () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 
-			// First call (no config = empty config key suffix)
+			// First call
 			const result1 = await getCoupledFiles(filePath);
 
-			// Verify it's in cache (cache key includes empty config suffix when no config)
-			const cacheKey = `coupling:${filePath}:`;
-			expect(cache.has(cacheKey)).toBe(true);
+			// Cache keys are headSha-scoped: coupling:${head}:${path}:${config}:${lite|full}
+			const cachedKeys = [...cache.keys()].filter((k) =>
+				String(k).startsWith("coupling:") && String(k).includes(filePath),
+			);
+			expect(cachedKeys.length).toBeGreaterThan(0);
 
 			// Second call should return cached result
 			const result2 = await getCoupledFiles(filePath);

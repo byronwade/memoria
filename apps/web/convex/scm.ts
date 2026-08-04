@@ -1,17 +1,29 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
 // Helper for creating union of literals
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val))) as ReturnType<
+		typeof v.literal<T>
+	>;
 
-const providerTypeValidator = literals("github", "gitlab", "bitbucket", "other");
+const providerTypeValidator = literals(
+	"github",
+	"gitlab",
+	"bitbucket",
+	"other",
+);
 const accountTypeValidator = literals("user", "org");
 const installationStatusValidator = literals("active", "suspended", "deleted");
 const prStateValidator = literals("open", "closed", "merged");
-const engagementTypeValidator = literals("comment", "review", "approval", "request_changes");
+const engagementTypeValidator = literals(
+	"comment",
+	"review",
+	"approval",
+	"request_changes",
+);
 const syncStatusValidator = literals("ok", "error", "pending");
 
 export const upsertInstallation = mutation({
@@ -35,7 +47,9 @@ export const upsertInstallation = mutation({
 		const existing = await ctx.db
 			.query("scm_installations")
 			.withIndex("by_providerInstallation", (q) =>
-				q.eq("providerType", args.providerType).eq("providerInstallationId", args.providerInstallationId),
+				q
+					.eq("providerType", args.providerType)
+					.eq("providerInstallationId", args.providerInstallationId),
 			)
 			.first();
 
@@ -81,7 +95,10 @@ export const upsertRepository = mutation({
 	handler: async (ctx, args) => {
 		// Normalize IDs
 		const userId = ctx.db.normalizeId("users", args.userId);
-		const scmInstallationId = ctx.db.normalizeId("scm_installations", args.scmInstallationId);
+		const scmInstallationId = ctx.db.normalizeId(
+			"scm_installations",
+			args.scmInstallationId,
+		);
 		if (!userId || !scmInstallationId) {
 			throw new Error("Invalid user or installation ID");
 		}
@@ -89,7 +106,9 @@ export const upsertRepository = mutation({
 		const existing = await ctx.db
 			.query("repositories")
 			.withIndex("by_provider_repo", (q) =>
-				q.eq("providerType", args.providerType).eq("providerRepoId", args.providerRepoId),
+				q
+					.eq("providerType", args.providerType)
+					.eq("providerRepoId", args.providerRepoId),
 			)
 			.first();
 
@@ -155,7 +174,9 @@ export const upsertPullRequest = mutation({
 		const existing = await ctx.db
 			.query("pull_requests")
 			.withIndex("by_providerId", (q) =>
-				q.eq("providerType", args.providerType).eq("providerPullRequestId", args.providerPullRequestId),
+				q
+					.eq("providerType", args.providerType)
+					.eq("providerPullRequestId", args.providerPullRequestId),
 			)
 			.first();
 
@@ -187,7 +208,11 @@ export const addCommitMetadata = mutation({
 	handler: async (ctx, args) => {
 		const existing = await ctx.db
 			.query("commits")
-			.withIndex("by_repo_sha", (q) => q.eq("repoId", args.repoId).eq("providerCommitSha", args.providerCommitSha))
+			.withIndex("by_repo_sha", (q) =>
+				q
+					.eq("repoId", args.repoId)
+					.eq("providerCommitSha", args.providerCommitSha),
+			)
 			.first();
 		if (existing) return { commitId: existing._id };
 
@@ -212,7 +237,9 @@ export const recordEngagement = mutation({
 		const existing = await ctx.db
 			.query("pull_request_engagement")
 			.withIndex("by_providerEvent", (q) =>
-				q.eq("providerType", args.providerType).eq("providerEventId", args.providerEventId),
+				q
+					.eq("providerType", args.providerType)
+					.eq("providerEventId", args.providerEventId),
 			)
 			.first();
 		if (existing) return { engagementId: existing._id };
@@ -225,7 +252,9 @@ export const recordEngagement = mutation({
 export const listPullRequests = query({
 	args: { repoId: v.id("repositories"), state: v.optional(prStateValidator) },
 	handler: async (ctx, args) => {
-		let q = ctx.db.query("pull_requests").withIndex("by_repo_state", (idx) => idx.eq("repoId", args.repoId));
+		let q = ctx.db
+			.query("pull_requests")
+			.withIndex("by_repo_state", (idx) => idx.eq("repoId", args.repoId));
 		if (args.state) {
 			q = q.filter((filter) => filter.eq(filter.field("state"), args.state!));
 		}
@@ -242,7 +271,9 @@ export const getInstallationByProviderId = query({
 		return ctx.db
 			.query("scm_installations")
 			.withIndex("by_providerInstallation", (q) =>
-				q.eq("providerType", args.providerType).eq("providerInstallationId", args.providerInstallationId),
+				q
+					.eq("providerType", args.providerType)
+					.eq("providerInstallationId", args.providerInstallationId),
 			)
 			.first();
 	},
@@ -257,7 +288,9 @@ export const getRepositoryByProviderId = query({
 		return ctx.db
 			.query("repositories")
 			.withIndex("by_provider_repo", (q) =>
-				q.eq("providerType", args.providerType).eq("providerRepoId", args.providerRepoId),
+				q
+					.eq("providerType", args.providerType)
+					.eq("providerRepoId", args.providerRepoId),
 			)
 			.first();
 	},
@@ -293,10 +326,12 @@ export const updateSyncState = mutation({
 		if (!sync) throw new Error("Sync state missing");
 
 		const patch: Record<string, unknown> = { updatedAt: now() };
-		if (args.lastFullCloneAt !== undefined) patch.lastFullCloneAt = args.lastFullCloneAt;
+		if (args.lastFullCloneAt !== undefined)
+			patch.lastFullCloneAt = args.lastFullCloneAt;
 		if (args.lastFetchAt !== undefined) patch.lastFetchAt = args.lastFetchAt;
 		if (args.lastSyncStatus) patch.lastSyncStatus = args.lastSyncStatus;
-		if (args.lastSyncErrorMessage !== undefined) patch.lastSyncErrorMessage = args.lastSyncErrorMessage;
+		if (args.lastSyncErrorMessage !== undefined)
+			patch.lastSyncErrorMessage = args.lastSyncErrorMessage;
 		await ctx.db.patch(sync._id, patch);
 		return { repoId: args.repoId };
 	},
@@ -317,7 +352,10 @@ export const getInstallations = query({
 export const getInstallationById = query({
 	args: { installationId: v.string() },
 	handler: async (ctx, args) => {
-		const installationId = ctx.db.normalizeId("scm_installations", args.installationId);
+		const installationId = ctx.db.normalizeId(
+			"scm_installations",
+			args.installationId,
+		);
 		if (!installationId) return null;
 		return ctx.db.get(installationId);
 	},
@@ -370,7 +408,9 @@ export const updateInstallationStatus = mutation({
 		const installation = await ctx.db
 			.query("scm_installations")
 			.withIndex("by_providerInstallation", (q) =>
-				q.eq("providerType", args.providerType).eq("providerInstallationId", args.providerInstallationId),
+				q
+					.eq("providerType", args.providerType)
+					.eq("providerInstallationId", args.providerInstallationId),
 			)
 			.first();
 
@@ -409,18 +449,32 @@ export const getRepositoryStats = query({
 
 		// Calculate stats from analyses
 		const totalAnalyses = analyses.length;
-		const highRiskAnalyses = analyses.filter(a => a.riskLevel === "high").length;
-		const mediumRiskAnalyses = analyses.filter(a => a.riskLevel === "medium").length;
-		const lowRiskAnalyses = analyses.filter(a => a.riskLevel === "low").length;
+		const highRiskAnalyses = analyses.filter(
+			(a) => a.riskLevel === "high",
+		).length;
+		const mediumRiskAnalyses = analyses.filter(
+			(a) => a.riskLevel === "medium",
+		).length;
+		const lowRiskAnalyses = analyses.filter(
+			(a) => a.riskLevel === "low",
+		).length;
 
 		// Issues prevented = high risk analyses that had comments posted
-		const issuesPrevented = analyses.filter(a => a.riskLevel === "high" && a.commentPosted).length;
+		const issuesPrevented = analyses.filter(
+			(a) => a.riskLevel === "high" && a.commentPosted,
+		).length;
 
 		// Average risk score
-		const scoresWithValues = analyses.filter(a => a.score !== null).map(a => a.score as number);
-		const avgRiskScore = scoresWithValues.length > 0
-			? Math.round(scoresWithValues.reduce((a, b) => a + b, 0) / scoresWithValues.length)
-			: 0;
+		const scoresWithValues = analyses
+			.filter((a) => a.score !== null)
+			.map((a) => a.score as number);
+		const avgRiskScore =
+			scoresWithValues.length > 0
+				? Math.round(
+						scoresWithValues.reduce((a, b) => a + b, 0) /
+							scoresWithValues.length,
+					)
+				: 0;
 
 		// Get file risk stats
 		const fileRiskStats = await ctx.db
@@ -428,31 +482,56 @@ export const getRepositoryStats = query({
 			.withIndex("by_repo_highRisk", (q) => q.eq("repoId", repoId))
 			.collect();
 
-		const criticalFiles = fileRiskStats.filter(f => f.highRiskCount >= 3).length;
-		const highRiskFiles = fileRiskStats.filter(f => f.highRiskCount >= 1 && f.highRiskCount < 3).length;
-		const mediumRiskFiles = fileRiskStats.filter(f => f.mediumRiskCount >= 2 && f.highRiskCount === 0).length;
-		const lowRiskFiles = fileRiskStats.filter(f => f.highRiskCount === 0 && f.mediumRiskCount < 2).length;
+		const criticalFiles = fileRiskStats.filter(
+			(f) => f.highRiskCount >= 3,
+		).length;
+		const highRiskFiles = fileRiskStats.filter(
+			(f) => f.highRiskCount >= 1 && f.highRiskCount < 3,
+		).length;
+		const mediumRiskFiles = fileRiskStats.filter(
+			(f) => f.mediumRiskCount >= 2 && f.highRiskCount === 0,
+		).length;
+		const lowRiskFiles = fileRiskStats.filter(
+			(f) => f.highRiskCount === 0 && f.mediumRiskCount < 2,
+		).length;
 
 		// Calculate health score based on risk distribution
 		const totalFiles = fileRiskStats.length || 1;
-		const healthScore = Math.max(0, Math.min(100, Math.round(
-			100 - (criticalFiles * 20 + highRiskFiles * 10 + mediumRiskFiles * 3) / totalFiles * 10
-		)));
+		const healthScore = Math.max(
+			0,
+			Math.min(
+				100,
+				Math.round(
+					100 -
+						((criticalFiles * 20 + highRiskFiles * 10 + mediumRiskFiles * 3) /
+							totalFiles) *
+							10,
+				),
+			),
+		);
 
 		// Determine trend from recent analyses
 		const nowMs = Date.now();
 		const thirtyDaysAgo = nowMs - 30 * 24 * 60 * 60 * 1000;
 		const sixtyDaysAgo = nowMs - 60 * 24 * 60 * 60 * 1000;
 
-		const recentAnalyses = analyses.filter(a => a.createdAt >= thirtyDaysAgo);
-		const olderAnalyses = analyses.filter(a => a.createdAt >= sixtyDaysAgo && a.createdAt < thirtyDaysAgo);
+		const recentAnalyses = analyses.filter((a) => a.createdAt >= thirtyDaysAgo);
+		const olderAnalyses = analyses.filter(
+			(a) => a.createdAt >= sixtyDaysAgo && a.createdAt < thirtyDaysAgo,
+		);
 
-		const recentAvg = recentAnalyses.length > 0
-			? recentAnalyses.filter(a => a.score !== null).reduce((sum, a) => sum + (a.score || 0), 0) / recentAnalyses.length
-			: 0;
-		const olderAvg = olderAnalyses.length > 0
-			? olderAnalyses.filter(a => a.score !== null).reduce((sum, a) => sum + (a.score || 0), 0) / olderAnalyses.length
-			: 0;
+		const recentAvg =
+			recentAnalyses.length > 0
+				? recentAnalyses
+						.filter((a) => a.score !== null)
+						.reduce((sum, a) => sum + (a.score || 0), 0) / recentAnalyses.length
+				: 0;
+		const olderAvg =
+			olderAnalyses.length > 0
+				? olderAnalyses
+						.filter((a) => a.score !== null)
+						.reduce((sum, a) => sum + (a.score || 0), 0) / olderAnalyses.length
+				: 0;
 
 		let trend: "up" | "down" | "stable" = "stable";
 		if (recentAvg < olderAvg - 5) trend = "up"; // Lower risk = improving
@@ -503,8 +582,10 @@ export const getRepositoryRiskyFiles = query({
 
 		// Sort by risk (high risk count first, then medium, then total)
 		const sorted = allFileStats.sort((a, b) => {
-			if (b.highRiskCount !== a.highRiskCount) return b.highRiskCount - a.highRiskCount;
-			if (b.mediumRiskCount !== a.mediumRiskCount) return b.mediumRiskCount - a.mediumRiskCount;
+			if (b.highRiskCount !== a.highRiskCount)
+				return b.highRiskCount - a.highRiskCount;
+			if (b.mediumRiskCount !== a.mediumRiskCount)
+				return b.mediumRiskCount - a.mediumRiskCount;
 			return b.totalAnalysesTouching - a.totalAnalysesTouching;
 		});
 
@@ -512,10 +593,20 @@ export const getRepositoryRiskyFiles = query({
 		const paginated = sorted.slice(offset, offset + limit);
 
 		// Enrich with additional data
-		const files = paginated.map(f => {
+		const files = paginated.map((f) => {
 			// Calculate risk score (0-100)
-			const risk = Math.min(100, f.highRiskCount * 30 + f.mediumRiskCount * 10 + f.lowRiskCount * 2);
-			const riskLevel = risk >= 75 ? "critical" : risk >= 50 ? "high" : risk >= 25 ? "medium" : "low";
+			const risk = Math.min(
+				100,
+				f.highRiskCount * 30 + f.mediumRiskCount * 10 + f.lowRiskCount * 2,
+			);
+			const riskLevel =
+				risk >= 75
+					? "critical"
+					: risk >= 50
+						? "high"
+						: risk >= 25
+							? "medium"
+							: "low";
 
 			return {
 				file: f.filePath,
@@ -562,9 +653,13 @@ export const getRepositoryActivity = query({
 		const total = analyses.length;
 		const paginated = analyses.slice(offset, offset + limit);
 
-		const activities = paginated.map(a => {
-			const type = a.riskLevel === "high" && a.commentPosted ? "prevented" :
-						 a.riskLevel === "low" ? "safe" : "analysis";
+		const activities = paginated.map((a) => {
+			const type =
+				a.riskLevel === "high" && a.commentPosted
+					? "prevented"
+					: a.riskLevel === "low"
+						? "safe"
+						: "analysis";
 
 			// Get first changed file as representative
 			const file = a.changedFiles[0] || "unknown";
@@ -610,17 +705,26 @@ export const getRepositoryCoupling = query({
 			.collect();
 
 		// Build coupling map from missing co-changed files
-		const couplingMap = new Map<string, { primary: string; coupled: string; strength: number; coChanges: number }>();
+		const couplingMap = new Map<
+			string,
+			{ primary: string; coupled: string; strength: number; coChanges: number }
+		>();
 
 		for (const analysis of analyses) {
-			if (analysis.missingCoChangedFiles && analysis.missingCoChangedFiles.length > 0) {
+			if (
+				analysis.missingCoChangedFiles &&
+				analysis.missingCoChangedFiles.length > 0
+			) {
 				for (const changedFile of analysis.changedFiles) {
 					for (const missing of analysis.missingCoChangedFiles) {
 						const key = `${changedFile}:${missing.file}`;
 						const existing = couplingMap.get(key);
 						if (existing) {
 							existing.coChanges++;
-							existing.strength = Math.min(100, Math.round(missing.probability * 100));
+							existing.strength = Math.min(
+								100,
+								Math.round(missing.probability * 100),
+							);
 						} else {
 							couplingMap.set(key, {
 								primary: changedFile,
@@ -635,7 +739,9 @@ export const getRepositoryCoupling = query({
 		}
 
 		// Convert to array and sort by strength
-		const allPairs = Array.from(couplingMap.values()).sort((a, b) => b.strength - a.strength);
+		const allPairs = Array.from(couplingMap.values()).sort(
+			(a, b) => b.strength - a.strength,
+		);
 		const paginated = allPairs.slice(offset, offset + limit);
 
 		return {
@@ -661,7 +767,7 @@ export const getRepositoryChartData = query({
 			.collect();
 
 		// Create a map of date -> stats
-		const statsMap = new Map(stats.map(s => [s.date, s]));
+		const statsMap = new Map(stats.map((s) => [s.date, s]));
 
 		// Generate last 30 days
 		const chartData = [];
@@ -669,8 +775,11 @@ export const getRepositoryChartData = query({
 		for (let i = 29; i >= 0; i--) {
 			const date = new Date(nowMs);
 			date.setDate(date.getDate() - i);
-			const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
-			const displayDate = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+			const dateStr = date.toISOString().split("T")[0]; // YYYY-MM-DD
+			const displayDate = date.toLocaleDateString("en-US", {
+				month: "short",
+				day: "numeric",
+			});
 
 			const dayStats = statsMap.get(dateStr);
 			chartData.push({
@@ -703,7 +812,10 @@ export const getRepositoryContributors = query({
 			.collect();
 
 		// Group by author
-		const authorMap = new Map<string, { name: string; email: string; commits: number }>();
+		const authorMap = new Map<
+			string,
+			{ name: string; email: string; commits: number }
+		>();
 		for (const commit of commits) {
 			const key = commit.authorEmail;
 			const existing = authorMap.get(key);
@@ -723,7 +835,7 @@ export const getRepositoryContributors = query({
 			.sort((a, b) => b.commits - a.commits)
 			.slice(0, limit);
 
-		return sorted.map(c => ({
+		return sorted.map((c) => ({
 			name: c.name,
 			avatar: null, // Could be fetched from GitHub API
 			commits: c.commits,

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
-import Stripe from "stripe";
+import { type NextRequest, NextResponse } from "next/server";
+import type Stripe from "stripe";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 import { constructWebhookEvent } from "@/lib/stripe/server";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
 
 // Disable body parsing - we need the raw body for signature verification
 export const runtime = "nodejs";
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 		if (!signature) {
 			return NextResponse.json(
 				{ error: "Missing stripe-signature header" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -42,10 +42,7 @@ export async function POST(request: NextRequest) {
 			event = constructWebhookEvent(rawBody, signature);
 		} catch (err) {
 			console.error("Webhook signature verification failed:", err);
-			return NextResponse.json(
-				{ error: "Invalid signature" },
-				{ status: 400 }
-			);
+			return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
 		}
 
 		const convex = getConvexClient();
@@ -108,14 +105,14 @@ export async function POST(request: NextRequest) {
 		console.error("Webhook error:", error);
 		return NextResponse.json(
 			{ error: "Webhook handler failed" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
 
 async function handleCheckoutCompleted(
-	convex: ReturnType<typeof getConvexClient>,
-	session: Stripe.Checkout.Session
+	_convex: ReturnType<typeof getConvexClient>,
+	session: Stripe.Checkout.Session,
 ) {
 	const userId = session.metadata?.userId;
 	const planId = session.metadata?.planId;
@@ -132,7 +129,7 @@ async function handleCheckoutCompleted(
 
 async function handleSubscriptionUpdated(
 	convex: ReturnType<typeof getConvexClient>,
-	subscription: Stripe.Subscription
+	subscription: Stripe.Subscription,
 ) {
 	const customerId = subscription.customer as string;
 
@@ -140,7 +137,7 @@ async function handleSubscriptionUpdated(
 	const user = await callQuery<{ _id: string } | null>(
 		convex,
 		"billing:getUserByStripeCustomerId",
-		{ stripeCustomerId: customerId }
+		{ stripeCustomerId: customerId },
 	);
 
 	if (!user) {
@@ -152,11 +149,11 @@ async function handleSubscriptionUpdated(
 
 	// Get plan from metadata or price
 	const priceId = subscription.items.data[0]?.price?.id;
-	const plan = await callQuery<{ _id: string; maxRepos: number | null; maxAnalysesPerMonth: number | null } | null>(
-		convex,
-		"billing:getPlanByStripePrice",
-		{ stripePriceId: priceId }
-	);
+	const plan = await callQuery<{
+		_id: string;
+		maxRepos: number | null;
+		maxAnalysesPerMonth: number | null;
+	} | null>(convex, "billing:getPlanByStripePrice", { stripePriceId: priceId });
 
 	if (!plan) {
 		console.error(`No plan found for price ${priceId}`);
@@ -164,7 +161,10 @@ async function handleSubscriptionUpdated(
 	}
 
 	// Map Stripe status to our status
-	const statusMap: Record<string, "active" | "trial" | "past_due" | "canceled"> = {
+	const statusMap: Record<
+		string,
+		"active" | "trial" | "past_due" | "canceled"
+	> = {
 		active: "active",
 		trialing: "trial",
 		past_due: "past_due",
@@ -181,23 +181,29 @@ async function handleSubscriptionUpdated(
 	await callMutation(convex, "billing:updateUserBilling", {
 		userId,
 		stripeSubscriptionId: subscription.id,
-		planTier: plan._id.includes("pro") ? "pro" : plan._id.includes("team") ? "team" : "free",
+		planTier: plan._id.includes("pro")
+			? "pro"
+			: plan._id.includes("team")
+				? "team"
+				: "free",
 		subscriptionStatus: status,
-		trialEndsAt: subscription.trial_end ? subscription.trial_end * 1000 : undefined,
+		trialEndsAt: subscription.trial_end
+			? subscription.trial_end * 1000
+			: undefined,
 		maxRepos: plan.maxRepos ?? undefined,
 	});
 }
 
 async function handleSubscriptionDeleted(
 	convex: ReturnType<typeof getConvexClient>,
-	subscription: Stripe.Subscription
+	subscription: Stripe.Subscription,
 ) {
 	const customerId = subscription.customer as string;
 
 	const user = await callQuery<{ _id: string } | null>(
 		convex,
 		"billing:getUserByStripeCustomerId",
-		{ stripeCustomerId: customerId }
+		{ stripeCustomerId: customerId },
 	);
 
 	if (!user) return;
@@ -213,8 +219,8 @@ async function handleSubscriptionDeleted(
 }
 
 async function handleInvoicePaymentSucceeded(
-	convex: ReturnType<typeof getConvexClient>,
-	invoice: Stripe.Invoice
+	_convex: ReturnType<typeof getConvexClient>,
+	invoice: Stripe.Invoice,
 ) {
 	// Log successful payment
 	console.log(`Invoice payment succeeded: ${invoice.id}`);
@@ -222,14 +228,14 @@ async function handleInvoicePaymentSucceeded(
 
 async function handleInvoicePaymentFailed(
 	convex: ReturnType<typeof getConvexClient>,
-	invoice: Stripe.Invoice
+	invoice: Stripe.Invoice,
 ) {
 	const customerId = invoice.customer as string;
 
 	const user = await callQuery<{ _id: string } | null>(
 		convex,
 		"billing:getUserByStripeCustomerId",
-		{ stripeCustomerId: customerId }
+		{ stripeCustomerId: customerId },
 	);
 
 	if (!user) return;

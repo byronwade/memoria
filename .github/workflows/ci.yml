@@ -34,3 +34,39 @@ jobs:
           node-version: '20'
       - run: npm ci
       - run: npm run build
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run build --workspace=@byronwade/memoria
+      - name: Performance smoke budgets
+        run: npm run benchmark:ci --workspace=@byronwade/memoria
+        env:
+          MEMORIA_BENCH_FAST_MS: "4000"
+          MEMORIA_BENCH_FULL_MS: "20000"
+
+  critical-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run build --workspace=@byronwade/memoria
+      - name: Critical-risk files must have test coupling
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+          if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
+            BASE="HEAD~1"
+          fi
+          node apps/mcp-server/dist/cli.js check "$BASE" --fast --json

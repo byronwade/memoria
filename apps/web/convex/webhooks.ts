@@ -1,13 +1,21 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
 // Helper for creating union of literals
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val))) as ReturnType<
+		typeof v.literal<T>
+	>;
 
-const sourceValidator = literals("github", "gitlab", "stripe", "bitbucket", "other");
+const sourceValidator = literals(
+	"github",
+	"gitlab",
+	"stripe",
+	"bitbucket",
+	"other",
+);
 const processingStatusValidator = literals("processed", "error", "pending");
 const targetTypeValidator = literals("slack", "webhook", "other");
 const outboundStatusValidator = literals("pending", "sent", "error");
@@ -110,7 +118,7 @@ export const listRecentWebhooks = query({
 	},
 	handler: async (ctx, args) => {
 		const limit = args.limit || 20;
-		let q = ctx.db.query("inbound_webhooks").order("desc");
+		const q = ctx.db.query("inbound_webhooks").order("desc");
 
 		const webhooks = await q.take(limit);
 

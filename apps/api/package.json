@@ -12,7 +12,7 @@
 		"lint": "echo \"No lint configured\" && exit 0"
 	},
 	"devDependencies": {
-		"@types/node": "^22.10.1",
-		"typescript": "^5.5.0"
+		"@types/node": "^26.1.2",
+		"typescript": "~5.9.3"
 	}
 }

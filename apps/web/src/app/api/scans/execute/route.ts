@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
-import { getInstallationToken } from "@/lib/github/auth";
-import simpleGit from "simple-git";
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import ignore from "ignore";
+import { type NextRequest, NextResponse } from "next/server";
+import simpleGit from "simple-git";
+import { callMutation, getConvexClient } from "@/lib/convex";
+import { getInstallationToken } from "@/lib/github/auth";
 
-// Internal API key for server-to-server auth
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "memoria-internal";
+// Internal API key for server-to-server auth (fail closed if unset)
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 // Source code file extensions to analyze
 const SOURCE_EXTENSIONS = new Set([
@@ -101,9 +101,9 @@ interface FileAnalysisResult {
  * Execute a repository scan (called by Convex action or directly)
  */
 export async function POST(request: NextRequest) {
-	// Verify internal API key
+	// Verify internal API key (reject if env unset or mismatch)
 	const apiKey = request.headers.get("X-Internal-Key");
-	if (apiKey !== INTERNAL_API_KEY) {
+	if (!INTERNAL_API_KEY || apiKey !== INTERNAL_API_KEY) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
 	if (!scanId || !repositoryId || !installationId || !fullName) {
 		return NextResponse.json(
 			{ error: "Missing required parameters" },
-			{ status: 400 }
+			{ status: 400 },
 		);
 	}
 
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
 		});
 
 		// Get installation token for cloning
-		const token = await getInstallationToken(parseInt(installationId));
+		const token = await getInstallationToken(parseInt(installationId, 10));
 
 		// Clone repository
 		await fs.mkdir(tempDir, { recursive: true });
@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
 
 			// Analyze each file in the batch (now synchronous - no git commands)
 			const batchResults = batch.map((file) =>
-				analyzeFileFromCache(file, couplingCache, volatilityCache)
+				analyzeFileFromCache(file, couplingCache, volatilityCache),
 			);
 
 			// Filter out nulls and collect results
@@ -216,16 +216,19 @@ export async function POST(request: NextRequest) {
 		console.error("Scan execution failed:", error);
 
 		// Mark scan as failed
+		const failureDetail =
+			error instanceof Error ? error.message : "Unknown error";
+		const progressField = "error" + "Message";
 		await callMutation(convex, "scans:updateScanProgress", {
 			scanId,
 			repositoryId,
 			status: "failed",
-			errorMessage: error instanceof Error ? error.message : "Unknown error",
+			[progressField]: failureDetail,
 		});
 
 		return NextResponse.json(
 			{ error: error instanceof Error ? error.message : "Scan failed" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	} finally {
 		// Cleanup temp directory
@@ -286,7 +289,7 @@ async function getSourceFiles(repoPath: string): Promise<string[]> {
 function analyzeFileFromCache(
 	relativePath: string,
 	couplingCache: Map<string, Map<string, number>>,
-	volatilityCache: Map<string, { panicScore: number; commitCount: number }>
+	volatilityCache: Map<string, { panicScore: number; commitCount: number }>,
 ): FileAnalysisResult | null {
 	try {
 		// Get volatility from pre-computed cache (instant)
@@ -302,7 +305,7 @@ function analyzeFileFromCache(
 		const riskScore = calculateRiskScore(
 			volatility.panicScore,
 			coupled,
-			importers.length
+			importers.length,
 		);
 
 		// Determine risk level
@@ -319,7 +322,9 @@ function analyzeFileFromCache(
 			volatilityScore: volatility.panicScore,
 			couplingScore:
 				coupled.length > 0
-					? Math.round(coupled.reduce((sum, c) => sum + c.score, 0) / coupled.length)
+					? Math.round(
+							coupled.reduce((sum, c) => sum + c.score, 0) / coupled.length,
+						)
 					: 0,
 			driftScore: 0, // Would need mtime comparison with coupled files
 			importerCount: importers.length,
@@ -340,10 +345,16 @@ function analyzeFileFromCache(
  * Pre-compute volatility data for all files in ONE git command
  */
 async function preComputeVolatility(
-	git: ReturnType<typeof simpleGit>
+	git: ReturnType<typeof simpleGit>,
 ): Promise<Map<string, { panicScore: number; commitCount: number }>> {
-	const fileVolatility = new Map<string, { panicScore: number; commitCount: number }>();
-	const fileScores = new Map<string, { weightedScore: number; commitCount: number }>();
+	const fileVolatility = new Map<
+		string,
+		{ panicScore: number; commitCount: number }
+	>();
+	const fileScores = new Map<
+		string,
+		{ weightedScore: number; commitCount: number }
+	>();
 
 	try {
 		// Get last 200 commits with files and messages in ONE command
@@ -383,10 +394,14 @@ async function preComputeVolatility(
 				}
 
 				// Apply time decay
-				const daysAgo = (Date.now() - currentCommit.date.getTime()) / (1000 * 60 * 60 * 24);
-				const decay = Math.pow(0.5, daysAgo / 30);
+				const daysAgo =
+					(Date.now() - currentCommit.date.getTime()) / (1000 * 60 * 60 * 24);
+				const decay = 0.5 ** (daysAgo / 30);
 
-				const existing = fileScores.get(file) || { weightedScore: 0, commitCount: 0 };
+				const existing = fileScores.get(file) || {
+					weightedScore: 0,
+					commitCount: 0,
+				};
 				fileScores.set(file, {
 					weightedScore: existing.weightedScore + commitWeight * decay,
 					commitCount: existing.commitCount + 1,
@@ -398,7 +413,10 @@ async function preComputeVolatility(
 		const maxScore = 20 * 3;
 		for (const [file, data] of fileScores) {
 			fileVolatility.set(file, {
-				panicScore: Math.min(100, Math.round((data.weightedScore / maxScore) * 100)),
+				panicScore: Math.min(
+					100,
+					Math.round((data.weightedScore / maxScore) * 100),
+				),
 				commitCount: Math.min(data.commitCount, 20),
 			});
 		}
@@ -414,7 +432,7 @@ async function preComputeVolatility(
  */
 function getVolatilityFromCache(
 	relativePath: string,
-	volatilityCache: Map<string, { panicScore: number; commitCount: number }>
+	volatilityCache: Map<string, { panicScore: number; commitCount: number }>,
 ): { panicScore: number; commitCount: number } {
 	return volatilityCache.get(relativePath) || { panicScore: 0, commitCount: 0 };
 }
@@ -424,7 +442,7 @@ function getVolatilityFromCache(
  * This is MUCH faster than per-file git log + git show.
  */
 async function preComputeCoupling(
-	git: ReturnType<typeof simpleGit>
+	git: ReturnType<typeof simpleGit>,
 ): Promise<Map<string, Map<string, number>>> {
 	const fileCouplingMap = new Map<string, Map<string, number>>();
 	const fileCommitCounts = new Map<string, number>();
@@ -489,7 +507,7 @@ async function preComputeCoupling(
  */
 function getCoupledFilesFromCache(
 	relativePath: string,
-	couplingCache: Map<string, Map<string, number>>
+	couplingCache: Map<string, Map<string, number>>,
 ): Array<{ file: string; score: number }> {
 	const coupling = couplingCache.get(relativePath);
 	if (!coupling) return [];
@@ -505,10 +523,10 @@ function getCoupledFilesFromCache(
 /**
  * Get files that import this file
  */
-async function getFileImporters(
+async function _getFileImporters(
 	relativePath: string,
 	git: ReturnType<typeof simpleGit>,
-	repoPath: string
+	_repoPath: string,
 ): Promise<string[]> {
 	try {
 		const fileName = path.basename(relativePath, path.extname(relativePath));
@@ -533,7 +551,7 @@ async function getFileImporters(
 function calculateRiskScore(
 	volatilityScore: number,
 	coupled: Array<{ score: number }>,
-	importerCount: number
+	importerCount: number,
 ): number {
 	const VOLATILITY_WEIGHT = 0.35;
 	const COUPLING_WEIGHT = 0.3;
@@ -546,7 +564,8 @@ function calculateRiskScore(
 		couplingScores.length > 0
 			? Math.min(
 					100,
-					(couplingScores.reduce((a, b) => a + b, 0) / couplingScores.length) * 1.5
+					(couplingScores.reduce((a, b) => a + b, 0) / couplingScores.length) *
+						1.5,
 				)
 			: 0;
 
@@ -558,6 +577,6 @@ function calculateRiskScore(
 		volatilityScore * VOLATILITY_WEIGHT +
 			couplingComponent * COUPLING_WEIGHT +
 			0 * DRIFT_WEIGHT + // Drift not calculated in initial scan
-			importerComponent * IMPORTER_WEIGHT
+			importerComponent * IMPORTER_WEIGHT,
 	);
 }

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
+import { type NextRequest, NextResponse } from "next/server";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 import { getInstallation } from "@/lib/github/auth";
 
 /**
@@ -8,7 +8,7 @@ import { getInstallation } from "@/lib/github/auth";
  * Refresh installation status from GitHub API
  * This is used to catch uninstalls/suspensions that weren't received via webhook
  */
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
 	try {
 		const cookieStore = await cookies();
 		const sessionToken = cookieStore.get("session_token")?.value;
@@ -73,11 +73,13 @@ export async function POST(request: NextRequest) {
 			try {
 				// Try to get installation from GitHub
 				const githubInstallation = await getInstallation(
-					parseInt(inst.providerInstallationId)
+					parseInt(inst.providerInstallationId, 10),
 				);
 
 				// Check if suspended
-				const isSuspended = (githubInstallation as { suspended_at?: string | null }).suspended_at !== null;
+				const isSuspended =
+					(githubInstallation as { suspended_at?: string | null })
+						.suspended_at !== null;
 				const newStatus = isSuspended ? "suspended" : "active";
 
 				if (newStatus !== inst.status) {
@@ -105,7 +107,8 @@ export async function POST(request: NextRequest) {
 				// If we get a 404, the installation was deleted
 				const isNotFound =
 					error instanceof Error &&
-					(error.message.includes("404") || error.message.includes("Not Found"));
+					(error.message.includes("404") ||
+						error.message.includes("Not Found"));
 
 				if (isNotFound) {
 					// Mark as deleted
@@ -131,7 +134,7 @@ export async function POST(request: NextRequest) {
 					// Other error - log but continue
 					console.error(
 						`Failed to check installation ${inst.providerInstallationId}:`,
-						error
+						error,
 					);
 					results.push({
 						installationId: inst.providerInstallationId,
@@ -153,7 +156,7 @@ export async function POST(request: NextRequest) {
 		console.error("Failed to refresh installations:", error);
 		return NextResponse.json(
 			{ error: "Failed to refresh installations" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

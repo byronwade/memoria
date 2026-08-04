@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { getDashboardData } from "./dashboard-data";
-import { DashboardProvider } from "./dashboard-context";
-import { DashboardShell } from "./dashboard-shell";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { DashboardProvider } from "./dashboard-context";
+import { getDashboardData } from "./dashboard-data";
+import { DashboardShell } from "./dashboard-shell";
 
 export default async function DashboardLayout({
 	children,

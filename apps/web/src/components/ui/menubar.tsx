@@ -229,7 +229,7 @@ function MenubarSubTrigger({
 			data-slot="menubar-sub-trigger"
 			data-inset={inset}
 			className={cn(
-				"focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[inset]:pl-8",
+				"focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 select-none data-[inset]:pl-8",
 				className,
 			)}
 			{...props}
@@ -258,19 +258,19 @@ function MenubarSubContent({
 
 export {
 	Menubar,
-	MenubarPortal,
-	MenubarMenu,
-	MenubarTrigger,
+	MenubarCheckboxItem,
 	MenubarContent,
 	MenubarGroup,
-	MenubarSeparator,
-	MenubarLabel,
 	MenubarItem,
-	MenubarShortcut,
-	MenubarCheckboxItem,
+	MenubarLabel,
+	MenubarMenu,
+	MenubarPortal,
 	MenubarRadioGroup,
 	MenubarRadioItem,
+	MenubarSeparator,
+	MenubarShortcut,
 	MenubarSub,
-	MenubarSubTrigger,
 	MenubarSubContent,
+	MenubarSubTrigger,
+	MenubarTrigger,
 };

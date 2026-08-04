@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { getConvexClient, callMutation } from "@/lib/convex";
+import { callMutation, getConvexClient } from "@/lib/convex";
 
 export async function POST() {
 	try {
@@ -41,7 +41,9 @@ export async function POST() {
 
 export async function GET() {
 	// Support GET for simple link-based logout
-	const response = NextResponse.redirect(new URL("/", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"));
+	const response = NextResponse.redirect(
+		new URL("/", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+	);
 
 	try {
 		const cookieStore = await cookies();

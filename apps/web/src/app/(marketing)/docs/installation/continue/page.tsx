@@ -55,7 +55,9 @@ export default function ContinuePage() {
 					<span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold bg-green-500/20 text-green-600 dark:text-green-400 rounded">
 						100% FREE
 					</span>
-					<span className="text-sm text-muted-foreground">No account or API key required</span>
+					<span className="text-sm text-muted-foreground">
+						No account or API key required
+					</span>
 				</div>
 
 				<p className="lead">

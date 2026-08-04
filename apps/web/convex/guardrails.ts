@@ -1,5 +1,5 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
@@ -120,7 +120,7 @@ export const listGuardrails = query({
 		// Filter by repo if specified (only applies to repository-scoped guardrails)
 		if (args.repoId !== undefined) {
 			guardrails = guardrails.filter(
-				(g) => g.scope === "global" || g.repoId === args.repoId
+				(g) => g.scope === "global" || g.repoId === args.repoId,
 			);
 		}
 
@@ -137,7 +137,7 @@ export const listGuardrails = query({
 					...g,
 					creatorName: creator?.name || creator?.email || "Unknown",
 				};
-			})
+			}),
 		);
 
 		return withCreators;
@@ -164,7 +164,7 @@ export const getGuardrailsForRepo = query({
 		// - All global guardrails
 		// - Repository guardrails for this specific repo
 		const applicable = guardrails.filter(
-			(g) => g.isEnabled && (g.scope === "global" || g.repoId === args.repoId)
+			(g) => g.isEnabled && (g.scope === "global" || g.repoId === args.repoId),
 		);
 
 		// Sort: repo-specific rules first (they take precedence over globals)

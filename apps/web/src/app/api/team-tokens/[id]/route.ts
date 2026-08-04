@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 interface TokenRecord {
 	_id: string;
@@ -12,8 +12,8 @@ interface TokenRecord {
  * Revoke a team token
  */
 export async function DELETE(
-	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	_request: NextRequest,
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -30,14 +30,14 @@ export async function DELETE(
 		const tokens = await callQuery<TokenRecord[]>(
 			convex,
 			"teamTokens:listTokens",
-			{ userId, includeRevoked: false }
+			{ userId, includeRevoked: false },
 		);
 
-		const token = tokens?.find(t => t._id === tokenId);
+		const token = tokens?.find((t) => t._id === tokenId);
 		if (!token) {
 			return NextResponse.json(
 				{ error: "Token not found or not authorized" },
-				{ status: 404 }
+				{ status: 404 },
 			);
 		}
 
@@ -49,7 +49,7 @@ export async function DELETE(
 		console.error("Failed to revoke team token:", error);
 		return NextResponse.json(
 			{ error: "Failed to revoke team token" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

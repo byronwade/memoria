@@ -1,7 +1,5 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { useParams } from "next/navigation";
 import {
 	AlertTriangle,
 	Brain,
@@ -25,10 +23,18 @@ import {
 	Users,
 	Zap,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
+import { useParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { useDashboard } from "../../../dashboard-context";
 
 // ============================================================================
@@ -116,9 +122,6 @@ const MAX_COUPLED_FILES_SHOWN = 5;
 // LOADING & STATE TYPES
 // ============================================================================
 
-type SyncStatus = "idle" | "syncing" | "error" | "success";
-type LoadingState = "loading" | "loaded" | "error";
-
 // ============================================================================
 // SKELETON COMPONENTS
 // ============================================================================
@@ -195,7 +198,7 @@ function FileCardSkeleton() {
 	);
 }
 
-function ActivityItemSkeleton() {
+function _ActivityItemSkeleton() {
 	return (
 		<div className="flex items-center gap-4 py-3 border-b border-border/50">
 			<Skeleton className="w-8 h-8 rounded-sm shrink-0" />
@@ -211,7 +214,7 @@ function ActivityItemSkeleton() {
 	);
 }
 
-function CouplingPairSkeleton() {
+function _CouplingPairSkeleton() {
 	return (
 		<div className="p-4 rounded-sm border border-border/50 bg-secondary/30">
 			<div className="flex items-center gap-3">
@@ -229,7 +232,6 @@ function CouplingPairSkeleton() {
 		</div>
 	);
 }
-
 
 // Full page skeleton
 function PageSkeleton() {
@@ -263,7 +265,10 @@ function PageSkeleton() {
 			<div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
 				<div className="grid md:grid-cols-3 gap-6">
 					{[1, 2, 3].map((i) => (
-						<div key={i} className="p-5 rounded-lg border border-border/30 bg-secondary/20">
+						<div
+							key={i}
+							className="p-5 rounded-lg border border-border/30 bg-secondary/20"
+						>
 							<div className="flex items-center justify-between mb-4">
 								<Skeleton className="h-4 w-24" />
 								<Skeleton className="h-3 w-12" />
@@ -310,8 +315,8 @@ function EmptyFilesState() {
 				</EmptyMedia>
 				<EmptyTitle>No high-risk files</EmptyTitle>
 				<EmptyDescription>
-					Great news! There are no files with elevated risk scores in this repository.
-					All analyzed files are within safe thresholds.
+					Great news! There are no files with elevated risk scores in this
+					repository. All analyzed files are within safe thresholds.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
@@ -327,8 +332,8 @@ function EmptyActivityState() {
 				</EmptyMedia>
 				<EmptyTitle>No recent activity</EmptyTitle>
 				<EmptyDescription>
-					No file analyses have been performed yet. Activity will appear here
-					as you use Memoria to analyze files in your workflow.
+					No file analyses have been performed yet. Activity will appear here as
+					you use Memoria to analyze files in your workflow.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
@@ -344,8 +349,8 @@ function EmptyCouplingState() {
 				</EmptyMedia>
 				<EmptyTitle>No file coupling detected</EmptyTitle>
 				<EmptyDescription>
-					No files with significant co-change patterns have been found.
-					Coupling data builds up as your team makes commits over time.
+					No files with significant co-change patterns have been found. Coupling
+					data builds up as your team makes commits over time.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
@@ -355,7 +360,7 @@ function EmptyCouplingState() {
 function EmptyRepositoryState({
 	repoName,
 	onStartAnalysis,
-	isStarting = false
+	isStarting = false,
 }: {
 	repoName: string;
 	onStartAnalysis?: () => void;
@@ -371,7 +376,8 @@ function EmptyRepositoryState({
 					<EmptyTitle>Repository not analyzed yet</EmptyTitle>
 					<EmptyDescription>
 						<strong>{repoName}</strong> hasn't been analyzed by Memoria yet.
-						Click the button below to scan your repository and start tracking file risks and coupling patterns.
+						Click the button below to scan your repository and start tracking
+						file risks and coupling patterns.
 					</EmptyDescription>
 				</EmptyHeader>
 				<div className="mt-6 space-y-4">
@@ -394,7 +400,9 @@ function EmptyRepositoryState({
 						)}
 					</Button>
 					<p className="text-xs text-muted-foreground max-w-md mx-auto">
-						Memoria will clone your repository, analyze file history, detect coupling patterns, and calculate risk scores. This usually takes 1-5 minutes depending on repository size.
+						Memoria will clone your repository, analyze file history, detect
+						coupling patterns, and calculate risk scores. This usually takes 1-5
+						minutes depending on repository size.
 					</p>
 				</div>
 			</Empty>
@@ -406,7 +414,17 @@ function EmptyRepositoryState({
 // SYNCING STATE COMPONENT
 // ============================================================================
 
-function SyncingBanner({ progress, filesAnalyzed, totalFiles, onCancel }: { progress: number; filesAnalyzed: number; totalFiles: number; onCancel?: () => void }) {
+function SyncingBanner({
+	progress,
+	filesAnalyzed,
+	totalFiles,
+	onCancel,
+}: {
+	progress: number;
+	filesAnalyzed: number;
+	totalFiles: number;
+	onCancel?: () => void;
+}) {
 	return (
 		<div className="bg-primary/10 border-b border-primary/20">
 			<div className="max-w-6xl mx-auto px-4 md:px-6 py-3">
@@ -415,7 +433,8 @@ function SyncingBanner({ progress, filesAnalyzed, totalFiles, onCancel }: { prog
 						<RefreshCw className="h-4 w-4 text-primary animate-spin" />
 						<span className="text-sm font-medium">Syncing repository...</span>
 						<span className="text-sm text-muted-foreground">
-							{filesAnalyzed.toLocaleString()} / {totalFiles.toLocaleString()} files
+							{filesAnalyzed.toLocaleString()} / {totalFiles.toLocaleString()}{" "}
+							files
 						</span>
 					</div>
 					<div className="flex items-center gap-3">
@@ -425,9 +444,16 @@ function SyncingBanner({ progress, filesAnalyzed, totalFiles, onCancel }: { prog
 								style={{ width: `${progress}%` }}
 							/>
 						</div>
-						<span className="text-sm font-medium tabular-nums w-12 text-right">{Math.round(progress)}%</span>
+						<span className="text-sm font-medium tabular-nums w-12 text-right">
+							{Math.round(progress)}%
+						</span>
 						{onCancel && (
-							<Button variant="ghost" size="sm" onClick={onCancel} className="text-xs h-7">
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={onCancel}
+								className="text-xs h-7"
+							>
 								Cancel
 							</Button>
 						)}
@@ -532,7 +558,9 @@ function useRepositoryStats(repoId: string | undefined) {
 			try {
 				setLoading(true);
 				setError(null);
-				const response = await fetch(`/api/repositories/${repoId}/stats?type=all`);
+				const response = await fetch(
+					`/api/repositories/${repoId}/stats?type=all`,
+				);
 				if (!response.ok) {
 					throw new Error("Failed to fetch repository stats");
 				}
@@ -556,14 +584,14 @@ async function fetchPaginatedData(
 	repoId: string,
 	type: "riskyFiles" | "activity" | "coupling",
 	limit: number,
-	offset: number
+	offset: number,
 ): Promise<{
 	riskyFiles?: { files: ApiRiskyFile[]; total: number };
 	activity?: { activities: ApiActivity[]; total: number };
 	coupling?: { pairs: ApiCouplingPair[]; total: number };
 }> {
 	const response = await fetch(
-		`/api/repositories/${repoId}/stats?type=${type}&limit=${limit}&offset=${offset}`
+		`/api/repositories/${repoId}/stats?type=${type}&limit=${limit}&offset=${offset}`,
 	);
 	if (!response.ok) {
 		throw new Error("Failed to fetch data");
@@ -573,10 +601,15 @@ async function fetchPaginatedData(
 
 // Build repo data from real API response
 const buildRepoDataFromApi = (
-	contextRepo: { _id: string; fullName: string; isPrivate: boolean; lastAnalyzedAt: number | null },
-	apiData: ApiResponse | null
+	contextRepo: {
+		_id: string;
+		fullName: string;
+		isPrivate: boolean;
+		lastAnalyzedAt: number | null;
+	},
+	apiData: ApiResponse | null,
 ): RepoData => {
-	const [owner, repoName] = contextRepo.fullName.split('/');
+	const [owner, repoName] = contextRepo.fullName.split("/");
 
 	const lastSyncText = contextRepo.lastAnalyzedAt
 		? formatTimeAgo(contextRepo.lastAnalyzedAt)
@@ -584,23 +617,37 @@ const buildRepoDataFromApi = (
 
 	// Use API data if available, otherwise use empty defaults
 	const stats = apiData?.stats;
-	const riskDistribution = stats?.riskDistribution || { high: 0, medium: 0, low: 0 };
+	const riskDistribution = stats?.riskDistribution || {
+		high: 0,
+		medium: 0,
+		low: 0,
+	};
 
 	// Convert API risky files to page format
 	const riskyFiles = (apiData?.riskyFiles?.files || []).map((f) => ({
 		file: f.filePath,
 		risk: f.riskScore,
-		riskLevel: (f.riskLevel === "high" ? "high" : f.riskLevel === "medium" ? "medium" : "low") as "critical" | "high" | "medium" | "low",
+		riskLevel: (f.riskLevel === "high"
+			? "high"
+			: f.riskLevel === "medium"
+				? "medium"
+				: "low") as "critical" | "high" | "medium" | "low",
 		reason: `Volatility: ${f.volatilityScore}% • ${f.coupledFilesCount} coupled files • ${f.importersCount} importers`,
 		coupledFiles: [], // Would need separate query for coupled file names
-		lastModified: f.lastAnalyzedAt ? formatTimeAgo(f.lastAnalyzedAt) : "Unknown",
+		lastModified: f.lastAnalyzedAt
+			? formatTimeAgo(f.lastAnalyzedAt)
+			: "Unknown",
 		modifiedBy: "Unknown",
 		commits: 0,
 	}));
 
 	// Convert API activity to page format
 	const recentActivity = (apiData?.activity?.activities || []).map((a) => ({
-		type: (a.type === "pr" ? "prevented" : a.type === "analysis" ? "analysis" : "safe") as "analysis" | "prevented" | "safe",
+		type: (a.type === "pr"
+			? "prevented"
+			: a.type === "analysis"
+				? "analysis"
+				: "safe") as "analysis" | "prevented" | "safe",
 		file: a.filePath || "Unknown file",
 		risk: a.riskLevel === "high" ? 75 : a.riskLevel === "medium" ? 50 : 25,
 		time: formatTimeAgo(a.timestamp),
@@ -687,7 +734,10 @@ const generateEmptyChartData = () => {
 		const date = new Date(now);
 		date.setDate(date.getDate() - i);
 		data.push({
-			date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+			date: date.toLocaleDateString("en-US", {
+				month: "short",
+				day: "numeric",
+			}),
 			analyses: 0,
 			prevented: 0,
 			avgRisk: 0,
@@ -697,8 +747,10 @@ const generateEmptyChartData = () => {
 };
 
 // Check if chart data has any real activity
-const hasChartActivity = (chartData: Array<{ analyses: number; prevented: number }>) => {
-	return chartData.some(d => d.analyses > 0 || d.prevented > 0);
+const hasChartActivity = (
+	chartData: Array<{ analyses: number; prevented: number }>,
+) => {
+	return chartData.some((d) => d.analyses > 0 || d.prevented > 0);
 };
 
 function formatTimeAgo(timestamp: number): string {
@@ -709,9 +761,9 @@ function formatTimeAgo(timestamp: number): string {
 	const days = Math.floor(diff / 86400000);
 
 	if (minutes < 1) return "just now";
-	if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-	if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-	return `${days} day${days === 1 ? '' : 's'} ago`;
+	if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+	if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+	return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 // ============================================================================
@@ -739,14 +791,14 @@ function getRiskBgLight(risk: number) {
 	return "bg-primary/10";
 }
 
-function getHealthColor(health: number) {
+function _getHealthColor(health: number) {
 	if (health >= 80) return "text-primary";
 	if (health >= 60) return "text-yellow-500";
 	if (health >= 40) return "text-orange-500";
 	return "text-red-500";
 }
 
-function getHealthBg(health: number) {
+function _getHealthBg(health: number) {
 	if (health >= 80) return "bg-primary";
 	if (health >= 60) return "bg-yellow-500";
 	if (health >= 40) return "bg-orange-500";
@@ -759,14 +811,19 @@ function getActivityIcon(type: string) {
 			return <ShieldCheck className="h-4 w-4 text-primary" />;
 		case "safe":
 			return <CheckCircle2 className="h-4 w-4 text-primary" />;
-		case "analysis":
 		default:
 			return <Zap className="h-4 w-4 text-primary" />;
 	}
 }
 
 // Trend indicator component for showing comparison metrics
-function TrendIndicator({ change, inverted = false }: { change?: number; inverted?: boolean }) {
+function _TrendIndicator({
+	change,
+	inverted = false,
+}: {
+	change?: number;
+	inverted?: boolean;
+}) {
 	if (change === undefined || change === 0) return null;
 
 	const isPositive = inverted ? change < 0 : change > 0;
@@ -776,7 +833,7 @@ function TrendIndicator({ change, inverted = false }: { change?: number; inverte
 		<span
 			className={cn(
 				"inline-flex items-center gap-0.5 text-xs font-medium",
-				isPositive ? "text-green-500" : "text-red-500"
+				isPositive ? "text-green-500" : "text-red-500",
 			)}
 			aria-label={`${isPositive ? "Increased" : "Decreased"} by ${absChange}% from last period`}
 		>
@@ -808,19 +865,24 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 
 	// Check if we have real data
 	const hasData = hasChartActivity(chartData);
-	const maxAnalyses = hasData ? Math.max(...chartData.map((d) => d.analyses), 1) : 10; // Use 10 as placeholder max
+	const maxAnalyses = hasData
+		? Math.max(...chartData.map((d) => d.analyses), 1)
+		: 10; // Use 10 as placeholder max
 
-	const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-		if (!containerRef.current) return;
+	const handleMouseMove = useCallback(
+		(e: React.MouseEvent<HTMLDivElement>) => {
+			if (!containerRef.current) return;
 
-		const rect = containerRef.current.getBoundingClientRect();
-		const x = e.clientX - rect.left;
-		const relativeX = x / rect.width;
-		const index = Math.round(relativeX * (chartData.length - 1));
-		const clampedIndex = Math.max(0, Math.min(chartData.length - 1, index));
+			const rect = containerRef.current.getBoundingClientRect();
+			const x = e.clientX - rect.left;
+			const relativeX = x / rect.width;
+			const index = Math.round(relativeX * (chartData.length - 1));
+			const clampedIndex = Math.max(0, Math.min(chartData.length - 1, index));
 
-		setHoveredIndex(clampedIndex);
-	}, [chartData.length]);
+			setHoveredIndex(clampedIndex);
+		},
+		[chartData.length],
+	);
 
 	const handleMouseLeave = useCallback(() => {
 		setHoveredIndex(null);
@@ -862,7 +924,12 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 								<stop offset="0%" stopColor="currentColor" stopOpacity="0.03" />
 								<stop offset="100%" stopColor="currentColor" stopOpacity="0" />
 							</linearGradient>
-							<pattern id="dotPattern" patternUnits="userSpaceOnUse" width="40" height="40">
+							<pattern
+								id="dotPattern"
+								patternUnits="userSpaceOnUse"
+								width="40"
+								height="40"
+							>
 								<circle cx="2" cy="2" r="1" fill="currentColor" opacity="0.1" />
 							</pattern>
 						</defs>
@@ -900,13 +967,24 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 					{/* Centered "Waiting for data" message */}
 					<div className="absolute inset-0 flex flex-col items-center justify-center">
 						<div className="flex items-center gap-2 text-muted-foreground/60 mb-2">
-							<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-								<path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+							<svg
+								className="w-5 h-5"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke="currentColor"
+								strokeWidth="1.5"
+							>
+								<path
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+								/>
 							</svg>
 							<span className="text-sm font-medium">Waiting for activity</span>
 						</div>
 						<p className="text-xs text-muted-foreground/40 max-w-xs text-center">
-							Analysis data will appear here as you open pull requests and use Memoria
+							Analysis data will appear here as you open pull requests and use
+							Memoria
 						</p>
 					</div>
 				</div>
@@ -947,11 +1025,31 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 					preserveAspectRatio="none"
 				>
 					<defs>
-						<linearGradient id="analysisGradientLight" x1="0" x2="0" y1="0" y2="1">
-							<stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.15" />
-							<stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
+						<linearGradient
+							id="analysisGradientLight"
+							x1="0"
+							x2="0"
+							y1="0"
+							y2="1"
+						>
+							<stop
+								offset="0%"
+								stopColor="hsl(var(--primary))"
+								stopOpacity="0.15"
+							/>
+							<stop
+								offset="100%"
+								stopColor="hsl(var(--primary))"
+								stopOpacity="0"
+							/>
 						</linearGradient>
-						<linearGradient id="analysisGradientDark" x1="0" x2="0" y1="0" y2="1">
+						<linearGradient
+							id="analysisGradientDark"
+							x1="0"
+							x2="0"
+							y1="0"
+							y2="1"
+						>
 							<stop offset="0%" stopColor="white" stopOpacity="0.12" />
 							<stop offset="100%" stopColor="white" stopOpacity="0" />
 						</linearGradient>
@@ -964,7 +1062,9 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 							${chartData
 								.map((d, i) => {
 									const x = (i / (chartData.length - 1)) * 1200;
-									const y = chartHeight - (d.analyses / maxAnalyses) * (chartHeight - 20);
+									const y =
+										chartHeight -
+										(d.analyses / maxAnalyses) * (chartHeight - 20);
 									return `L ${x} ${y}`;
 								})
 								.join(" ")}
@@ -981,7 +1081,9 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 							${chartData
 								.map((d, i) => {
 									const x = (i / (chartData.length - 1)) * 1200;
-									const y = chartHeight - (d.analyses / maxAnalyses) * (chartHeight - 20);
+									const y =
+										chartHeight -
+										(d.analyses / maxAnalyses) * (chartHeight - 20);
 									return `L ${x} ${y}`;
 								})
 								.join(" ")}
@@ -1000,7 +1102,9 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 								.slice(1)
 								.map((d, i) => {
 									const x = ((i + 1) / (chartData.length - 1)) * 1200;
-									const y = chartHeight - (d.analyses / maxAnalyses) * (chartHeight - 20);
+									const y =
+										chartHeight -
+										(d.analyses / maxAnalyses) * (chartHeight - 20);
 									return `L ${x} ${y}`;
 								})
 								.join(" ")}
@@ -1020,7 +1124,9 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 								.slice(1)
 								.map((d, i) => {
 									const x = ((i + 1) / (chartData.length - 1)) * 1200;
-									const y = chartHeight - (d.prevented / maxAnalyses) * (chartHeight - 20);
+									const y =
+										chartHeight -
+										(d.prevented / maxAnalyses) * (chartHeight - 20);
 									return `L ${x} ${y}`;
 								})
 								.join(" ")}
@@ -1050,7 +1156,11 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 							{/* Analysis point */}
 							<circle
 								cx={(hoveredIndex / (chartData.length - 1)) * 1200}
-								cy={chartHeight - (chartData[hoveredIndex].analyses / maxAnalyses) * (chartHeight - 20)}
+								cy={
+									chartHeight -
+									(chartData[hoveredIndex].analyses / maxAnalyses) *
+										(chartHeight - 20)
+								}
 								r="4"
 								fill="hsl(var(--primary))"
 								stroke="hsl(var(--background))"
@@ -1060,7 +1170,11 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 							{/* Prevented point */}
 							<circle
 								cx={(hoveredIndex / (chartData.length - 1)) * 1200}
-								cy={chartHeight - (chartData[hoveredIndex].prevented / maxAnalyses) * (chartHeight - 20)}
+								cy={
+									chartHeight -
+									(chartData[hoveredIndex].prevented / maxAnalyses) *
+										(chartHeight - 20)
+								}
 								r="4"
 								fill="rgb(34, 197, 94)"
 								stroke="hsl(var(--background))"
@@ -1090,20 +1204,26 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 						className="absolute z-50 pointer-events-none dark:hidden"
 						style={{
 							left: `${(hoveredIndex / (chartData.length - 1)) * 100}%`,
-							top: '8px',
-							transform: `translateX(${hoveredIndex > chartData.length * 0.7 ? '-100%' : hoveredIndex < chartData.length * 0.3 ? '0' : '-50%'})`,
+							top: "8px",
+							transform: `translateX(${hoveredIndex > chartData.length * 0.7 ? "-100%" : hoveredIndex < chartData.length * 0.3 ? "0" : "-50%"})`,
 						}}
 					>
 						<div className="bg-popover border border-border rounded-sm shadow-lg px-3 py-2">
-							<div className="text-xs text-muted-foreground mb-1">{hoveredData.date}</div>
+							<div className="text-xs text-muted-foreground mb-1">
+								{hoveredData.date}
+							</div>
 							<div className="flex items-center gap-3">
 								<div className="flex items-center gap-1.5">
 									<div className="w-2 h-2 rounded-full bg-primary" />
-									<span className="text-sm font-medium tabular-nums">{hoveredData.analyses}</span>
+									<span className="text-sm font-medium tabular-nums">
+										{hoveredData.analyses}
+									</span>
 								</div>
 								<div className="flex items-center gap-1.5">
 									<div className="w-2 h-2 rounded-full bg-emerald-500" />
-									<span className="text-sm font-medium tabular-nums text-emerald-500">{hoveredData.prevented}</span>
+									<span className="text-sm font-medium tabular-nums text-emerald-500">
+										{hoveredData.prevented}
+									</span>
 								</div>
 							</div>
 						</div>
@@ -1116,7 +1236,7 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 						className="absolute z-50 pointer-events-none hidden dark:block"
 						style={{
 							left: `${(hoveredIndex / (chartData.length - 1)) * 100}%`,
-							top: '-8px',
+							top: "-8px",
 							transform: `translateX(-50%) translateY(-100%)`,
 						}}
 					>
@@ -1124,11 +1244,15 @@ function InteractiveChart({ chartData }: { chartData: ChartDataPoint[] }) {
 							<div className="text-xs opacity-80 mb-1">{hoveredData.date}</div>
 							<div className="flex items-center gap-3">
 								<div className="flex items-center gap-1.5">
-									<span className="text-sm font-medium tabular-nums">{hoveredData.analyses}</span>
+									<span className="text-sm font-medium tabular-nums">
+										{hoveredData.analyses}
+									</span>
 									<span className="text-xs opacity-70">analyses</span>
 								</div>
 								<div className="flex items-center gap-1.5">
-									<span className="text-sm font-medium tabular-nums">{hoveredData.prevented}</span>
+									<span className="text-sm font-medium tabular-nums">
+										{hoveredData.prevented}
+									</span>
 									<span className="text-xs opacity-70">prevented</span>
 								</div>
 							</div>
@@ -1179,22 +1303,27 @@ function Pagination({
 	return (
 		<div className="flex items-center justify-between pt-4">
 			<div className="text-sm text-muted-foreground">
-				Showing <span className="font-medium text-foreground">{startItem}</span> to{" "}
-				<span className="font-medium text-foreground">{endItem}</span> of{" "}
-				<span className="font-medium text-foreground">{totalItems.toLocaleString()}</span> {itemLabel}
+				Showing <span className="font-medium text-foreground">{startItem}</span>{" "}
+				to <span className="font-medium text-foreground">{endItem}</span> of{" "}
+				<span className="font-medium text-foreground">
+					{totalItems.toLocaleString()}
+				</span>{" "}
+				{itemLabel}
 			</div>
 			<div className="flex items-center gap-2">
 				<button
+					type="button"
+					aria-label="Previous page"
 					onClick={() => onPageChange(currentPage - 1)}
 					disabled={currentPage === 1}
 					className={cn(
 						"p-2 rounded-sm border border-border/50 bg-secondary/50 transition-colors",
 						currentPage === 1
 							? "opacity-50 cursor-not-allowed"
-							: "hover:bg-secondary hover:border-border"
+							: "hover:bg-secondary hover:border-border",
 					)}
 				>
-					<ChevronLeft className="h-4 w-4" />
+					<ChevronLeft data-icon="inline-start" className="h-4 w-4" />
 				</button>
 				<div className="flex items-center gap-1">
 					{/* Show first page */}
@@ -1213,7 +1342,8 @@ function Pagination({
 					)}
 					{/* Show current page and neighbors */}
 					{Array.from({ length: Math.min(3, totalPages) }, (_, i) => {
-						const page = Math.max(1, Math.min(currentPage - 1, totalPages - 2)) + i;
+						const page =
+							Math.max(1, Math.min(currentPage - 1, totalPages - 2)) + i;
 						if (page < 1 || page > totalPages) return null;
 						return (
 							<button
@@ -1223,7 +1353,7 @@ function Pagination({
 									"px-3 py-1.5 text-sm rounded-sm border transition-colors",
 									page === currentPage
 										? "bg-primary text-primary-foreground border-primary"
-										: "border-border/50 bg-secondary/50 hover:bg-secondary hover:border-border"
+										: "border-border/50 bg-secondary/50 hover:bg-secondary hover:border-border",
 								)}
 							>
 								{page}
@@ -1246,13 +1376,15 @@ function Pagination({
 					)}
 				</div>
 				<button
+					type="button"
+					aria-label="Next page"
 					onClick={() => onPageChange(currentPage + 1)}
 					disabled={currentPage === totalPages}
 					className={cn(
 						"p-2 rounded-sm border border-border/50 bg-secondary/50 transition-colors",
 						currentPage === totalPages
 							? "opacity-50 cursor-not-allowed"
-							: "hover:bg-secondary hover:border-border"
+							: "hover:bg-secondary hover:border-border",
 					)}
 				>
 					<ChevronRight className="h-4 w-4" />
@@ -1270,7 +1402,9 @@ export default function RepositoryDetailPage() {
 	const { repositories, guardrails, memories } = useDashboard();
 
 	// Tab state
-	const [selectedTab, setSelectedTab] = useState<"guardrails" | "memories" | "files" | "activity" | "coupling">("guardrails");
+	const [selectedTab, setSelectedTab] = useState<
+		"guardrails" | "memories" | "files" | "activity" | "coupling"
+	>("guardrails");
 
 	// Pagination state for each tab
 	const [filesPage, setFilesPage] = useState(1);
@@ -1278,15 +1412,24 @@ export default function RepositoryDetailPage() {
 	const [couplingPage, setCouplingPage] = useState(1);
 
 	// Paginated data state
-	const [paginatedRiskyFiles, setPaginatedRiskyFiles] = useState<{ files: ApiRiskyFile[]; total: number } | null>(null);
-	const [paginatedActivity, setPaginatedActivity] = useState<{ activities: ApiActivity[]; total: number } | null>(null);
-	const [paginatedCoupling, setPaginatedCoupling] = useState<{ pairs: ApiCouplingPair[]; total: number } | null>(null);
+	const [paginatedRiskyFiles, setPaginatedRiskyFiles] = useState<{
+		files: ApiRiskyFile[];
+		total: number;
+	} | null>(null);
+	const [paginatedActivity, setPaginatedActivity] = useState<{
+		activities: ApiActivity[];
+		total: number;
+	} | null>(null);
+	const [paginatedCoupling, setPaginatedCoupling] = useState<{
+		pairs: ApiCouplingPair[];
+		total: number;
+	} | null>(null);
 
 	// Find the repository from context
 	const contextRepo = useMemo(() => {
-		return repositories.find(r => {
+		return repositories.find((r) => {
 			if (r.fullName === repoName) return true;
-			const repoOnly = r.fullName.split('/').pop();
+			const repoOnly = r.fullName.split("/").pop();
 			return repoOnly === repoName;
 		});
 	}, [repositories, repoName]);
@@ -1294,20 +1437,23 @@ export default function RepositoryDetailPage() {
 	// Filter guardrails and memories for this repo (org-wide + repo-specific)
 	const repoGuardrails = useMemo(() => {
 		if (!contextRepo) return [];
-		return guardrails.filter(g =>
-			g.isEnabled && (g.repoId === undefined || g.repoId === contextRepo._id)
+		return guardrails.filter(
+			(g) =>
+				g.isEnabled && (g.repoId === undefined || g.repoId === contextRepo._id),
 		);
 	}, [guardrails, contextRepo]);
 
 	const repoMemories = useMemo(() => {
 		if (!contextRepo) return [];
-		return memories.filter(m =>
-			m.repoId === undefined || m.repoId === contextRepo._id
+		return memories.filter(
+			(m) => m.repoId === undefined || m.repoId === contextRepo._id,
 		);
 	}, [memories, contextRepo]);
 
 	// Fetch real data from API
-	const { data: apiData, loading: apiLoading, error: apiError } = useRepositoryStats(contextRepo?._id);
+	const { data: apiData, loading: apiLoading } = useRepositoryStats(
+		contextRepo?._id,
+	);
 
 	// Fetch paginated data when tab or page changes
 	useEffect(() => {
@@ -1320,7 +1466,7 @@ export default function RepositoryDetailPage() {
 						contextRepo._id,
 						"riskyFiles",
 						ITEMS_PER_PAGE,
-						(filesPage - 1) * ITEMS_PER_PAGE
+						(filesPage - 1) * ITEMS_PER_PAGE,
 					);
 					if (result.riskyFiles) {
 						setPaginatedRiskyFiles(result.riskyFiles);
@@ -1330,7 +1476,7 @@ export default function RepositoryDetailPage() {
 						contextRepo._id,
 						"activity",
 						ITEMS_PER_PAGE,
-						(activityPage - 1) * ITEMS_PER_PAGE
+						(activityPage - 1) * ITEMS_PER_PAGE,
 					);
 					if (result.activity) {
 						setPaginatedActivity(result.activity);
@@ -1340,7 +1486,7 @@ export default function RepositoryDetailPage() {
 						contextRepo._id,
 						"coupling",
 						ITEMS_PER_PAGE,
-						(couplingPage - 1) * ITEMS_PER_PAGE
+						(couplingPage - 1) * ITEMS_PER_PAGE,
 					);
 					if (result.coupling) {
 						setPaginatedCoupling(result.coupling);
@@ -1376,14 +1522,20 @@ export default function RepositoryDetailPage() {
 		return paginatedRiskyFiles.files.map((f) => ({
 			file: f.filePath,
 			risk: f.riskScore,
-			riskLevel: (f.riskLevel === "high" ? "high" : f.riskLevel === "medium" ? "medium" : "low") as "critical" | "high" | "medium" | "low",
+			riskLevel: (f.riskLevel === "high"
+				? "high"
+				: f.riskLevel === "medium"
+					? "medium"
+					: "low") as "critical" | "high" | "medium" | "low",
 			reason: `Volatility: ${f.volatilityScore}% • ${f.coupledFilesCount} coupled files • ${f.importersCount} importers`,
 			coupledFiles: [],
-			lastModified: f.lastAnalyzedAt ? formatTimeAgo(f.lastAnalyzedAt) : "Unknown",
+			lastModified: f.lastAnalyzedAt
+				? formatTimeAgo(f.lastAnalyzedAt)
+				: "Unknown",
 			modifiedBy: "Unknown",
 			commits: 0,
 		}));
-	}, [paginatedRiskyFiles, repo?.riskyFiles, filesPage]);
+	}, [paginatedRiskyFiles, repo?.riskyFiles, filesPage, repo]);
 
 	const paginatedActivityItems = useMemo(() => {
 		if (!paginatedActivity?.activities) {
@@ -1393,13 +1545,17 @@ export default function RepositoryDetailPage() {
 			return repo.recentActivity.slice(start, start + ITEMS_PER_PAGE);
 		}
 		return paginatedActivity.activities.map((a) => ({
-			type: (a.type === "pr" ? "prevented" : a.type === "analysis" ? "analysis" : "safe") as "analysis" | "prevented" | "safe",
+			type: (a.type === "pr"
+				? "prevented"
+				: a.type === "analysis"
+					? "analysis"
+					: "safe") as "analysis" | "prevented" | "safe",
 			file: a.filePath || "Unknown file",
 			risk: a.riskLevel === "high" ? 75 : a.riskLevel === "medium" ? 50 : 25,
 			time: formatTimeAgo(a.timestamp),
 			result: a.description,
 		}));
-	}, [paginatedActivity, repo?.recentActivity, activityPage]);
+	}, [paginatedActivity, repo?.recentActivity, activityPage, repo]);
 
 	const paginatedCouplingItems = useMemo(() => {
 		if (!paginatedCoupling?.pairs) {
@@ -1414,19 +1570,25 @@ export default function RepositoryDetailPage() {
 			strength: p.couplingScore,
 			coChanges: p.coChangeCount,
 		}));
-	}, [paginatedCoupling, repo?.couplingPairs, couplingPage]);
+	}, [paginatedCoupling, repo?.couplingPairs, couplingPage, repo]);
 
 	// Total pages for each tab - use API totals if available
-	const totalFilesCount = paginatedRiskyFiles?.total ?? (repo?.riskyFiles.length || 0);
-	const totalActivityCount = paginatedActivity?.total ?? (repo?.recentActivity.length || 0);
-	const totalCouplingCount = paginatedCoupling?.total ?? (repo?.couplingPairs.length || 0);
+	const totalFilesCount =
+		paginatedRiskyFiles?.total ?? (repo?.riskyFiles.length || 0);
+	const totalActivityCount =
+		paginatedActivity?.total ?? (repo?.recentActivity.length || 0);
+	const totalCouplingCount =
+		paginatedCoupling?.total ?? (repo?.couplingPairs.length || 0);
 
 	const totalFilesPages = Math.ceil(totalFilesCount / ITEMS_PER_PAGE);
 	const totalActivityPages = Math.ceil(totalActivityCount / ITEMS_PER_PAGE);
 	const totalCouplingPages = Math.ceil(totalCouplingCount / ITEMS_PER_PAGE);
 
 	const totalRiskFiles = repo
-		? repo.riskDistribution.critical + repo.riskDistribution.high + repo.riskDistribution.medium + repo.riskDistribution.low
+		? repo.riskDistribution.critical +
+			repo.riskDistribution.high +
+			repo.riskDistribution.medium +
+			repo.riskDistribution.low
 		: 0;
 
 	// Helper to safely calculate percentage (avoids division by zero)
@@ -1450,9 +1612,12 @@ export default function RepositoryDetailPage() {
 
 		setIsStartingAnalysis(true);
 		try {
-			const response = await fetch(`/api/repositories/${contextRepo._id}/scan`, {
-				method: "POST",
-			});
+			const response = await fetch(
+				`/api/repositories/${contextRepo._id}/scan`,
+				{
+					method: "POST",
+				},
+			);
 
 			if (response.ok) {
 				// Update scan status to trigger polling
@@ -1477,9 +1642,12 @@ export default function RepositoryDetailPage() {
 		if (!contextRepo?._id) return;
 
 		try {
-			const response = await fetch(`/api/repositories/${contextRepo._id}/scan`, {
-				method: "DELETE",
-			});
+			const response = await fetch(
+				`/api/repositories/${contextRepo._id}/scan`,
+				{
+					method: "DELETE",
+				},
+			);
 
 			if (response.ok) {
 				// Reset local state
@@ -1501,50 +1669,59 @@ export default function RepositoryDetailPage() {
 	useEffect(() => {
 		if (!contextRepo?._id) return;
 
+		let cancelled = false;
+
 		const fetchScanStatus = async () => {
 			try {
-				const response = await fetch(`/api/repositories/${contextRepo._id}/scan`);
-				if (response.ok) {
-					const data = await response.json();
-					const newStatus = data.status || "none";
+				const response = await fetch(
+					`/api/repositories/${contextRepo._id}/scan`,
+				);
+				if (!response.ok || cancelled) return;
+				const data = await response.json();
+				if (cancelled) return;
+				const newStatus = data.status || "none";
 
-					// Detect when scan just completed - reload page to get fresh data
-					if (
-						(prevScanStatusRef.current === "running" || prevScanStatusRef.current === "pending") &&
-						newStatus === "completed"
-					) {
-						// Short delay to ensure database is updated, then reload
-						setTimeout(() => {
-							window.location.reload();
-						}, 500);
-					}
-
-					prevScanStatusRef.current = newStatus;
-					setScanStatus({
-						status: newStatus,
-						progress: data.progress || 0,
-						processedFiles: data.processedFiles || 0,
-						totalFiles: data.totalFiles || 0,
-					});
+				// Detect when scan just completed - reload page to get fresh data
+				if (
+					(prevScanStatusRef.current === "running" ||
+						prevScanStatusRef.current === "pending") &&
+					newStatus === "completed"
+				) {
+					window.location.reload();
+					return;
 				}
+
+				prevScanStatusRef.current = newStatus;
+				setScanStatus({
+					status: newStatus,
+					progress: data.progress || 0,
+					processedFiles: data.processedFiles || 0,
+					totalFiles: data.totalFiles || 0,
+				});
 			} catch (error) {
-				console.error("Failed to fetch scan status:", error);
+				if (!cancelled) {
+					console.error("Failed to fetch scan status:", error);
+				}
 			}
 		};
 
 		// Initial fetch
-		fetchScanStatus();
+		void fetchScanStatus();
 
 		// Poll every 2 seconds while scanning
 		const interval = setInterval(() => {
-			fetchScanStatus();
+			void fetchScanStatus();
 		}, 2000);
 
-		return () => clearInterval(interval);
+		return () => {
+			cancelled = true;
+			clearInterval(interval);
+		};
 	}, [contextRepo?._id]);
 
 	// Stop polling when scan completes
-	const isScanning = scanStatus?.status === "pending" || scanStatus?.status === "running";
+	const isScanning =
+		scanStatus?.status === "pending" || scanStatus?.status === "running";
 
 	// Show loading skeleton while fetching initial data
 	if (apiLoading) {
@@ -1563,7 +1740,10 @@ export default function RepositoryDetailPage() {
 	}
 
 	// Check if repository has never been analyzed and no scan is running
-	const needsFirstScan = !contextRepo.lastAnalyzedAt && scanStatus?.status !== "pending" && scanStatus?.status !== "running";
+	const needsFirstScan =
+		!contextRepo.lastAnalyzedAt &&
+		scanStatus?.status !== "pending" &&
+		scanStatus?.status !== "running";
 
 	// Show "needs first scan" state
 	if (needsFirstScan && !isScanning) {
@@ -1576,9 +1756,13 @@ export default function RepositoryDetailPage() {
 						</div>
 						<div>
 							<div className="flex items-center gap-3">
-								<h1 className="text-2xl font-semibold">{contextRepo.fullName.split('/')[1]}</h1>
+								<h1 className="text-2xl font-semibold">
+									{contextRepo.fullName.split("/")[1]}
+								</h1>
 								{contextRepo.isPrivate && (
-									<span className="text-xs px-2 py-0.5 bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">Private</span>
+									<span className="text-xs px-2 py-0.5 bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
+										Private
+									</span>
 								)}
 							</div>
 							<div className="text-sm text-muted-foreground mt-0.5">
@@ -1623,7 +1807,9 @@ export default function RepositoryDetailPage() {
 						<div className="flex items-center gap-3">
 							<h1 className="text-2xl font-semibold">{repo.name}</h1>
 							{repo.isPrivate && (
-								<span className="text-xs px-2 py-0.5 bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">Private</span>
+								<span className="text-xs px-2 py-0.5 bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
+									Private
+								</span>
 							)}
 						</div>
 						<div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5">
@@ -1644,19 +1830,25 @@ export default function RepositoryDetailPage() {
 						<div className="text-4xl md:text-5xl font-light tabular-nums text-foreground">
 							{repo.stats.totalAnalyses}
 						</div>
-						<div className="text-sm text-muted-foreground mt-2">Files Analyzed</div>
+						<div className="text-sm text-muted-foreground mt-2">
+							Files Analyzed
+						</div>
 					</div>
 					<div className="text-center">
 						<div className="text-4xl md:text-5xl font-light tabular-nums text-foreground">
 							{repo.couplingPairs.length}
 						</div>
-						<div className="text-sm text-muted-foreground mt-2">Coupled Files</div>
+						<div className="text-sm text-muted-foreground mt-2">
+							Coupled Files
+						</div>
 					</div>
 					<div className="text-center">
 						<div className="text-4xl md:text-5xl font-light tabular-nums text-foreground">
 							{repoMemories.length}
 						</div>
-						<div className="text-sm text-muted-foreground mt-2">Memories Active</div>
+						<div className="text-sm text-muted-foreground mt-2">
+							Memories Active
+						</div>
 					</div>
 					<div className="text-center">
 						<div className="text-4xl md:text-5xl font-light tabular-nums text-foreground">
@@ -1674,19 +1866,26 @@ export default function RepositoryDetailPage() {
 						<div className="flex-1 h-2 bg-muted rounded-full overflow-hidden flex">
 							<div
 								className="bg-green-500/70 transition-all"
-								style={{ width: `${getRiskPercent(repo.riskDistribution.low)}%` }}
+								style={{
+									width: `${getRiskPercent(repo.riskDistribution.low)}%`,
+								}}
 							/>
 							<div
 								className="bg-yellow-500/70 transition-all"
-								style={{ width: `${getRiskPercent(repo.riskDistribution.medium)}%` }}
+								style={{
+									width: `${getRiskPercent(repo.riskDistribution.medium)}%`,
+								}}
 							/>
 							<div
 								className="bg-red-500/70 transition-all"
-								style={{ width: `${getRiskPercent(repo.riskDistribution.high)}%` }}
+								style={{
+									width: `${getRiskPercent(repo.riskDistribution.high)}%`,
+								}}
 							/>
 						</div>
 						<div className="text-sm text-muted-foreground whitespace-nowrap">
-							{repo.riskDistribution.low} low · {repo.riskDistribution.medium} med · {repo.riskDistribution.high} high
+							{repo.riskDistribution.low} low · {repo.riskDistribution.medium}{" "}
+							med · {repo.riskDistribution.high} high
 						</div>
 					</div>
 				</div>
@@ -1701,7 +1900,9 @@ export default function RepositoryDetailPage() {
 					{/* High Risk Files */}
 					<div className="p-5 rounded-lg border border-border/30 bg-secondary/20">
 						<div className="flex items-center justify-between mb-4">
-							<h3 className="text-sm font-medium text-muted-foreground">High Risk Files</h3>
+							<h3 className="text-sm font-medium text-muted-foreground">
+								High Risk Files
+							</h3>
 							<button
 								onClick={() => handleTabChange("files")}
 								className="text-xs text-primary hover:underline"
@@ -1712,12 +1913,23 @@ export default function RepositoryDetailPage() {
 						<div className="space-y-3">
 							{repo.riskyFiles.slice(0, 3).map((file, i) => (
 								<div key={i} className="flex items-center justify-between">
-									<code className="text-sm truncate max-w-[180px]">{file.file.split('/').pop()}</code>
-									<span className={cn("text-sm tabular-nums", getRiskColor(file.risk))}>{file.risk}</span>
+									<code className="text-sm truncate max-w-[180px]">
+										{file.file.split("/").pop()}
+									</code>
+									<span
+										className={cn(
+											"text-sm tabular-nums",
+											getRiskColor(file.risk),
+										)}
+									>
+										{file.risk}
+									</span>
 								</div>
 							))}
 							{repo.riskyFiles.length === 0 && (
-								<p className="text-sm text-muted-foreground/60">No high risk files</p>
+								<p className="text-sm text-muted-foreground/60">
+									No high risk files
+								</p>
 							)}
 						</div>
 					</div>
@@ -1725,7 +1937,9 @@ export default function RepositoryDetailPage() {
 					{/* Active Memories */}
 					<div className="p-5 rounded-lg border border-border/30 bg-secondary/20">
 						<div className="flex items-center justify-between mb-4">
-							<h3 className="text-sm font-medium text-muted-foreground">Active Memories</h3>
+							<h3 className="text-sm font-medium text-muted-foreground">
+								Active Memories
+							</h3>
 							<button
 								onClick={() => handleTabChange("memories")}
 								className="text-xs text-primary hover:underline"
@@ -1735,12 +1949,19 @@ export default function RepositoryDetailPage() {
 						</div>
 						<div className="space-y-3">
 							{repoMemories.slice(0, 3).map((memory) => (
-								<div key={memory._id} className="text-sm truncate text-foreground/80">
-									{memory.context.length > 45 ? `${memory.context.slice(0, 45)}...` : memory.context}
+								<div
+									key={memory._id}
+									className="text-sm truncate text-foreground/80"
+								>
+									{memory.context.length > 45
+										? `${memory.context.slice(0, 45)}...`
+										: memory.context}
 								</div>
 							))}
 							{repoMemories.length === 0 && (
-								<p className="text-sm text-muted-foreground/60">No memories yet</p>
+								<p className="text-sm text-muted-foreground/60">
+									No memories yet
+								</p>
 							)}
 						</div>
 					</div>
@@ -1748,7 +1969,9 @@ export default function RepositoryDetailPage() {
 					{/* Guardrails */}
 					<div className="p-5 rounded-lg border border-border/30 bg-secondary/20">
 						<div className="flex items-center justify-between mb-4">
-							<h3 className="text-sm font-medium text-muted-foreground">Active Guardrails</h3>
+							<h3 className="text-sm font-medium text-muted-foreground">
+								Active Guardrails
+							</h3>
 							<button
 								onClick={() => handleTabChange("guardrails")}
 								className="text-xs text-primary hover:underline"
@@ -1759,17 +1982,25 @@ export default function RepositoryDetailPage() {
 						<div className="space-y-3">
 							{repoGuardrails.slice(0, 3).map((g) => (
 								<div key={g._id} className="flex items-center gap-2">
-									<code className="text-sm truncate text-foreground/80">{g.pattern}</code>
-									<span className={cn(
-										"text-xs px-1.5 py-0.5 rounded-sm shrink-0",
-										g.level === "block" ? "bg-red-500/10 text-red-500" : "bg-yellow-500/10 text-yellow-600"
-									)}>
+									<code className="text-sm truncate text-foreground/80">
+										{g.pattern}
+									</code>
+									<span
+										className={cn(
+											"text-xs px-1.5 py-0.5 rounded-sm shrink-0",
+											g.level === "block"
+												? "bg-red-500/10 text-red-500"
+												: "bg-yellow-500/10 text-yellow-600",
+										)}
+									>
 										{g.level}
 									</span>
 								</div>
 							))}
 							{repoGuardrails.length === 0 && (
-								<p className="text-sm text-muted-foreground/60">No guardrails set</p>
+								<p className="text-sm text-muted-foreground/60">
+									No guardrails set
+								</p>
 							)}
 						</div>
 					</div>
@@ -1780,7 +2011,9 @@ export default function RepositoryDetailPage() {
 			{repo.couplingPairs.length > 0 && (
 				<div className="max-w-6xl mx-auto px-4 md:px-6 pb-6">
 					<div className="flex items-center justify-between mb-4">
-						<h3 className="text-sm font-medium text-muted-foreground">File Coupling</h3>
+						<h3 className="text-sm font-medium text-muted-foreground">
+							File Coupling
+						</h3>
 						<button
 							onClick={() => handleTabChange("coupling")}
 							className="text-xs text-primary hover:underline"
@@ -1790,13 +2023,22 @@ export default function RepositoryDetailPage() {
 					</div>
 					<div className="space-y-2">
 						{repo.couplingPairs.slice(0, 5).map((pair, i) => (
-							<div key={i} className="flex items-center justify-between py-2 border-b border-border/20 last:border-0">
+							<div
+								key={i}
+								className="flex items-center justify-between py-2 border-b border-border/20 last:border-0"
+							>
 								<div className="flex items-center gap-2 text-sm min-w-0">
-									<code className="truncate max-w-[160px]">{pair.primary.split('/').pop()}</code>
+									<code className="truncate max-w-[160px]">
+										{pair.primary.split("/").pop()}
+									</code>
 									<span className="text-muted-foreground shrink-0">↔</span>
-									<code className="truncate max-w-[160px]">{pair.coupled.split('/').pop()}</code>
+									<code className="truncate max-w-[160px]">
+										{pair.coupled.split("/").pop()}
+									</code>
 								</div>
-								<span className="text-sm text-muted-foreground tabular-nums shrink-0">{pair.strength}%</span>
+								<span className="text-sm text-muted-foreground tabular-nums shrink-0">
+									{pair.strength}%
+								</span>
 							</div>
 						))}
 					</div>
@@ -1807,11 +2049,29 @@ export default function RepositoryDetailPage() {
 			<div className="max-w-6xl mx-auto px-4 md:px-6 mt-10">
 				<div className="flex gap-1 border-b border-border/50 overflow-x-auto">
 					{[
-						{ id: "guardrails", label: "Guardrails", count: repoGuardrails.length, icon: Shield },
-						{ id: "memories", label: "Memories", count: repoMemories.length, icon: Brain },
+						{
+							id: "guardrails",
+							label: "Guardrails",
+							count: repoGuardrails.length,
+							icon: Shield,
+						},
+						{
+							id: "memories",
+							label: "Memories",
+							count: repoMemories.length,
+							icon: Brain,
+						},
 						{ id: "files", label: "High Risk Files", count: totalFilesCount },
-						{ id: "activity", label: "Recent Activity", count: totalActivityCount },
-						{ id: "coupling", label: "File Coupling", count: totalCouplingCount },
+						{
+							id: "activity",
+							label: "Recent Activity",
+							count: totalActivityCount,
+						},
+						{
+							id: "coupling",
+							label: "File Coupling",
+							count: totalCouplingCount,
+						},
 					].map((tab) => (
 						<button
 							key={tab.id}
@@ -1820,15 +2080,19 @@ export default function RepositoryDetailPage() {
 								"px-4 py-2.5 text-sm font-medium transition-colors relative flex items-center gap-2",
 								selectedTab === tab.id
 									? "text-foreground"
-									: "text-muted-foreground hover:text-foreground"
+									: "text-muted-foreground hover:text-foreground",
 							)}
 						>
 							{tab.label}
 							{tab.count !== undefined && tab.count > 0 && (
-								<span className={cn(
-									"px-1.5 py-0.5 text-xs rounded-sm",
-									selectedTab === tab.id ? "bg-foreground text-background" : "bg-muted"
-								)}>
+								<span
+									className={cn(
+										"px-1.5 py-0.5 text-xs rounded-sm",
+										selectedTab === tab.id
+											? "bg-foreground text-background"
+											: "bg-muted",
+									)}
+								>
 									{tab.count}
 								</span>
 							)}
@@ -1854,12 +2118,13 @@ export default function RepositoryDetailPage() {
 									<EmptyTitle>No guardrails configured</EmptyTitle>
 									<EmptyDescription>
 										Guardrails protect sensitive files from AI modifications.
-										Add rules to block or warn when AI tries to edit critical paths.
+										Add rules to block or warn when AI tries to edit critical
+										paths.
 									</EmptyDescription>
 								</EmptyHeader>
 								<Button variant="default" className="mt-4" asChild>
 									<a href="/dashboard/guardrails">
-										<Plus className="h-4 w-4 mr-2" />
+										<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 										Add Guardrail
 									</a>
 								</Button>
@@ -1867,7 +2132,8 @@ export default function RepositoryDetailPage() {
 						) : (
 							<>
 								<p className="text-sm text-muted-foreground mb-4">
-									Rules that protect files from AI modifications. Includes org-wide and repo-specific guardrails.
+									Rules that protect files from AI modifications. Includes
+									org-wide and repo-specific guardrails.
 								</p>
 								<div className="space-y-3">
 									{repoGuardrails.map((guardrail) => (
@@ -1877,7 +2143,7 @@ export default function RepositoryDetailPage() {
 												"p-4 rounded-sm border transition-colors",
 												guardrail.level === "block"
 													? "border-red-500/30 bg-red-500/5"
-													: "border-yellow-500/30 bg-yellow-500/5"
+													: "border-yellow-500/30 bg-yellow-500/5",
 											)}
 										>
 											<div className="flex items-start gap-3">
@@ -1886,7 +2152,7 @@ export default function RepositoryDetailPage() {
 														"w-10 h-10 rounded-sm flex items-center justify-center shrink-0",
 														guardrail.level === "block"
 															? "bg-red-500/10 border border-red-500/20"
-															: "bg-yellow-500/10 border border-yellow-500/20"
+															: "bg-yellow-500/10 border border-yellow-500/20",
 													)}
 												>
 													{guardrail.level === "block" ? (
@@ -1897,13 +2163,15 @@ export default function RepositoryDetailPage() {
 												</div>
 												<div className="flex-1 min-w-0">
 													<div className="flex items-center gap-2 flex-wrap">
-														<code className="text-sm font-mono font-medium">{guardrail.pattern}</code>
+														<code className="text-sm font-mono font-medium">
+															{guardrail.pattern}
+														</code>
 														<span
 															className={cn(
 																"px-2 py-0.5 text-xs font-medium rounded-sm",
 																guardrail.level === "block"
 																	? "bg-red-500/10 text-red-500 border border-red-500/20"
-																	: "bg-yellow-500/10 text-yellow-600 border border-yellow-500/20"
+																	: "bg-yellow-500/10 text-yellow-600 border border-yellow-500/20",
 															)}
 														>
 															{guardrail.level}
@@ -1912,11 +2180,22 @@ export default function RepositoryDetailPage() {
 															{guardrail.repoId ? "repo" : "org-wide"}
 														</span>
 													</div>
-													<p className="text-sm text-muted-foreground mt-1">{guardrail.message}</p>
+													<p className="text-sm text-muted-foreground mt-1">
+														{guardrail.message}
+													</p>
 													<div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
 														<span>Created by {guardrail.creatorName}</span>
 														<span>·</span>
-														<span>{new Date(guardrail.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+														<span>
+															{new Date(guardrail.createdAt).toLocaleDateString(
+																"en-US",
+																{
+																	month: "short",
+																	day: "numeric",
+																	year: "numeric",
+																},
+															)}
+														</span>
 													</div>
 												</div>
 											</div>
@@ -1926,7 +2205,10 @@ export default function RepositoryDetailPage() {
 								<div className="pt-4 border-t border-border/50 mt-6">
 									<Button variant="outline" size="sm" asChild>
 										<a href="/dashboard/guardrails">
-											<Plus className="h-4 w-4 mr-1.5" />
+											<Plus
+												data-icon="inline-start"
+												className="h-4 w-4 mr-1.5"
+											/>
 											Add Guardrail
 										</a>
 									</Button>
@@ -1947,13 +2229,14 @@ export default function RepositoryDetailPage() {
 									</EmptyMedia>
 									<EmptyTitle>No memories configured</EmptyTitle>
 									<EmptyDescription>
-										Memories provide context and knowledge that AI should consider when working on your code.
-										Add information about architecture decisions, gotchas, or important context.
+										Memories provide context and knowledge that AI should
+										consider when working on your code. Add information about
+										architecture decisions, gotchas, or important context.
 									</EmptyDescription>
 								</EmptyHeader>
 								<Button variant="default" className="mt-4" asChild>
 									<a href="/dashboard/memories/new">
-										<Plus className="h-4 w-4 mr-2" />
+										<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 										Add Memory
 									</a>
 								</Button>
@@ -1961,7 +2244,8 @@ export default function RepositoryDetailPage() {
 						) : (
 							<>
 								<p className="text-sm text-muted-foreground mb-4">
-									Context and knowledge for AI to consider. Includes org-wide and repo-specific memories.
+									Context and knowledge for AI to consider. Includes org-wide
+									and repo-specific memories.
 								</p>
 								<div className="space-y-3">
 									{repoMemories.map((memory) => (
@@ -1996,7 +2280,9 @@ export default function RepositoryDetailPage() {
 													<p className="text-sm">{memory.context}</p>
 													{memory.linkedFiles.length > 0 && (
 														<div className="mt-3 pt-3 border-t border-border/50">
-															<div className="text-xs text-muted-foreground mb-1">Linked files:</div>
+															<div className="text-xs text-muted-foreground mb-1">
+																Linked files:
+															</div>
 															<div className="flex flex-wrap gap-1.5">
 																{memory.linkedFiles.slice(0, 5).map((file) => (
 																	<span
@@ -2017,7 +2303,16 @@ export default function RepositoryDetailPage() {
 													<div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
 														<span>Created by {memory.creatorName}</span>
 														<span>·</span>
-														<span>{new Date(memory.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+														<span>
+															{new Date(memory.createdAt).toLocaleDateString(
+																"en-US",
+																{
+																	month: "short",
+																	day: "numeric",
+																	year: "numeric",
+																},
+															)}
+														</span>
 													</div>
 												</div>
 											</div>
@@ -2027,7 +2322,10 @@ export default function RepositoryDetailPage() {
 								<div className="pt-4 border-t border-border/50 mt-6">
 									<Button variant="outline" size="sm" asChild>
 										<a href="/dashboard/memories/new">
-											<Plus className="h-4 w-4 mr-1.5" />
+											<Plus
+												data-icon="inline-start"
+												className="h-4 w-4 mr-1.5"
+											/>
 											Add Memory
 										</a>
 									</Button>
@@ -2042,81 +2340,105 @@ export default function RepositoryDetailPage() {
 					<div className="space-y-4">
 						{totalFilesCount === 0 ? (
 							<EmptyFilesState />
-						) : paginatedFiles.map((file, i) => (
-							<div
-								key={`${file.file}-${i}`}
-								className={cn(
-									"p-4 rounded-sm border transition-colors cursor-pointer",
-									file.riskLevel === "critical" ? "border-red-500/30 bg-red-500/5 hover:border-red-500/50 hover:bg-red-500/10" : "border-border/50 bg-secondary/30 hover:border-border hover:bg-secondary/50"
-								)}
-							>
-								<div className="flex items-start justify-between gap-4">
-									<div className="flex items-start gap-3 min-w-0 flex-1">
-										<div className={cn(
-											"w-10 h-10 rounded-sm flex items-center justify-center shrink-0",
-											getRiskBgLight(file.risk)
-										)}>
-											{file.riskLevel === "critical" ? (
-												<ShieldAlert className={cn("h-5 w-5", getRiskColor(file.risk))} />
-											) : (
-												<AlertTriangle className={cn("h-5 w-5", getRiskColor(file.risk))} />
+						) : (
+							paginatedFiles.map((file, i) => (
+								<div
+									key={`${file.file}-${i}`}
+									className={cn(
+										"p-4 rounded-sm border transition-colors cursor-pointer",
+										file.riskLevel === "critical"
+											? "border-red-500/30 bg-red-500/5 hover:border-red-500/50 hover:bg-red-500/10"
+											: "border-border/50 bg-secondary/30 hover:border-border hover:bg-secondary/50",
+									)}
+								>
+									<div className="flex items-start justify-between gap-4">
+										<div className="flex items-start gap-3 min-w-0 flex-1">
+											<div
+												className={cn(
+													"w-10 h-10 rounded-sm flex items-center justify-center shrink-0",
+													getRiskBgLight(file.risk),
+												)}
+											>
+												{file.riskLevel === "critical" ? (
+													<ShieldAlert
+														className={cn("h-5 w-5", getRiskColor(file.risk))}
+													/>
+												) : (
+													<AlertTriangle
+														className={cn("h-5 w-5", getRiskColor(file.risk))}
+													/>
+												)}
+											</div>
+											<div className="min-w-0 flex-1">
+												<div className="flex items-center gap-2 flex-wrap">
+													<span className="font-medium text-sm font-mono">
+														{file.file}
+													</span>
+												</div>
+												<p className="text-sm text-muted-foreground mt-1">
+													{file.reason}
+												</p>
+												<div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+													<div className="flex items-center gap-1">
+														<Clock className="h-3 w-3" />
+														{file.lastModified}
+													</div>
+													<div className="flex items-center gap-1">
+														<Users className="h-3 w-3" />
+														{file.modifiedBy}
+													</div>
+													<div className="flex items-center gap-1">
+														<GitCommit className="h-3 w-3" />
+														{file.commits} commits
+													</div>
+													<div className="flex items-center gap-1">
+														<Link2 className="h-3 w-3" />
+														{file.coupledFiles.length} coupled
+													</div>
+												</div>
+											</div>
+										</div>
+										<div className="text-right shrink-0">
+											<div
+												className={cn(
+													"text-2xl font-bold tabular-nums",
+													getRiskColor(file.risk),
+												)}
+											>
+												{file.risk}
+											</div>
+											<div className="text-xs text-muted-foreground uppercase tracking-wide">
+												{file.riskLevel}
+											</div>
+										</div>
+									</div>
+									{/* Coupled files - limit to MAX_COUPLED_FILES_SHOWN */}
+									<div className="mt-4 pt-3 border-t border-border/50">
+										<div className="text-xs text-muted-foreground mb-2">
+											Coupled with:
+										</div>
+										<div className="flex flex-wrap gap-1.5">
+											{file.coupledFiles
+												.slice(0, MAX_COUPLED_FILES_SHOWN)
+												.map((coupled) => (
+													<span
+														key={coupled}
+														className="px-2 py-1 text-xs bg-secondary/50 border border-border/50 rounded-sm font-mono"
+													>
+														{coupled}
+													</span>
+												))}
+											{file.coupledFiles.length > MAX_COUPLED_FILES_SHOWN && (
+												<span className="px-2 py-1 text-xs bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
+													+{file.coupledFiles.length - MAX_COUPLED_FILES_SHOWN}{" "}
+													more
+												</span>
 											)}
 										</div>
-										<div className="min-w-0 flex-1">
-											<div className="flex items-center gap-2 flex-wrap">
-												<span className="font-medium text-sm font-mono">{file.file}</span>
-											</div>
-											<p className="text-sm text-muted-foreground mt-1">{file.reason}</p>
-											<div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-												<div className="flex items-center gap-1">
-													<Clock className="h-3 w-3" />
-													{file.lastModified}
-												</div>
-												<div className="flex items-center gap-1">
-													<Users className="h-3 w-3" />
-													{file.modifiedBy}
-												</div>
-												<div className="flex items-center gap-1">
-													<GitCommit className="h-3 w-3" />
-													{file.commits} commits
-												</div>
-												<div className="flex items-center gap-1">
-													<Link2 className="h-3 w-3" />
-													{file.coupledFiles.length} coupled
-												</div>
-											</div>
-										</div>
-									</div>
-									<div className="text-right shrink-0">
-										<div className={cn("text-2xl font-bold tabular-nums", getRiskColor(file.risk))}>
-											{file.risk}
-										</div>
-										<div className="text-xs text-muted-foreground uppercase tracking-wide">
-											{file.riskLevel}
-										</div>
 									</div>
 								</div>
-								{/* Coupled files - limit to MAX_COUPLED_FILES_SHOWN */}
-								<div className="mt-4 pt-3 border-t border-border/50">
-									<div className="text-xs text-muted-foreground mb-2">Coupled with:</div>
-									<div className="flex flex-wrap gap-1.5">
-										{file.coupledFiles.slice(0, MAX_COUPLED_FILES_SHOWN).map((coupled) => (
-											<span
-												key={coupled}
-												className="px-2 py-1 text-xs bg-secondary/50 border border-border/50 rounded-sm font-mono"
-											>
-												{coupled}
-											</span>
-										))}
-										{file.coupledFiles.length > MAX_COUPLED_FILES_SHOWN && (
-											<span className="px-2 py-1 text-xs bg-secondary/50 border border-border/50 rounded-sm text-muted-foreground">
-												+{file.coupledFiles.length - MAX_COUPLED_FILES_SHOWN} more
-											</span>
-										)}
-									</div>
-								</div>
-							</div>
-						))}
+							))
+						)}
 						{/* Pagination */}
 						{totalFilesPages > 1 && (
 							<Pagination
@@ -2149,18 +2471,34 @@ export default function RepositoryDetailPage() {
 											</div>
 											<div className="flex-1 min-w-0">
 												<div className="flex items-center gap-2">
-													<span className="text-sm font-medium font-mono truncate">{activity.file}</span>
+													<span className="text-sm font-medium font-mono truncate">
+														{activity.file}
+													</span>
 												</div>
-												<div className="text-sm text-muted-foreground mt-0.5">{activity.result}</div>
+												<div className="text-sm text-muted-foreground mt-0.5">
+													{activity.result}
+												</div>
 											</div>
 											<div className="flex items-center gap-3 shrink-0">
 												<div className="flex items-center gap-1.5">
-													<div className={cn("w-2 h-2 rounded-sm", getRiskBg(activity.risk))} />
-													<span className={cn("font-medium tabular-nums text-sm", getRiskColor(activity.risk))}>
+													<div
+														className={cn(
+															"w-2 h-2 rounded-sm",
+															getRiskBg(activity.risk),
+														)}
+													/>
+													<span
+														className={cn(
+															"font-medium tabular-nums text-sm",
+															getRiskColor(activity.risk),
+														)}
+													>
 														{activity.risk}
 													</span>
 												</div>
-												<span className="text-xs text-muted-foreground w-16 text-right">{activity.time}</span>
+												<span className="text-xs text-muted-foreground w-16 text-right">
+													{activity.time}
+												</span>
 											</div>
 										</div>
 									))}
@@ -2189,7 +2527,8 @@ export default function RepositoryDetailPage() {
 						) : (
 							<>
 								<p className="text-sm text-muted-foreground mb-4">
-									Files that frequently change together. When modifying one, always check the coupled file.
+									Files that frequently change together. When modifying one,
+									always check the coupled file.
 								</p>
 								<div className="space-y-4">
 									{paginatedCouplingItems.map((pair, i) => (
@@ -2201,17 +2540,23 @@ export default function RepositoryDetailPage() {
 												<div className="flex-1 min-w-0">
 													<div className="flex items-center gap-2 text-sm">
 														<FileCode className="h-4 w-4 text-muted-foreground shrink-0" />
-														<span className="font-medium font-mono truncate">{pair.primary}</span>
+														<span className="font-medium font-mono truncate">
+															{pair.primary}
+														</span>
 													</div>
 												</div>
 												<div className="flex items-center gap-2 px-3 text-muted-foreground">
 													<div className="w-8 h-0.5 bg-gradient-to-r from-primary/50 to-primary rounded" />
-													<span className="text-xs font-medium">{pair.strength}%</span>
+													<span className="text-xs font-medium">
+														{pair.strength}%
+													</span>
 													<div className="w-8 h-0.5 bg-gradient-to-l from-primary/50 to-primary rounded" />
 												</div>
 												<div className="flex-1 min-w-0 text-right">
 													<div className="flex items-center justify-end gap-2 text-sm">
-														<span className="font-medium font-mono truncate">{pair.coupled}</span>
+														<span className="font-medium font-mono truncate">
+															{pair.coupled}
+														</span>
 														<FileCode className="h-4 w-4 text-muted-foreground shrink-0" />
 													</div>
 												</div>
@@ -2238,7 +2583,6 @@ export default function RepositoryDetailPage() {
 					</div>
 				)}
 			</div>
-
 		</div>
 	);
 }

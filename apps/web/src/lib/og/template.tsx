@@ -17,11 +17,10 @@ export async function createOGImage({
 }: OGTemplateProps): Promise<ImageResponse> {
 	const geistFont = await loadGeistFont();
 
-	// Read the SVG logo and change fill to white for dark background
-	const logoPath = join(process.cwd(), "public", "memoria.svg");
+	// Load the simplified logo mark for OG rendering
+	const logoPath = join(process.cwd(), "public", "memoria-mark.svg");
 	const logoSvg = await readFile(logoPath, "utf-8");
-	const whiteLogo = logoSvg.replace('fill="#000000"', 'fill="#ffffff"');
-	const logoBase64 = `data:image/svg+xml;base64,${Buffer.from(whiteLogo).toString("base64")}`;
+	const logoBase64 = `data:image/svg+xml;base64,${Buffer.from(logoSvg).toString("base64")}`;
 
 	return new ImageResponse(
 		<div
@@ -68,11 +67,10 @@ export async function createOGImage({
 					display: "flex",
 					alignItems: "center",
 					justifyContent: "space-between",
-					zIndex: 1,
 				}}
 			>
 				<div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-					<img src={logoBase64} width="48" height="48" />
+					<img src={logoBase64} alt="" width={48} height={48} />
 					<span
 						style={{
 							fontSize: "28px",
@@ -111,7 +109,6 @@ export async function createOGImage({
 					gap: "24px",
 					flex: 1,
 					justifyContent: "center",
-					zIndex: 1,
 				}}
 			>
 				<h1
@@ -145,7 +142,6 @@ export async function createOGImage({
 					display: "flex",
 					alignItems: "center",
 					justifyContent: "space-between",
-					zIndex: 1,
 				}}
 			>
 				<span

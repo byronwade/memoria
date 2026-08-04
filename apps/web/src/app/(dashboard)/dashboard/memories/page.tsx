@@ -12,18 +12,9 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useState, useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
 	Dialog,
 	DialogContent,
@@ -32,6 +23,15 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useDashboard } from "../../dashboard-context";
 import type { DashboardMemory } from "../../dashboard-data";
 
@@ -47,8 +47,12 @@ export default function MemoriesPage() {
 
 	// Modal state
 	const [isCreateOpen, setIsCreateOpen] = useState(false);
-	const [editingMemory, setEditingMemory] = useState<DashboardMemory | null>(null);
-	const [deletingMemory, setDeletingMemory] = useState<DashboardMemory | null>(null);
+	const [editingMemory, setEditingMemory] = useState<DashboardMemory | null>(
+		null,
+	);
+	const [deletingMemory, setDeletingMemory] = useState<DashboardMemory | null>(
+		null,
+	);
 
 	// Form state
 	const [formContext, setFormContext] = useState("");
@@ -62,7 +66,11 @@ export default function MemoriesPage() {
 	// Get all unique tags
 	const allTags = useMemo(() => {
 		const tags = new Set<string>();
-		memories.forEach((m) => m.tags.forEach((t) => tags.add(t)));
+		for (const memory of memories) {
+			for (const tag of memory.tags) {
+				tags.add(tag);
+			}
+		}
 		return Array.from(tags).sort();
 	}, [memories]);
 
@@ -126,9 +134,12 @@ export default function MemoriesPage() {
 	}, [formTagInput, formTags]);
 
 	// Remove tag
-	const handleRemoveTag = useCallback((tag: string) => {
-		setFormTags(formTags.filter((t) => t !== tag));
-	}, [formTags]);
+	const handleRemoveTag = useCallback(
+		(tag: string) => {
+			setFormTags(formTags.filter((t) => t !== tag));
+		},
+		[formTags],
+	);
 
 	// Add linked file
 	const handleAddFile = useCallback(() => {
@@ -140,9 +151,12 @@ export default function MemoriesPage() {
 	}, [formFileInput, formLinkedFiles]);
 
 	// Remove linked file
-	const handleRemoveFile = useCallback((file: string) => {
-		setFormLinkedFiles(formLinkedFiles.filter((f) => f !== file));
-	}, [formLinkedFiles]);
+	const handleRemoveFile = useCallback(
+		(file: string) => {
+			setFormLinkedFiles(formLinkedFiles.filter((f) => f !== file));
+		},
+		[formLinkedFiles],
+	);
 
 	// Create memory
 	const handleCreate = useCallback(async () => {
@@ -234,7 +248,14 @@ export default function MemoriesPage() {
 		} finally {
 			setIsSubmitting(false);
 		}
-	}, [editingMemory, formContext, formTags, formLinkedFiles, formRepoId, resetForm]);
+	}, [
+		editingMemory,
+		formContext,
+		formTags,
+		formLinkedFiles,
+		formRepoId,
+		resetForm,
+	]);
 
 	// Delete memory
 	const handleDelete = useCallback(async () => {
@@ -270,10 +291,13 @@ export default function MemoriesPage() {
 	}, [deletingMemory]);
 
 	// Get repo name by ID
-	const getRepoName = useCallback((repoId: string) => {
-		const repo = activeRepos.find((r) => r._id === repoId);
-		return repo ? repo.fullName.split("/")[1] : "Unknown";
-	}, [activeRepos]);
+	const getRepoName = useCallback(
+		(repoId: string) => {
+			const repo = activeRepos.find((r) => r._id === repoId);
+			return repo ? repo.fullName.split("/")[1] : "Unknown";
+		},
+		[activeRepos],
+	);
 
 	return (
 		<div className="pb-16">
@@ -287,7 +311,7 @@ export default function MemoriesPage() {
 						</p>
 					</div>
 					<Button onClick={handleOpenCreate}>
-						<Plus className="h-4 w-4 mr-2" />
+						<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 						Add Memory
 					</Button>
 				</div>
@@ -303,7 +327,9 @@ export default function MemoriesPage() {
 							</div>
 							<div>
 								<div className="text-2xl font-bold">{memories.length}</div>
-								<div className="text-xs text-muted-foreground">Total Memories</div>
+								<div className="text-xs text-muted-foreground">
+									Total Memories
+								</div>
 							</div>
 						</div>
 					</div>
@@ -327,7 +353,9 @@ export default function MemoriesPage() {
 								<div className="text-2xl font-bold">
 									{memories.reduce((acc, m) => acc + m.linkedFiles.length, 0)}
 								</div>
-								<div className="text-xs text-muted-foreground">Linked Files</div>
+								<div className="text-xs text-muted-foreground">
+									Linked Files
+								</div>
 							</div>
 						</div>
 					</div>
@@ -340,7 +368,11 @@ export default function MemoriesPage() {
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<Button variant="outline" size="sm">
-								{filterScope === "all" ? "All Scopes" : filterScope === "global" ? "Global Only" : "Repository Only"}
+								{filterScope === "all"
+									? "All Scopes"
+									: filterScope === "global"
+										? "Global Only"
+										: "Repository Only"}
 								<ChevronDown className="h-3.5 w-3.5 ml-2" />
 							</Button>
 						</DropdownMenuTrigger>
@@ -351,11 +383,15 @@ export default function MemoriesPage() {
 							</DropdownMenuItem>
 							<DropdownMenuItem onClick={() => setFilterScope("global")}>
 								Global Only
-								{filterScope === "global" && <Check className="h-4 w-4 ml-auto" />}
+								{filterScope === "global" && (
+									<Check className="h-4 w-4 ml-auto" />
+								)}
 							</DropdownMenuItem>
 							<DropdownMenuItem onClick={() => setFilterScope("repo")}>
 								Repository Only
-								{filterScope === "repo" && <Check className="h-4 w-4 ml-auto" />}
+								{filterScope === "repo" && (
+									<Check className="h-4 w-4 ml-auto" />
+								)}
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
@@ -374,9 +410,14 @@ export default function MemoriesPage() {
 									{!filterRepo && <Check className="h-4 w-4 ml-auto" />}
 								</DropdownMenuItem>
 								{activeRepos.map((repo) => (
-									<DropdownMenuItem key={repo._id} onClick={() => setFilterRepo(repo._id)}>
+									<DropdownMenuItem
+										key={repo._id}
+										onClick={() => setFilterRepo(repo._id)}
+									>
 										{repo.fullName.split("/")[1]}
-										{filterRepo === repo._id && <Check className="h-4 w-4 ml-auto" />}
+										{filterRepo === repo._id && (
+											<Check className="h-4 w-4 ml-auto" />
+										)}
 									</DropdownMenuItem>
 								))}
 							</DropdownMenuContent>
@@ -416,7 +457,7 @@ export default function MemoriesPage() {
 								setFilterTag(null);
 							}}
 						>
-							<X className="h-3.5 w-3.5 mr-1" />
+							<X data-icon="inline-start" className="h-3.5 w-3.5 mr-1" />
 							Clear
 						</Button>
 					)}
@@ -430,8 +471,12 @@ export default function MemoriesPage() {
 					<section>
 						<div className="flex items-center gap-2 mb-4">
 							<Brain className="h-4 w-4 text-muted-foreground" />
-							<h2 className="text-sm font-medium">Global Memories ({globalMemories.length})</h2>
-							<span className="text-xs text-muted-foreground">Apply to all repositories</span>
+							<h2 className="text-sm font-medium">
+								Global Memories ({globalMemories.length})
+							</h2>
+							<span className="text-xs text-muted-foreground">
+								Apply to all repositories
+							</span>
 						</div>
 						<div className="space-y-3">
 							{globalMemories.map((memory) => (
@@ -451,15 +496,21 @@ export default function MemoriesPage() {
 					<section>
 						<div className="flex items-center gap-2 mb-4">
 							<Brain className="h-4 w-4 text-muted-foreground" />
-							<h2 className="text-sm font-medium">Repository Memories ({repoMemories.length})</h2>
-							<span className="text-xs text-muted-foreground">Apply to specific repositories only</span>
+							<h2 className="text-sm font-medium">
+								Repository Memories ({repoMemories.length})
+							</h2>
+							<span className="text-xs text-muted-foreground">
+								Apply to specific repositories only
+							</span>
 						</div>
 						<div className="space-y-3">
 							{repoMemories.map((memory) => (
 								<MemoryCard
 									key={memory._id}
 									memory={memory}
-									repoName={memory.repoId ? getRepoName(memory.repoId) : undefined}
+									repoName={
+										memory.repoId ? getRepoName(memory.repoId) : undefined
+									}
 									onEdit={handleOpenEdit}
 									onDelete={setDeletingMemory}
 								/>
@@ -481,7 +532,7 @@ export default function MemoriesPage() {
 								: "Create your first memory to provide context and knowledge for AI assistants."}
 						</p>
 						<Button onClick={handleOpenCreate}>
-							<Plus className="h-4 w-4 mr-2" />
+							<Plus data-icon="inline-start" className="h-4 w-4 mr-2" />
 							Create Memory
 						</Button>
 					</div>
@@ -494,7 +545,8 @@ export default function MemoriesPage() {
 					<DialogHeader>
 						<DialogTitle>Create Memory</DialogTitle>
 						<DialogDescription>
-							Add context or knowledge that AI assistants should consider when working in your codebase.
+							Add context or knowledge that AI assistants should consider when
+							working in your codebase.
 						</DialogDescription>
 					</DialogHeader>
 					<MemoryForm
@@ -519,7 +571,12 @@ export default function MemoriesPage() {
 							Cancel
 						</Button>
 						<Button onClick={handleCreate} disabled={isSubmitting}>
-							{isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+							{isSubmitting && (
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
+							)}
 							Create Memory
 						</Button>
 					</DialogFooter>
@@ -527,7 +584,10 @@ export default function MemoriesPage() {
 			</Dialog>
 
 			{/* Edit Modal */}
-			<Dialog open={!!editingMemory} onOpenChange={(open) => !open && setEditingMemory(null)}>
+			<Dialog
+				open={!!editingMemory}
+				onOpenChange={(open) => !open && setEditingMemory(null)}
+			>
 				<DialogContent className="max-w-2xl">
 					<DialogHeader>
 						<DialogTitle>Edit Memory</DialogTitle>
@@ -557,7 +617,12 @@ export default function MemoriesPage() {
 							Cancel
 						</Button>
 						<Button onClick={handleUpdate} disabled={isSubmitting}>
-							{isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+							{isSubmitting && (
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
+							)}
 							Save Changes
 						</Button>
 					</DialogFooter>
@@ -565,17 +630,23 @@ export default function MemoriesPage() {
 			</Dialog>
 
 			{/* Delete Confirmation Modal */}
-			<Dialog open={!!deletingMemory} onOpenChange={(open) => !open && setDeletingMemory(null)}>
+			<Dialog
+				open={!!deletingMemory}
+				onOpenChange={(open) => !open && setDeletingMemory(null)}
+			>
 				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Delete Memory</DialogTitle>
 						<DialogDescription>
-							Are you sure you want to delete this memory? This action cannot be undone.
+							Are you sure you want to delete this memory? This action cannot be
+							undone.
 						</DialogDescription>
 					</DialogHeader>
 					{deletingMemory && (
 						<div className="p-3 bg-destructive/10 border border-destructive/20 rounded-sm">
-							<div className="text-sm line-clamp-3">{deletingMemory.context}</div>
+							<div className="text-sm line-clamp-3">
+								{deletingMemory.context}
+							</div>
 							{deletingMemory.tags.length > 0 && (
 								<div className="flex flex-wrap gap-1 mt-2">
 									{deletingMemory.tags.map((tag) => (
@@ -594,8 +665,17 @@ export default function MemoriesPage() {
 						<Button variant="outline" onClick={() => setDeletingMemory(null)}>
 							Cancel
 						</Button>
-						<Button variant="destructive" onClick={handleDelete} disabled={isSubmitting}>
-							{isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+						<Button
+							variant="destructive"
+							onClick={handleDelete}
+							disabled={isSubmitting}
+						>
+							{isSubmitting && (
+								<Loader2
+									data-icon="inline-start"
+									className="h-4 w-4 mr-2 animate-spin"
+								/>
+							)}
 							Delete Memory
 						</Button>
 					</DialogFooter>
@@ -672,12 +752,18 @@ function MemoryCard({ memory, repoName, onEdit, onDelete }: MemoryCardProps) {
 					</div>
 				</div>
 				<div className="flex items-center gap-1">
-					<Button variant="ghost" size="sm" onClick={() => onEdit(memory)}>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label={`Edit memory ${memory.title}`}
+						onClick={() => onEdit(memory)}
+					>
 						<Edit2 className="h-4 w-4" />
 					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
+						aria-label={`Delete memory ${memory.title}`}
 						className="text-destructive hover:text-destructive hover:bg-destructive/10"
 						onClick={() => onDelete(memory)}
 					>
@@ -739,21 +825,31 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 					rows={5}
 				/>
 				<p className="text-xs text-muted-foreground">
-					This context will be provided to AI assistants when they work on your codebase.
+					This context will be provided to AI assistants when they work on your
+					codebase.
 				</p>
 			</div>
 
 			<div className="space-y-2">
-				<Label>Tags</Label>
+				<Label htmlFor="memory-tag-input">Tags</Label>
 				<div className="flex items-center gap-2">
 					<Input
+						id="memory-tag-input"
 						value={tagInput}
 						onChange={(e) => setTagInput(e.target.value)}
 						placeholder="Add tag..."
-						onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onAddTag())}
+						aria-label="Add tag"
+						onKeyDown={(e) =>
+							e.key === "Enter" && (e.preventDefault(), onAddTag())
+						}
 					/>
-					<Button variant="outline" onClick={onAddTag} type="button">
-						<Plus className="h-4 w-4" />
+					<Button
+						variant="outline"
+						onClick={onAddTag}
+						type="button"
+						aria-label="Add tag"
+					>
+						<Plus data-icon="inline-start" className="h-4 w-4" />
 					</Button>
 				</div>
 				{tags.length > 0 && (
@@ -768,6 +864,7 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 									type="button"
 									onClick={() => onRemoveTag(tag)}
 									className="hover:text-blue-800"
+									aria-label={`Remove tag ${tag}`}
 								>
 									<X className="h-3 w-3" />
 								</button>
@@ -778,17 +875,26 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 			</div>
 
 			<div className="space-y-2">
-				<Label>Linked Files (optional)</Label>
+				<Label htmlFor="memory-file-input">Linked Files (optional)</Label>
 				<div className="flex items-center gap-2">
 					<Input
+						id="memory-file-input"
 						value={fileInput}
 						onChange={(e) => setFileInput(e.target.value)}
 						placeholder="src/payments/queue.ts"
 						className="font-mono"
-						onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onAddFile())}
+						aria-label="Add linked file path"
+						onKeyDown={(e) =>
+							e.key === "Enter" && (e.preventDefault(), onAddFile())
+						}
 					/>
-					<Button variant="outline" onClick={onAddFile} type="button">
-						<Plus className="h-4 w-4" />
+					<Button
+						variant="outline"
+						onClick={onAddFile}
+						type="button"
+						aria-label="Add linked file"
+					>
+						<Plus data-icon="inline-start" className="h-4 w-4" />
 					</Button>
 				</div>
 				{linkedFiles.length > 0 && (
@@ -803,6 +909,7 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 									type="button"
 									onClick={() => onRemoveFile(file)}
 									className="hover:text-foreground"
+									aria-label={`Remove file ${file}`}
 								>
 									<X className="h-3 w-3" />
 								</button>
@@ -821,7 +928,8 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 					<DropdownMenuTrigger asChild>
 						<Button variant="outline" className="w-full justify-between">
 							{repoId
-								? repos.find((r) => r._id === repoId)?.fullName.split("/")[1] || "Unknown"
+								? repos.find((r) => r._id === repoId)?.fullName.split("/")[1] ||
+									"Unknown"
 								: "Global (all repositories)"}
 							<ChevronDown className="h-4 w-4" />
 						</Button>
@@ -831,14 +939,18 @@ Example: 'The payment module uses a retry queue for failed transactions. Never d
 							Global (all repositories)
 						</DropdownMenuItem>
 						{repos.map((repo) => (
-							<DropdownMenuItem key={repo._id} onClick={() => setRepoId(repo._id)}>
+							<DropdownMenuItem
+								key={repo._id}
+								onClick={() => setRepoId(repo._id)}
+							>
 								{repo.fullName.split("/")[1]}
 							</DropdownMenuItem>
 						))}
 					</DropdownMenuContent>
 				</DropdownMenu>
 				<p className="text-xs text-muted-foreground">
-					Global memories apply to all repositories. Repository memories only apply to the selected repository.
+					Global memories apply to all repositories. Repository memories only
+					apply to the selected repository.
 				</p>
 			</div>
 		</div>

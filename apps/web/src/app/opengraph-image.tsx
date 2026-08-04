@@ -12,11 +12,10 @@ export const contentType = "image/png";
 export default async function Image() {
 	const geistFont = await loadGeistFont();
 
-	// Read the SVG logo and change fill to white for dark background
-	const logoPath = join(process.cwd(), "public", "memoria.svg");
+	// Load the simplified logo mark for OG rendering
+	const logoPath = join(process.cwd(), "public", "memoria-mark.svg");
 	const logoSvg = await readFile(logoPath, "utf-8");
-	const whiteLogo = logoSvg.replace('fill="#000000"', 'fill="#ffffff"');
-	const logoBase64 = `data:image/svg+xml;base64,${Buffer.from(whiteLogo).toString("base64")}`;
+	const logoBase64 = `data:image/svg+xml;base64,${Buffer.from(logoSvg).toString("base64")}`;
 
 	return new ImageResponse(
 		<div
@@ -60,8 +59,9 @@ export default async function Image() {
 			{/* Logo mark */}
 			<img
 				src={logoBase64}
-				width="120"
-				height="120"
+				alt=""
+				width={120}
+				height={120}
 				style={{
 					marginBottom: "32px",
 				}}

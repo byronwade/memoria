@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import * as fsSync from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -23,11 +23,90 @@ import { ensureAuthenticated } from "./auth.js";
 import { extractFromCode, extractFromCommitMessage, type ExtractedMemory } from "./auto-librarian.js";
 import { searchBM25, extractKeywords, extractFileKeywords, extractCodeKeywords, combineKeywords } from "./bm25.js";
 import { buildRiskAssessment as buildRiskAssessmentHelper } from "./context-response.js";
+import {
+	type AnalyzeMode,
+	type AnalyzeOptions,
+	type AnalyzeProgressEvent,
+	type EngineName,
+	type FileKind,
+	type StructuredAnalysis,
+	classifyFileKind,
+	planEngines,
+	sourceConfidence,
+	codeGrepPathspecs,
+	grepThreadArgs,
+	multiplexGrep,
+	detectLanguage,
+	importGrepPatterns,
+	importerPathspecs,
+	getHeadSha,
+	loadWorkspacePack,
+	saveWorkspacePack,
+	lookupPackedFile,
+	discoverHotFiles,
+	getSymbolCoupling,
+	extractSymbols,
+	listChangedFiles,
+	toAbsolutePaths,
+	toStructuredAnalysis,
+	shouldEscalate,
+	buildOwnerBrief,
+	detectBreakingChanges,
+	breakingHintsFromDiff,
+	getPackageCoupling,
+	findSymbolReferences,
+	evaluateCriticalRiskTests,
+	discoverPackages,
+	findPackageForFile,
+	startPackWatch,
+	installPostCommitHook,
+	packExists,
+	extractExportNames,
+	type WorkspacePack,
+	type BreakingChangeReport,
+	type CriticalCheckResult,
+	EXCLUDE_PATHSPECS,
+} from "./perf/index.js";
+
+// Re-export perf surface for CLI / tests
+export {
+	classifyFileKind,
+	planEngines,
+	sourceConfidence,
+	extractSymbols,
+	getSymbolCoupling,
+	listChangedFiles,
+	detectLanguage,
+	importGrepPatterns,
+	toStructuredAnalysis,
+	shouldEscalate,
+	buildOwnerBrief,
+	detectBreakingChanges,
+	breakingHintsFromDiff,
+	getPackageCoupling,
+	findSymbolReferences,
+	evaluateCriticalRiskTests,
+	discoverPackages,
+	findPackageForFile,
+	startPackWatch,
+	installPostCommitHook,
+	packExists,
+	extractExportNames,
+	type AnalyzeMode,
+	type AnalyzeOptions,
+	type AnalyzeProgressEvent,
+	type FileKind,
+	type EngineName,
+	type WorkspacePack,
+	type StructuredAnalysis,
+	type BreakingChangeReport,
+	type CriticalCheckResult,
+};
 
 // --- CONFIGURATION & CACHE ---
-// Cache results for 5 minutes
+// Larger cache: headSha-scoped keys + whole-file analysis results
 export const cache = new LRUCache<string, any>({
-	max: 100,
+	max: 500,
 	ttl: 1000 * 60 * 5,
 });
 
@@ -171,7 +250,9 @@ export type CouplingSource =
 	| "env" // Engine 10: Environment variable coupling
 	| "schema" // Engine 11: Database schema coupling
 	| "api" // Engine 12: API endpoint coupling
-	| "transitive"; // Engine 13: Re-export chain coupling
+	| "transitive" // Engine 13: Re-export chain coupling
+	| "symbol" // Engine 14: Symbol-level references
+	| "package"; // Engine 15: Monorepo package-graph coupling
 
 export interface EnhancedCoupledFile {
 	file: string;
@@ -180,6 +261,8 @@ export interface EnhancedCoupledFile {
 	reason: string;
 	evidence?: DiffSummary | string;
 	lastHash?: string;
+	/** 0–1 confidence; heuristic engines score lower than git/imports. */
+	confidence?: number;
 }
 
 // --- DIRECTORY SCANNER (for memory extraction) ---
@@ -237,7 +320,39 @@ export interface AnalysisContext {
 		commitsPerWeek: number;
 		avgFilesPerCommit: number;
 	};
+	/** Lazily cached source text for targetPath (avoids N× disk reads across engines). */
+	sourceContent?: string;
+	/** HEAD sha for cache invalidation / pack freshness. */
+	headSha?: string;
+	/** Optional precomputed workspace pack. */
+	pack?: WorkspacePack | null;
+	/** Active analyze options for this run. */
+	analyzeOptions?: AnalyzeOptions;
+	/** Classified file kind (set during analyze). */
+	fileKind?: FileKind;
 }
+
+/** Generic basenames that match too many imports/tests across a monorepo. */
+export const GENERIC_FILE_BASENAMES = new Set([
+	"index",
+	"utils",
+	"util",
+	"helpers",
+	"helper",
+	"types",
+	"type",
+	"main",
+	"mod",
+	"lib",
+	"common",
+	"shared",
+	"constants",
+	"constant",
+	"config",
+	"hooks",
+	"components",
+	"component",
+]);
 
 // --- AUTHOR CONTRIBUTION (Bus Factor) ---
 export interface AuthorContribution {
@@ -493,6 +608,12 @@ export const UNIVERSAL_IGNORE_PATTERNS = [
 	"output/",
 	"release/",
 	"debug/",
+	".turbo/",
+	".memoria/",
+	"*.tar",
+	"*.tar.gz",
+	"*.tar.zst",
+	"*.zst",
 
 	// IDE/Editor files
 	".vscode/",
@@ -726,9 +847,74 @@ export function parseDiffToSummary(rawDiff: string): DiffSummary {
 }
 
 // Helper: Get a git instance for the specific file's directory
+// Prefer resolveGitContext() for grep-based engines — git grep paths are CWD-relative.
 export function getGitForFile(filePath: string) {
+	// When callers pass a directory (repo root / cwd), use it directly.
+	// path.dirname("/repo") → "/" which is not a git repo and breaks diff/pack/check.
+	try {
+		if (fsSync.existsSync(filePath) && fsSync.statSync(filePath).isDirectory()) {
+			return simpleGit(filePath);
+		}
+	} catch {
+		/* fall through to dirname */
+	}
 	const dir = path.dirname(filePath);
 	return simpleGit(dir);
+}
+
+/**
+ * Resolve a git instance rooted at the repository (not the file's directory).
+ * git grep returns paths relative to CWD; they must be repo-root-relative so
+ * self-exclusion and ignore checks compare correctly.
+ */
+export async function resolveGitContext(
+	filePath: string,
+	ctx?: AnalysisContext | null,
+): Promise<{
+	git: ReturnType<typeof simpleGit>;
+	repoRoot: string;
+}> {
+	if (ctx) {
+		return { git: ctx.git, repoRoot: ctx.repoRoot };
+	}
+	const tempGit = getGitForFile(filePath);
+	const repoRoot = (await tempGit.revparse(["--show-toplevel"])).trim();
+	return { git: simpleGit(repoRoot), repoRoot };
+}
+
+/**
+ * Strip // and block comments for heuristic scanners (not a full parser).
+ * Avoids treating documentation examples as live API/route definitions.
+ */
+export function stripCommentsForScan(sourceCode: string): string {
+	return sourceCode
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/(^|[^:\\\w])\/\/.*$/gm, "$1");
+}
+
+/**
+ * Strip comments and quoted strings so identifier heuristics ignore docs/examples.
+ */
+export function stripCommentsAndStringsForScan(sourceCode: string): string {
+	return stripCommentsForScan(sourceCode).replace(
+		/(['"`])(?:\\.|(?!\1)[\s\S])*?\1/g,
+		'""',
+	);
+}
+
+/** Read target file once per analysis context. */
+export async function readTargetSource(
+	filePath: string,
+	ctx?: AnalysisContext | null,
+): Promise<string> {
+	if (ctx?.sourceContent !== undefined && ctx.targetPath === filePath) {
+		return ctx.sourceContent;
+	}
+	const content = await fs.readFile(filePath, "utf8").catch(() => "");
+	if (ctx && ctx.targetPath === filePath) {
+		ctx.sourceContent = content;
+	}
+	return content;
 }
 
 // --- BINARY FILE DETECTION ---
@@ -892,18 +1078,26 @@ export function shouldIgnoreFile(
 // Create an AnalysisContext for a given file path (initializes git, config, etc. ONCE)
 export async function createAnalysisContext(
 	targetPath: string,
+	options?: AnalyzeOptions,
 ): Promise<AnalysisContext> {
-	const git = getGitForFile(targetPath);
-	const root = await git.revparse(["--show-toplevel"]);
+	// Discover repo root via a temporary git instance at the file's directory,
+	// then re-initialize at the repo root so that git grep and other commands
+	// return paths relative to the repo root (fixes self-exclusion comparisons).
+	const tempGit = getGitForFile(targetPath);
+	const root = await tempGit.revparse(["--show-toplevel"]);
 	const repoRoot = root.trim();
+	const git = simpleGit(repoRoot);
 	const config = await loadConfig(repoRoot);
 
 	// getIgnoreFilter depends on config, but getProjectMetrics does not
 	// Run them in parallel for faster context creation
-	const [ig, metrics] = await Promise.all([
+	const [ig, metrics, headSha] = await Promise.all([
 		getIgnoreFilter(repoRoot, config),
 		getProjectMetrics(repoRoot),
+		getHeadSha(git),
 	]);
+
+	const pack = await loadWorkspacePack(repoRoot, headSha);
 
 	return {
 		targetPath,
@@ -912,6 +1106,9 @@ export async function createAnalysisContext(
 		config,
 		ig,
 		metrics,
+		headSha,
+		pack,
+		analyzeOptions: options,
 	};
 }
 
@@ -929,15 +1126,15 @@ export async function getCoupledFiles(
 
 	// Include config in cache key if relevant settings are specified
 	const configKey = getStableConfigKey(config);
-	const cacheKey = `coupling:${filePath}:${configKey}`;
+	const skipEvidence =
+		ctx?.analyzeOptions?.skipEvidence === true ||
+		ctx?.analyzeOptions?.mode === "fast";
+	const head = ctx?.headSha ?? "";
+	const cacheKey = `coupling:${head}:${filePath}:${configKey}:${skipEvidence ? "lite" : "full"}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		// Use context if provided, otherwise initialize (backward compatibility)
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 
 		// Get project metrics and adaptive thresholds (with config overrides)
 		const metrics = ctx ? ctx.metrics : await getProjectMetrics(repoRoot);
@@ -946,10 +1143,15 @@ export async function getCoupledFiles(
 		// Load ignore filter (with config patterns)
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot, config);
 
+		// Fast mode: smaller window
+		const window = skipEvidence
+			? Math.min(thresholds.analysisWindow, 25)
+			: thresholds.analysisWindow;
+
 		// Use adaptive analysis window
 		const log = await git.log({
 			file: filePath,
-			maxCount: thresholds.analysisWindow,
+			maxCount: window,
 		});
 		if (log.total === 0) return [];
 
@@ -966,9 +1168,9 @@ export async function getCoupledFiles(
 		// Get max files per commit threshold (default: 15)
 		const maxFilesPerCommit = config?.thresholds?.maxFilesPerCommit ?? 15;
 
-		// Process all commits to find co-changes (limited to 5 concurrent git operations)
-		await mapConcurrent(log.all, 5, async (commit) => {
-			const show = await git.show([commit.hash, "--name-only", "--format="]);
+		// Process commits to find co-changes (higher concurrency in lite mode)
+		await mapConcurrent(log.all, skipEvidence ? 8 : 5, async (commit) => {
+			const show = await git.show([commit.hash, "--name-only", "--format="]).catch(() => "");
 			const allFiles = show
 				.split("\n")
 				.map((f) => f.trim())
@@ -1010,22 +1212,26 @@ export async function getCoupledFiles(
 			}))
 			.filter((x) => x.score > thresholds.couplingThreshold);
 
-		// Fetch diff evidence for all coupled files and parse into structured summaries
+		// Evidence parsing is expensive — skip in fast/lite mode; lazy-load for high scores only
 		const result = await Promise.all(
 			topCoupled.map(async (item) => {
+				const base = {
+					file: item.file,
+					score: item.score,
+					reason: item.reason,
+					lastHash: item.lastHash,
+					source: "git" as const,
+					confidence: sourceConfidence("git"),
+				};
+				if (skipEvidence || item.score < 40) {
+					return base;
+				}
 				const rawDiff = await getDiffSnippet(
 					repoRoot,
 					item.file,
 					item.lastHash,
 				);
-				const evidence = parseDiffToSummary(rawDiff);
-				return {
-					file: item.file,
-					score: item.score,
-					reason: item.reason,
-					lastHash: item.lastHash,
-					evidence, // Now a structured DiffSummary instead of raw string
-				};
+				return { ...base, evidence: parseDiffToSummary(rawDiff) };
 			}),
 		);
 
@@ -1053,11 +1259,7 @@ export async function checkDrift(
 	try {
 		const sourceStats = await fs.stat(sourceFile);
 
-		// Use context if provided, otherwise initialize (backward compatibility)
-		const git = ctx ? ctx.git : getGitForFile(sourceFile);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(sourceFile, ctx);
 
 		// Get adaptive drift threshold (with config overrides)
 		const metrics = ctx ? ctx.metrics : await getProjectMetrics(repoRoot);
@@ -1105,29 +1307,53 @@ export async function getImporters(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		// Use context if provided, otherwise initialize (backward compatibility)
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 
 		// Get the filename without extension for import matching
 		const fileName = path.basename(filePath, path.extname(filePath));
-		const relativePath = path.relative(repoRoot, filePath);
+		const relativePath = path.relative(repoRoot, filePath).replace(/\\/g, "/");
+
+		// Pack hit: skip grep entirely when pack is fresh for this HEAD
+		if (ctx?.pack && ctx.headSha && ctx.pack.headSha === ctx.headSha) {
+			const packed = lookupPackedFile(ctx.pack, relativePath);
+			if (packed?.importers) {
+				cache.set(cacheKey, packed.importers);
+				return packed.importers;
+			}
+		}
 
 		// Load ignore filter
 		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
 		// Helper to detect test files
-		const isTestFile = (f: string) => /\.(test|spec)\.[jt]sx?$/.test(f);
+		const isTestFile = (f: string) =>
+			/\.(test|spec)\.[jt]sx?$/.test(f) || /_test\.(py|go)$/.test(f);
 		const targetIsTestFile = isTestFile(filePath);
 
-		// Use git grep to find files that actually import this file
-		// Match import/require/from statements with the filename in quotes
-		// This is more precise than just searching for the filename
-		const importPattern = `(import|from|require).*['"].*${fileName}`;
+		// Language-aware import patterns (TS/JS/Python/Go/Rust/Java)
+		const language = detectLanguage(filePath);
+		const parentDir = path.basename(path.dirname(filePath));
+		const generic = GENERIC_FILE_BASENAMES.has(fileName.toLowerCase());
+		const patterns = importGrepPatterns({
+			fileName,
+			parentDir,
+			generic,
+			language,
+		});
+		const importPattern = patterns.join("|");
+		const langSpecs = importerPathspecs(language);
+
 		const grepResult = await git
-			.raw(["grep", "-l", "-E", "--", importPattern])
+			.raw([
+				"grep",
+				...grepThreadArgs(4),
+				"-l",
+				"-E",
+				"--",
+				importPattern,
+				...langSpecs,
+				...EXCLUDE_PATHSPECS,
+			])
 			.catch(() => "");
 
 		// Parse results and filter
@@ -1136,8 +1362,9 @@ export async function getImporters(
 			.map((line) => line.trim())
 			.filter((f) => {
 				if (!f) return false;
+				const normalized = f.replace(/\\/g, "/");
 				// Exclude the file itself (check both relative path and basename)
-				if (f === relativePath) return false;
+				if (normalized === relativePath) return false;
 				if (path.basename(f) === path.basename(filePath)) return false;
 				// Exclude ignored files
 				if (shouldIgnoreFile(f, ig)) return false;
@@ -1198,14 +1425,11 @@ export async function getDocsCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Read source file and extract exports
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const exports = extractExports(sourceContent);
 
 		if (exports.length === 0) {
@@ -1302,14 +1526,11 @@ export async function getTypeCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Read source and extract type names
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const types = extractTypeDefinitions(sourceContent);
 
 		if (types.length === 0) {
@@ -1321,36 +1542,25 @@ export async function getTypeCoupling(
 		const fileTypeMap: Map<string, string[]> = new Map();
 		const topTypes = types.slice(0, 5); // Limit to 5 types for performance
 
-		// Search for each type using git grep
-		await mapConcurrent(topTypes, 3, async (typeName) => {
-			// Match type usage patterns: import, extends, implements, type annotation
-			const grepResult = await git
-				.raw([
-					"--no-optional-locks",
-					"grep",
-					"-l",
-					"-E",
-					`(import.*${typeName}|:\\s*${typeName}[^a-zA-Z]|<${typeName}>|extends\\s+${typeName}|implements\\s+${typeName})`,
-					"--",
-					"*.ts",
-					"*.tsx",
-					"*.js",
-					"*.jsx",
-				])
-				.catch(() => "");
-
-			const files = grepResult
-				.split("\n")
-				.map((f) => f.trim())
-				.filter((f) => f && f !== relativePath);
-
-			for (const file of files) {
-				if (!fileTypeMap.has(file)) {
-					fileTypeMap.set(file, []);
-				}
-				fileTypeMap.get(file)!.push(typeName);
-			}
+		// Multiplexed grep: one process, many type patterns
+		const muxPatterns = topTypes.map((typeName) => {
+			const esc = typeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			return {
+				id: typeName,
+				pattern: `(import.*${esc}|:\\s*${esc}[^a-zA-Z]|<${esc}>|extends\\s+${esc}|implements\\s+${esc})`,
+			};
 		});
+		const hits = await multiplexGrep(
+			git,
+			muxPatterns,
+			codeGrepPathspecs({ includeTests: true }),
+			{ threads: 4, maxFiles: 40 },
+		);
+
+		for (const hit of hits) {
+			if (hit.file === relativePath) continue;
+			fileTypeMap.set(hit.file, hit.ids);
+		}
 
 		// Convert to results
 		const results: EnhancedCoupledFile[] = [];
@@ -1360,6 +1570,7 @@ export async function getTypeCoupling(
 				score: Math.min(65, 35 + sharedTypes.length * 15), // Base 35, +15 per type, max 65
 				source: "type",
 				reason: `Shares types: ${sharedTypes.join(", ")}`,
+				confidence: sourceConfidence("type"),
 			});
 		}
 
@@ -1418,14 +1629,12 @@ export async function getContentCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
+		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
 		// Read source and extract strings
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const strings = extractStringLiterals(sourceContent);
 
 		if (strings.length === 0) {
@@ -1437,7 +1646,7 @@ export async function getContentCoupling(
 		const fileStringMap: Map<string, string[]> = new Map();
 
 		// Search for each string using git grep -F (fixed string)
-		await mapConcurrent(strings, 3, async (str) => {
+		await mapConcurrent(strings, 5, async (str) => {
 			// Escape for grep and truncate
 			const searchStr = str.slice(0, 50);
 			const grepResult = await git
@@ -1452,13 +1661,17 @@ export async function getContentCoupling(
 					"*.tsx",
 					"*.js",
 					"*.jsx",
+					":!**/node_modules/**",
+					":!**/.next/**",
+					":!**/dist/**",
+					":!**/_generated/**",
 				])
 				.catch(() => "");
 
 			const files = grepResult
 				.split("\n")
 				.map((f) => f.trim())
-				.filter((f) => f && f !== relativePath);
+				.filter((f) => f && f !== relativePath && !shouldIgnoreFile(f, ig));
 
 			for (const file of files) {
 				if (!fileStringMap.has(file)) {
@@ -1508,10 +1721,7 @@ export async function getTestCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Get basename without extension (login.ts -> login)
@@ -1536,17 +1746,29 @@ export async function getTestCoupling(
 			`${escapedBasename}-spec\\.`,        // login-spec.js
 		];
 
-		// Search using git grep for files matching test naming pattern
+		// Search by file PATH (not content) via git ls-files glob patterns.
+		// Using `git grep` on content causes false positives when docs/READMEs
+		// mention test file names in code examples.
+		// Generic basenames (index, utils) are scoped to the same directory.
+		const sameDir = path.dirname(relativePath).replace(/\\/g, "/");
+		const isGeneric = GENERIC_FILE_BASENAMES.has(basename.toLowerCase());
+		const lsFilesPatterns = isGeneric
+			? [
+					`${sameDir}/${escapedBasename}.test.*`,
+					`${sameDir}/${escapedBasename}.spec.*`,
+					`${sameDir}/${escapedBasename}_test.*`,
+					`${sameDir}/test_${escapedBasename}.*`,
+				]
+			: [
+					`*${escapedBasename}.test.*`,
+					`*${escapedBasename}.spec.*`,
+					`*${escapedBasename}_test.*`,
+					`*test_${escapedBasename}.*`,
+					`*${escapedBasename}-test.*`,
+					`*${escapedBasename}-spec.*`,
+				];
 		const grepResult = await git
-			.raw([
-				"--no-optional-locks",
-				"grep",
-				"-l",
-				"-E",
-				testPatterns.join("|"),
-				"--",
-				"*",
-			])
+			.raw(["ls-files", "--", ...lsFilesPatterns])
 			.catch(() => "");
 
 		const testFiles = grepResult
@@ -1566,16 +1788,21 @@ export async function getTestCoupling(
 			});
 		}
 
-		// Also look for mock/fixture files by searching for the class/function names
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		// Mock/fixture scan is expensive on barrel files with dozens of exports —
+		// skip for generic basenames and huge export surfaces.
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const exports = extractExports(sourceContent);
 
-		if (exports.length > 0) {
+		if (exports.length > 0 && exports.length <= 20 && !isGeneric) {
 			const topExports = exports.slice(0, 5);
 			const mockPattern = topExports
-				.map((e) => `mock.*${e}|${e}.*[Mm]ock|fake.*${e}|${e}.*[Ff]ake|stub.*${e}`)
+				.map((e) => {
+					const esc = e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+					return `mock.*${esc}|${esc}.*[Mm]ock|fake.*${esc}|${esc}.*[Ff]ake|stub.*${esc}`;
+				})
 				.join("|");
 
+			// Restrict to test/mock paths — full-repo regex over every export is O(repo).
 			const mockResult = await git
 				.raw([
 					"--no-optional-locks",
@@ -1584,6 +1811,14 @@ export async function getTestCoupling(
 					"-i",
 					"-E",
 					mockPattern,
+					"--",
+					"*test*",
+					"*spec*",
+					"*mock*",
+					"*fixture*",
+					"**/__mocks__/**",
+					"**/fixtures/**",
+					"**/mocks/**",
 				])
 				.catch(() => "");
 
@@ -1616,41 +1851,77 @@ export async function getTestCoupling(
  * Extract environment variable names from source code
  * Uses universal ALL_CAPS_UNDERSCORE pattern
  */
-export function extractEnvVars(sourceCode: string): string[] {
-	// Match ALL_CAPS_UNDERSCORE pattern (common env var convention)
-	const envVarRegex = /\b([A-Z][A-Z0-9_]{3,})\b/g;
-	const matches: string[] = [];
-	let match: RegExpExecArray | null;
+/** Env vars present in nearly every Node/CI process — useless for coupling. */
+export const UBIQUITOUS_ENV_VARS = new Set([
+	"NODE_ENV",
+	"VITEST",
+	"CI",
+	"PATH",
+	"HOME",
+	"USER",
+	"SHELL",
+	"TMPDIR",
+	"TEMP",
+	"TMP",
+	"PWD",
+	"LANG",
+	"TERM",
+	"HOSTNAME",
+	"NODE_OPTIONS",
+	"DEBUG",
+	"TZ",
+	"OS",
+	"APPDATA",
+	"XDG_CONFIG_HOME",
+]);
 
-	while ((match = envVarRegex.exec(sourceCode)) !== null) {
-		matches.push(match[1]);
+export function extractEnvVars(sourceCode: string): string[] {
+	const found = new Set<string>();
+
+	// Prefer real env access sites (process.env.X, Deno.env.get("X"), …)
+	const accessPatterns = [
+		/process\.env(?:\.([A-Z][A-Z0-9_]{2,})|\[['"`]([A-Z][A-Z0-9_]{2,})['"`]\])/g,
+		/Deno\.env\.get\(\s*['"`]([A-Z][A-Z0-9_]{2,})['"`]/g,
+		/os\.(?:Getenv|LookupEnv)\(\s*['"`]([A-Z][A-Z0-9_]{2,})['"`]/g,
+		/\benv(?:ironment)?\(['"`]([A-Z][A-Z0-9_]{2,})['"`]\)/gi,
+	];
+	for (const pattern of accessPatterns) {
+		let match: RegExpExecArray | null;
+		while ((match = pattern.exec(sourceCode)) !== null) {
+			const name = match[1] || match[2];
+			if (name && !UBIQUITOUS_ENV_VARS.has(name)) found.add(name);
+		}
 	}
 
-	// Filter to likely env vars
-	const filtered = matches.filter((v) => {
-		// Must contain underscore (API_KEY, DATABASE_URL)
-		if (!v.includes("_")) return false;
-		// Skip common non-env constants
+	// Also pick bare ALL_CAPS identifiers, ignoring comments/string examples
+	const code = stripCommentsAndStringsForScan(sourceCode);
+	const envVarRegex = /\b([A-Z][A-Z0-9_]{3,})\b/g;
+	let match: RegExpExecArray | null;
+	while ((match = envVarRegex.exec(code)) !== null) {
+		const v = match[1];
+		if (!v.includes("_") || v.endsWith("_")) continue;
+		if (UBIQUITOUS_ENV_VARS.has(v)) continue;
 		const skipPatterns = [
 			"HTTP_", "HTML_", "CSS_", "JSON_", "XML_", "UTF_",
 			"CONTENT_TYPE", "STATUS_",
 		];
-		if (skipPatterns.some((p) => v.startsWith(p))) return false;
-		// Keep common env prefixes
+		if (skipPatterns.some((p) => v.startsWith(p))) continue;
 		const keepPrefixes = [
 			"API_", "DATABASE_", "DB_", "STRIPE_", "AUTH_", "JWT_",
 			"AWS_", "GOOGLE_", "GITHUB_", "REDIS_", "MONGO_",
 			"POSTGRES_", "MYSQL_", "SECRET_", "PRIVATE_", "PUBLIC_",
-			"NEXT_", "VITE_", "REACT_APP_", "VUE_APP_",
+			"NEXT_", "VITE_", "REACT_APP_", "VUE_APP_", "MEMORIA_",
 		];
-		if (keepPrefixes.some((p) => v.startsWith(p))) return true;
-		// Keep if ends with common env suffixes
 		const keepSuffixes = ["_KEY", "_SECRET", "_TOKEN", "_URL", "_URI", "_HOST", "_PORT", "_PASSWORD"];
-		if (keepSuffixes.some((s) => v.endsWith(s))) return true;
-		return false;
-	});
+		if (
+			keepPrefixes.some((p) => v.startsWith(p)) ||
+			keepSuffixes.some((s) => v.endsWith(s))
+		) {
+			found.add(v);
+		}
+	}
 
-	return [...new Set(filtered)].slice(0, 10);
+	return [...found].slice(0, 10);
 }
 
 /**
@@ -1664,13 +1935,10 @@ export async function getEnvCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 		const envVars = extractEnvVars(sourceContent);
 
 		if (envVars.length === 0) {
@@ -1678,10 +1946,12 @@ export async function getEnvCoupling(
 			return [];
 		}
 
-		// Build regex pattern for env vars
-		const envPattern = envVars.join("|");
+		// Build regex pattern for env vars (escape for safety)
+		const envPattern = envVars
+			.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+			.join("|");
 
-		// Search all tracked files for these env vars
+		// Search source files only — skip docs/tests that mention vars as examples
 		const grepResult = await git
 			.raw([
 				"--no-optional-locks",
@@ -1689,13 +1959,30 @@ export async function getEnvCoupling(
 				"-l",
 				"-E",
 				envPattern,
+				"--",
+				"*.ts",
+				"*.tsx",
+				"*.js",
+				"*.jsx",
+				"*.mjs",
+				"*.cjs",
+				"*.py",
+				"*.go",
+				"*.rs",
+				"*.env*",
+				":!**/node_modules/**",
+				":!**/.next/**",
+				":!**/dist/**",
+				":!**/*test*",
+				":!**/*spec*",
 			])
 			.catch(() => "");
 
 		const files = grepResult
 			.split("\n")
 			.map((f) => f.trim())
-			.filter((f) => f && f !== relativePath);
+			// Exclude docs/config — env var names appear in README/CLAUDE.md as examples
+			.filter((f) => f && f !== relativePath && !/\.(md|txt|rst|mdc|mdx)$/i.test(f));
 
 		// For each file, find which env vars it shares
 		const fileEnvMap: Map<string, string[]> = new Map();
@@ -1735,36 +2022,38 @@ export async function getEnvCoupling(
  */
 export function extractSchemaNames(sourceCode: string): string[] {
 	const names: string[] = [];
+	// Ignore doc comments that demonstrate CREATE TABLE / model User { patterns
+	const code = stripCommentsForScan(sourceCode);
 
 	// SQL: CREATE TABLE users, ALTER TABLE orders
 	const sqlPattern = /(?:CREATE|ALTER|DROP)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?["`]?(\w+)["`]?/gi;
 	let match: RegExpExecArray | null;
-	while ((match = sqlPattern.exec(sourceCode)) !== null) {
+	while ((match = sqlPattern.exec(code)) !== null) {
 		names.push(match[1]);
 	}
 
 	// ORM Models: class User extends Model, class OrderModel
 	const classPattern = /class\s+(\w+)(?:Model)?\s+(?:extends|implements)/gi;
-	while ((match = classPattern.exec(sourceCode)) !== null) {
+	while ((match = classPattern.exec(code)) !== null) {
 		const name = match[1].replace(/Model$/, "");
 		if (name.length > 2) names.push(name);
 	}
 
 	// Prisma: model User {
 	const prismaPattern = /model\s+(\w+)\s*\{/gi;
-	while ((match = prismaPattern.exec(sourceCode)) !== null) {
+	while ((match = prismaPattern.exec(code)) !== null) {
 		names.push(match[1]);
 	}
 
 	// TypeORM/Hibernate decorators: @Entity("users")
 	const decoratorPattern = /@(?:Entity|Table)\s*\(\s*["'](\w+)["']/gi;
-	while ((match = decoratorPattern.exec(sourceCode)) !== null) {
+	while ((match = decoratorPattern.exec(code)) !== null) {
 		names.push(match[1]);
 	}
 
 	// Mongoose: new Schema({ ... }), mongoose.model("User"
 	const mongoosePattern = /mongoose\.model\s*\(\s*["'](\w+)["']/gi;
-	while ((match = mongoosePattern.exec(sourceCode)) !== null) {
+	while ((match = mongoosePattern.exec(code)) !== null) {
 		names.push(match[1]);
 	}
 
@@ -1782,16 +2071,21 @@ export function extractSchemaNames(sourceCode: string): string[] {
  * Detect if a file contains schema-related content
  */
 export function isSchemaFile(sourceCode: string): boolean {
+	// Strip comments, strings, and regex literals so this engine's own
+	// pattern source (e.g. /@Entity|@Table/) cannot self-match.
+	const code = stripCommentsAndStringsForScan(sourceCode).replace(
+		/\/(?:\\\/|[^/\n])+\/[gimsuy]*/g,
+		" ",
+	);
 	const schemaIndicators = [
-		/CREATE\s+TABLE/i,
-		/ALTER\s+TABLE/i,
-		/@Entity|@Table|@Column/,
-		/model\s+\w+\s*\{/,
-		/mongoose\.Schema/,
-		/db\.Column|db\.relationship/i,
-		/sequelize\.define/i,
+		/(?:CREATE|ALTER|DROP)\s+TABLE\s+\w/i,
+		/@Entity\b|@Table\b|@Column\b/,
+		/\bmodel\s+[A-Za-z_]\w*\s*\{/,
+		/\bmongoose\.Schema\b/,
+		/\bdb\.(?:Column|relationship)\b/i,
+		/\bsequelize\.define\b/i,
 	];
-	return schemaIndicators.some((p) => p.test(sourceCode));
+	return schemaIndicators.some((p) => p.test(code));
 }
 
 /**
@@ -1805,13 +2099,10 @@ export async function getSchemaCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 
 		// Only analyze if file has schema-related content
 		if (!isSchemaFile(sourceContent)) {
@@ -1827,11 +2118,14 @@ export async function getSchemaCoupling(
 		}
 
 		// Build search pattern for table/model references
-		const patterns = schemaNames.flatMap((name) => [
-			`\\b${name}\\b`,
-			`["'\`]${name.toLowerCase()}["'\`]`,
-			`["'\`]${name}["'\`]`,
-		]);
+		const patterns = schemaNames.flatMap((name) => {
+			const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			return [
+				`\\b${esc}\\b`,
+				`["'\`]${esc.toLowerCase()}["'\`]`,
+				`["'\`]${esc}["'\`]`,
+			];
+		});
 		const searchPattern = patterns.join("|");
 
 		const grepResult = await git
@@ -1841,13 +2135,29 @@ export async function getSchemaCoupling(
 				"-l",
 				"-E",
 				searchPattern,
+				"--",
+				"*.ts",
+				"*.tsx",
+				"*.js",
+				"*.jsx",
+				"*.prisma",
+				"*.sql",
+				"*.py",
+				"*.go",
+				":!**/node_modules/**",
+				":!**/.next/**",
+				":!**/dist/**",
+				":!**/_generated/**",
+				":!**/*test*",
+				":!**/*spec*",
 			])
 			.catch(() => "");
 
 		const files = grepResult
 			.split("\n")
 			.map((f) => f.trim())
-			.filter((f) => f && f !== relativePath);
+			// Exclude docs/config — schema names appear in README, rules files, etc.
+			.filter((f) => f && f !== relativePath && !/\.(md|txt|rst|mdc|mdx|json|ya?ml|toml)$/i.test(f));
 
 		// For each file, determine what schema names it references
 		const fileSchemaMap: Map<string, string[]> = new Map();
@@ -1897,11 +2207,13 @@ export async function getSchemaCoupling(
  */
 export function extractApiEndpoints(sourceCode: string): string[] {
 	const endpoints: string[] = [];
+	// Ignore comment examples like: // Match "/api/users", app.get("/users", ...)
+	const code = stripCommentsForScan(sourceCode);
 
 	// Match endpoint strings: "/api/users", "/v1/auth"
 	const endpointPattern = /["'`](\/(?:api|v\d+)\/[^"'`\s]+)["'`]/g;
 	let match: RegExpExecArray | null;
-	while ((match = endpointPattern.exec(sourceCode)) !== null) {
+	while ((match = endpointPattern.exec(code)) !== null) {
 		// Clean up dynamic segments: /api/users/:id -> /api/users/
 		const clean = match[1].replace(/:\w+/g, "").replace(/\/+$/, "");
 		if (clean.length > 4) endpoints.push(clean);
@@ -1909,14 +2221,14 @@ export function extractApiEndpoints(sourceCode: string): string[] {
 
 	// Also match route definitions: app.get("/users", ...), router.post("/auth"
 	const routePattern = /\.(get|post|put|delete|patch)\s*\(\s*["'`](\/[^"'`]+)["'`]/gi;
-	while ((match = routePattern.exec(sourceCode)) !== null) {
+	while ((match = routePattern.exec(code)) !== null) {
 		const clean = match[2].replace(/:\w+/g, "").replace(/\/+$/, "");
 		if (clean.length > 1) endpoints.push(clean);
 	}
 
 	// Decorator routes: @Get("/users"), @Post("/auth")
 	const decoratorPattern = /@(?:Get|Post|Put|Delete|Patch)\s*\(\s*["'`](\/[^"'`]*)["'`]/gi;
-	while ((match = decoratorPattern.exec(sourceCode)) !== null) {
+	while ((match = decoratorPattern.exec(code)) !== null) {
 		const clean = match[1].replace(/:\w+/g, "").replace(/\/+$/, "");
 		if (clean.length > 0) endpoints.push(clean || "/");
 	}
@@ -1928,15 +2240,16 @@ export function extractApiEndpoints(sourceCode: string): string[] {
  * Detect if a file defines API routes
  */
 export function isApiDefinitionFile(sourceCode: string): boolean {
+	const code = stripCommentsForScan(sourceCode);
+	// Avoid matching Map/cache .get( — require a route host (app/router/server)
+	// or an HTTP-method decorator / Next.js route export.
 	const apiIndicators = [
-		/\.(get|post|put|delete|patch)\s*\(/i,
+		/\b(?:app|router|server)\.(get|post|put|delete|patch)\s*\(/i,
 		/@(Get|Post|Put|Delete|Patch)\s*\(/,
-		/router\.(get|post|put|delete)/i,
-		/app\.(get|post|put|delete)/i,
-		/createRouter|useRouter/,
+		/\bcreateRouter\b/,
 		/export\s+(?:async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH)\b/, // Next.js API routes
 	];
-	return apiIndicators.some((p) => p.test(sourceCode));
+	return apiIndicators.some((p) => p.test(code));
 }
 
 /**
@@ -1950,13 +2263,11 @@ export async function getApiCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
+		const ig = ctx ? ctx.ig : await getIgnoreFilter(repoRoot);
 
-		const sourceContent = await fs.readFile(filePath, "utf8").catch(() => "");
+		const sourceContent = await readTargetSource(filePath, ctx);
 
 		// Only analyze if file defines API routes
 		if (!isApiDefinitionFile(sourceContent)) {
@@ -1989,7 +2300,16 @@ export async function getApiCoupling(
 			const files = grepResult
 				.split("\n")
 				.map((f) => f.trim())
-				.filter((f) => f && f !== relativePath);
+				// Exclude docs/config — they mention API paths as examples, not as callers
+				// Exclude tests — they often hardcode example endpoints from fixtures/docs
+				.filter(
+					(f) =>
+						f &&
+						f !== relativePath &&
+						!shouldIgnoreFile(f, ig) &&
+						!/\.(md|txt|rst|mdc|mdx|json|ya?ml|toml)$/i.test(f) &&
+						!/\.(test|spec)\.[jt]sx?$/i.test(f),
+				);
 
 			for (const file of files) {
 				if (!allConsumers.has(file)) {
@@ -2001,8 +2321,10 @@ export async function getApiCoupling(
 
 		const results: EnhancedCoupledFile[] = [];
 		for (const [file, endpoints] of allConsumers) {
-			// Skip the source file itself and other route definition files
-			const fileContent = await fs.readFile(path.join(repoRoot, file), "utf8").catch(() => "");
+			// Skip unreadable paths and other route definition files
+			const absoluteConsumer = path.join(repoRoot, file);
+			const fileContent = await fs.readFile(absoluteConsumer, "utf8").catch(() => null);
+			if (fileContent === null) continue;
 			if (isApiDefinitionFile(fileContent)) continue;
 
 			results.push({
@@ -2035,10 +2357,7 @@ export async function getTransitiveCoupling(
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
 	try {
-		const git = ctx ? ctx.git : getGitForFile(filePath);
-		const repoRoot = ctx
-			? ctx.repoRoot
-			: (await git.revparse(["--show-toplevel"])).trim();
+		const { git, repoRoot } = await resolveGitContext(filePath, ctx);
 		const relativePath = path.relative(repoRoot, filePath);
 
 		// Get filename without extension
@@ -2145,91 +2464,54 @@ export function mergeCouplingResults(
 	schemaCoupled: EnhancedCoupledFile[] = [],
 	apiCoupled: EnhancedCoupledFile[] = [],
 	transitiveCoupled: EnhancedCoupledFile[] = [],
+	symbolCoupled: EnhancedCoupledFile[] = [],
+	confidenceMin = 0,
+	packageCoupled: EnhancedCoupledFile[] = [],
 ): EnhancedCoupledFile[] {
 	const merged: EnhancedCoupledFile[] = [];
 	const seenFiles = new Set<string>();
 
-	// Add git coupling (highest priority, existing format with source tag)
+	const push = (c: EnhancedCoupledFile) => {
+		if (seenFiles.has(c.file)) return;
+		const confidence = c.confidence ?? sourceConfidence(c.source);
+		if (confidence < confidenceMin) return;
+		seenFiles.add(c.file);
+		merged.push({ ...c, confidence });
+	};
+
+	// Priority: git → test → symbol → api → package → schema → env → docs → type → transitive → content
 	for (const c of gitCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push({
-				file: c.file,
-				score: c.score,
-				source: "git",
-				reason: c.reason,
-				evidence: c.evidence,
-				lastHash: c.lastHash,
-			});
-		}
+		push({
+			file: c.file,
+			score: c.score,
+			source: "git",
+			reason: c.reason,
+			evidence: c.evidence,
+			lastHash: c.lastHash,
+			confidence: c.confidence ?? sourceConfidence("git"),
+		});
 	}
+	for (const c of testCoupled) push(c);
+	for (const c of symbolCoupled) push(c);
+	for (const c of apiCoupled) push(c);
+	for (const c of packageCoupled) push(c);
+	for (const c of schemaCoupled) push(c);
+	for (const c of envCoupled) push(c);
+	for (const c of docsCoupled) push(c);
+	for (const c of typeCoupled) push(c);
+	for (const c of transitiveCoupled) push(c);
+	for (const c of contentCoupled) push(c);
 
-	// Add test coupling (high priority - tests should be updated)
-	for (const c of testCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add API coupling (response changes break consumers)
-	for (const c of apiCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add schema coupling (data integrity critical)
-	for (const c of schemaCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add env coupling (runtime errors if mismatched)
-	for (const c of envCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add docs coupling
-	for (const c of docsCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add type coupling
-	for (const c of typeCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add transitive coupling (barrel re-exports)
-	for (const c of transitiveCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Add content coupling (lowest priority)
-	for (const c of contentCoupled) {
-		if (!seenFiles.has(c.file)) {
-			seenFiles.add(c.file);
-			merged.push(c);
-		}
-	}
-
-	// Sort by score descending and return top 15 (expanded from 10)
-	return merged.sort((a, b) => b.score - a.score).slice(0, 15);
+	// Git co-change files are the most reliable signal and must always survive the
+	// cap.  Other engines fill the remaining slots with their highest-scoring
+	// entries, then the whole list is sorted by score for the caller.
+	const MAX_RESULTS = 15;
+	const gitEntries = merged.filter((f) => f.source === "git");
+	const otherEntries = merged
+		.filter((f) => f.source !== "git")
+		.sort((a, b) => b.score - a.score)
+		.slice(0, Math.max(0, MAX_RESULTS - gitEntries.length));
+	return [...gitEntries, ...otherEntries].sort((a, b) => b.score - a.score);
 }
 
 // --- ENGINE 7: SIBLING GUIDANCE (Smart New File Guidance) ---
@@ -2715,7 +2997,7 @@ export async function searchHistory(
 					.split("\n")
 					.filter((f) => f.trim());
 				results.push({
-					hash: commit.hash.slice(0, 7),
+					hash: commit.hash,
 					date: commit.date?.split(" ")[0] || "",
 					author: commit.author || "unknown",
 					message: commit.message.trim(),
@@ -2827,7 +3109,7 @@ export async function searchHistory(
 				const commit = allCommits[i];
 				const files = filesResults[i].split("\n").filter((f) => f.trim());
 				results.push({
-					hash: commit.hash.slice(0, 7),
+					hash: commit.hash,
 					date: commit.date?.split(" ")[0] || "",
 					author: commit.author || "unknown",
 					message: commit.message,
@@ -2855,7 +3137,7 @@ export async function searchHistory(
 				const commit = messageCommits[i];
 				const files = filesResults[i].split("\n").filter((f) => f.trim());
 				results.push({
-					hash: commit.hash.slice(0, 7),
+					hash: commit.hash,
 					date: commit.date?.split(" ")[0] || "",
 					author: commit.author || "unknown",
 					message: commit.message,
@@ -2883,7 +3165,7 @@ export async function searchHistory(
 				const commit = pickaxeCommits[i];
 				const files = filesResults[i].split("\n").filter((f) => f.trim());
 				results.push({
-					hash: commit.hash.slice(0, 7),
+					hash: commit.hash,
 					date: commit.date?.split(" ")[0] || "",
 					author: commit.author || "unknown",
 					message: commit.message,
@@ -2964,7 +3246,7 @@ export function formatHistoryResults(output: HistorySearchOutput): string {
 	results.forEach((r, i) => {
 		const matchType = r.matchType === "message" ? "msg" : "diff";
 		const typeLabel = r.commitType ? `[${r.commitType.toUpperCase()}]` : "";
-		report += `**${i + 1}. \`${r.hash}\`** ${r.date} · @${r.author} · ${matchType} ${typeLabel}\n`;
+		report += `**${i + 1}. \`${r.hash.slice(0, 7)}\`** ${r.date} · @${r.author} · ${matchType} ${typeLabel}\n`;
 		report += `> ${r.message}\n`;
 		if (r.filesChanged.length > 0) {
 			report += `Files: ${r.filesChanged.map((f) => `\`${f}\``).join(", ")}\n`;
@@ -3013,8 +3295,7 @@ export async function getVolatility(
 	const cacheKey = `volatility:${filePath}:${configKey}`;
 	if (cache.has(cacheKey)) return cache.get(cacheKey);
 
-	// Use context if provided, otherwise initialize (backward compatibility)
-	const git = ctx ? ctx.git : getGitForFile(filePath);
+	const { git } = await resolveGitContext(filePath, ctx);
 
 	// git.log throws on a repo with no commits yet ("does not have any commits
 	// yet"). Treat that — and any other log failure — as zero history, matching
@@ -3046,7 +3327,7 @@ export async function getVolatility(
 	const panicKeywords = getEffectivePanicKeywords(config);
 
 	let weightedPanicScore = 0;
-	const maxPossibleScore = 20 * 3; // 20 commits × max weight of 3
+	const maxPossibleScore = Math.max(1, log.all.length) * 3; // actual commits × max weight of 3
 	const panicCommits: string[] = [];
 
 	// Track author contributions (Bus Factor)
@@ -3099,7 +3380,7 @@ export async function getVolatility(
 		}
 
 		// Track author contributions
-		const authorKey = c.author_email || c.author_name;
+		const authorKey = c.author_email || c.author_name || "unknown";
 		const existing = authorMap.get(authorKey);
 		if (existing) {
 			existing.commits++;
@@ -3248,7 +3529,7 @@ export interface DriftAlert {
 export interface FileAnalysis {
 	filePath: string;
 	volatility: VolatilityResult;
-	// Unified coupling list (all 13 engines merged + de-duplicated).
+	// Unified coupling list (all engines merged + de-duplicated).
 	coupled: EnhancedCoupledFile[];
 	// Raw git co-change coupling only — drift detection keys off this subset
 	// (file modification times only make sense for historically-coupled files).
@@ -3258,16 +3539,117 @@ export interface FileAnalysis {
 	siblingGuidance: SiblingGuidance | null;
 	risk: RiskAssessment;
 	config: MemoriaConfig | null;
+	/** Analyze mode used for this run. */
+	mode?: AnalyzeMode;
+	/** Classified file kind. */
+	kind?: FileKind;
+	/** Engines that actually ran. */
+	enginesRun?: EngineName[];
+	/** Wall-clock duration in ms. */
+	elapsedMs?: number;
+	/** True when a fast run was escalated to full. */
+	escalated?: boolean;
+	/** Bus-factor / ownership guidance. */
+	ownerBrief?: string | null;
+	/** Export removals / additions vs HEAD. */
+	breakingChanges?: string[];
+	/** Machine-readable payload for MCP / scripting. */
+	structured?: StructuredAnalysis;
+}
+
+function emptyCoupled(): EnhancedCoupledFile[] {
+	return [];
+}
+
+async function readCommittedSource(
+	git: ReturnType<typeof simpleGit>,
+	repoRoot: string,
+	filePath: string,
+	ref = "HEAD",
+): Promise<string | null> {
+	const rel = path.relative(repoRoot, filePath).replace(/\\/g, "/");
+	if (!rel || rel.startsWith("..")) return null;
+	try {
+		return await git.show([`${ref}:${rel}`]);
+	} catch {
+		return null;
+	}
 }
 
 export async function analyzeFile(
 	targetPath: string,
-	ctx?: AnalysisContext,
+	ctx?: AnalysisContext | null,
+	options?: AnalyzeOptions,
 ): Promise<FileAnalysis> {
-	// Reuse a caller-provided context (so we don't re-init git/config) or build one.
-	const context = ctx ?? (await createAnalysisContext(targetPath));
+	const started = Date.now();
+	const opts: AnalyzeOptions = {
+		mode: "full",
+		autoEscalate: true,
+		...ctx?.analyzeOptions,
+		...options,
+	};
+	const mode: AnalyzeMode = opts.mode ?? "full";
+	const progress = opts.onProgress;
 
-	// Run every engine in parallel — identical set to the MCP analyze_file tool.
+	const emit = (
+		phase: AnalyzeProgressEvent["phase"],
+		message: string,
+		engine?: EngineName,
+	) => {
+		progress?.({ phase, engine, message, elapsedMs: Date.now() - started });
+	};
+
+	emit("start", `analyze ${mode}`);
+
+	// Reuse a caller-provided context (so we don't re-init git/config) or build one.
+	const context =
+		ctx ?? (await createAnalysisContext(targetPath, opts));
+	context.analyzeOptions = { ...opts, skipEvidence: opts.skipEvidence ?? mode === "fast" };
+	context.targetPath = targetPath;
+
+	// Warm the shared source cache once before engines fan out.
+	const sourceContent = await readTargetSource(targetPath, context);
+	const kind = classifyFileKind(targetPath, sourceContent);
+	context.fileKind = kind;
+
+	const plan = planEngines(kind, mode, {
+		includeTransitive: opts.includeTransitive,
+		skipEvidence: context.analyzeOptions.skipEvidence,
+		hasSymbol: Boolean(opts.symbol) || mode === "full",
+	});
+
+	// Whole-analysis cache keyed by HEAD + path + mode
+	const analysisCacheKey = `analyze:${context.headSha ?? ""}:${targetPath}:${mode}:${opts.symbol ?? ""}:${opts.confidenceMin ?? 0}`;
+	if (cache.has(analysisCacheKey)) {
+		emit("done", "cache hit");
+		return cache.get(analysisCacheKey);
+	}
+
+	const run = plan.run;
+	const enginesRun: EngineName[] = [];
+	const budgetMs = opts.budgetMs;
+	const withinBudget = () =>
+		budgetMs === undefined || Date.now() - started < budgetMs;
+
+	const runEngine = async <T>(
+		name: EngineName,
+		fn: () => Promise<T>,
+		fallback: T,
+	): Promise<T> => {
+		if (!run.has(name)) {
+			emit("skip", `skip ${name} (plan)`, name);
+			return fallback;
+		}
+		if (!withinBudget()) {
+			emit("skip", `skip ${name} (budget)`, name);
+			return fallback;
+		}
+		emit("engine", `run ${name}`, name);
+		enginesRun.push(name);
+		return fn();
+	};
+
+	// Core fan-out (transitive deferred unless plan says otherwise)
 	const [
 		volatility,
 		gitCoupled,
@@ -3279,21 +3661,112 @@ export async function analyzeFile(
 		envCoupled,
 		schemaCoupled,
 		apiCoupled,
-		transitiveCoupled,
+		symbolCoupled,
+		packageCoupledRaw,
 	] = await Promise.all([
-		getVolatility(targetPath, context),
-		getCoupledFiles(targetPath, context),
-		getImporters(targetPath, context),
-		getDocsCoupling(targetPath, context),
-		getTypeCoupling(targetPath, context),
-		getContentCoupling(targetPath, context),
-		getTestCoupling(targetPath, context),
-		getEnvCoupling(targetPath, context),
-		getSchemaCoupling(targetPath, context),
-		getApiCoupling(targetPath, context),
-		getTransitiveCoupling(targetPath, context),
+		runEngine("volatility", () => getVolatility(targetPath, context), {
+			commitCount: 0,
+			panicScore: 0,
+			panicCommits: [],
+			lastCommitDate: undefined,
+			authors: 0,
+			authorDetails: [],
+			topAuthor: null,
+			recencyDecay: { oldestCommitDays: 0, newestCommitDays: 0, decayFactor: 1 },
+		} satisfies VolatilityResult),
+		runEngine("git", () => getCoupledFiles(targetPath, context), emptyCoupled()),
+		runEngine("importers", () => getImporters(targetPath, context), [] as string[]),
+		runEngine("docs", () => getDocsCoupling(targetPath, context), emptyCoupled()),
+		runEngine("type", () => getTypeCoupling(targetPath, context), emptyCoupled()),
+		runEngine("content", () => getContentCoupling(targetPath, context), emptyCoupled()),
+		runEngine("test", () => getTestCoupling(targetPath, context), emptyCoupled()),
+		runEngine("env", () => getEnvCoupling(targetPath, context), emptyCoupled()),
+		runEngine("schema", () => getSchemaCoupling(targetPath, context), emptyCoupled()),
+		runEngine("api", () => getApiCoupling(targetPath, context), emptyCoupled()),
+		runEngine(
+			"symbol",
+			async () => {
+				const hits = await getSymbolCoupling({
+					git: context.git,
+					repoRoot: context.repoRoot,
+					filePath: targetPath,
+					sourceContent,
+					symbol: opts.symbol,
+					relativePath: path.relative(context.repoRoot, targetPath),
+				});
+				return hits as EnhancedCoupledFile[];
+			},
+			emptyCoupled(),
+		),
+		runEngine(
+			"package",
+			async () => {
+				const hits = await getPackageCoupling({
+					git: context.git,
+					repoRoot: context.repoRoot,
+					filePath: targetPath,
+				});
+				return hits as EnhancedCoupledFile[];
+			},
+			emptyCoupled(),
+		),
 	]);
 
+	// Call-graph enhancer (TS AST when available) — full mode / symbol path only
+	let callGraphCoupled: EnhancedCoupledFile[] = [];
+	if (
+		(mode === "full" || Boolean(opts.symbol)) &&
+		withinBudget() &&
+		kind !== "docs" &&
+		kind !== "config"
+	) {
+		const symbols = opts.symbol
+			? [opts.symbol]
+			: extractSymbols(sourceContent).slice(0, 12);
+		const candidates = [
+			...importers,
+			...symbolCoupled.map((c) => c.file),
+		].filter(Boolean);
+		if (symbols.length > 0 && candidates.length > 0) {
+			emit("engine", "run callgraph", "symbol");
+			const hits = await findSymbolReferences({
+				repoRoot: context.repoRoot,
+				filePath: targetPath,
+				sourceContent,
+				symbols,
+				candidateFiles: [...new Set(candidates)].slice(0, 40),
+			});
+			callGraphCoupled = hits.map((h) => ({
+				file: h.file,
+				score: h.score,
+				source: "symbol" as const,
+				reason: h.reason,
+				confidence: h.confidence,
+			}));
+		}
+	}
+
+	// Transitive on demand: only when not deferred, or when barrels suspected
+	let transitiveCoupled: EnhancedCoupledFile[] = [];
+	const wantsTransitive =
+		run.has("transitive") &&
+		!plan.deferTransitive &&
+		withinBudget();
+	const maybeBarrel =
+		/\/index\.[jt]sx?$/.test(targetPath.replace(/\\/g, "/")) ||
+		importers.some((i) => /\/index\.[jt]sx?$/.test(i));
+	if (wantsTransitive || (mode === "full" && maybeBarrel && withinBudget())) {
+		emit("engine", "run transitive", "transitive");
+		enginesRun.push("transitive");
+		transitiveCoupled = await getTransitiveCoupling(targetPath, context);
+	} else {
+		emit("skip", "defer transitive", "transitive");
+	}
+
+	emit("merge", "merge coupling results");
+
+	const confidenceMin = opts.confidenceMin ?? 0;
+	const symbolMerged = [...symbolCoupled, ...callGraphCoupled];
 	const coupled = mergeCouplingResults(
 		gitCoupled,
 		docsCoupled,
@@ -3304,6 +3777,9 @@ export async function analyzeFile(
 		schemaCoupled,
 		apiCoupled,
 		transitiveCoupled,
+		symbolMerged,
+		confidenceMin,
+		packageCoupledRaw,
 	);
 
 	const drift = await checkDrift(targetPath, gitCoupled, context);
@@ -3322,7 +3798,28 @@ export async function analyzeFile(
 		context.config,
 	);
 
-	return {
+	const ownerBrief = buildOwnerBrief(volatility.topAuthor, {
+		fileName: path.basename(targetPath),
+	});
+
+	const previousSource = await readCommittedSource(
+		context.git,
+		context.repoRoot,
+		targetPath,
+		"HEAD",
+	);
+	const breaking = detectBreakingChanges(sourceContent, previousSource);
+	const breakingChanges = [
+		...breaking.summary,
+		...breakingHintsFromDiff(
+			gitCoupled.find(
+				(c: EnhancedCoupledFile) =>
+					c.evidence && typeof c.evidence === "object",
+			)?.evidence as DiffSummary | undefined,
+		),
+	];
+
+	let analysis: FileAnalysis = {
 		filePath: targetPath,
 		volatility,
 		coupled,
@@ -3332,7 +3829,143 @@ export async function analyzeFile(
 		siblingGuidance,
 		risk,
 		config: context.config,
+		mode,
+		kind,
+		enginesRun,
+		elapsedMs: Date.now() - started,
+		escalated: false,
+		ownerBrief,
+		breakingChanges,
 	};
+
+	analysis.structured = toStructuredAnalysis(
+		{
+			filePath: analysis.filePath,
+			risk: analysis.risk,
+			volatility: {
+				commitCount: analysis.volatility.commitCount,
+				panicScore: analysis.volatility.panicScore,
+				topAuthor: analysis.volatility.topAuthor,
+			},
+			coupled: analysis.coupled,
+			importers: analysis.importers,
+			drift: analysis.drift,
+			mode: analysis.mode,
+			kind: analysis.kind,
+			enginesRun: analysis.enginesRun,
+			elapsedMs: analysis.elapsedMs,
+		},
+		{
+			escalated: false,
+			ownerBrief,
+			breakingChanges,
+		},
+	);
+
+	// Escalate fast → full when risk or importer fan-out is high
+	if (
+		opts.autoEscalate !== false &&
+		shouldEscalate({
+			mode: analysis.mode,
+			risk: analysis.risk,
+			importers: analysis.importers,
+		})
+	) {
+		emit("merge", "escalating fast → full");
+		cache.set(analysisCacheKey, analysis); // keep fast result briefly
+		const full = await analyzeFile(targetPath, context, {
+			...opts,
+			mode: "full",
+			autoEscalate: false,
+		});
+		full.escalated = true;
+		if (full.structured) full.structured.escalated = true;
+		full.elapsedMs = Date.now() - started;
+		cache.set(analysisCacheKey, full);
+		emit("done", `escalated complete in ${full.elapsedMs}ms`);
+		return full;
+	}
+
+	cache.set(analysisCacheKey, analysis);
+	emit("done", `complete in ${analysis.elapsedMs}ms`);
+	return analysis;
+}
+
+/**
+ * Analyze every file changed since `diffBase` (PR / diff mode).
+ */
+export async function analyzeDiff(
+	repoRootOrFile: string,
+	diffBase: string,
+	options?: AnalyzeOptions,
+): Promise<{ base: string; files: FileAnalysis[]; elapsedMs: number }> {
+	const started = Date.now();
+	const probe = getGitForFile(repoRootOrFile);
+	const repoRoot = (await probe.revparse(["--show-toplevel"])).trim();
+	const git = simpleGit(repoRoot);
+	const changed = await listChangedFiles(git, diffBase);
+	const abs = toAbsolutePaths(repoRoot, changed);
+
+	const opts: AnalyzeOptions = { mode: "fast", ...options };
+	const files: FileAnalysis[] = [];
+	await mapConcurrent(abs, 4, async (filePath) => {
+		try {
+			await fs.access(filePath);
+			const analysis = await analyzeFile(filePath, null, opts);
+			files.push(analysis);
+		} catch {
+			/* skip missing */
+		}
+	});
+
+	files.sort((a, b) => b.risk.score - a.risk.score);
+	return { base: diffBase, files, elapsedMs: Date.now() - started };
+}
+
+/**
+ * Precompute a workspace pack for hot files (daemon warm-start).
+ */
+export async function buildWorkspacePack(
+	repoRootOrFile: string,
+	opts?: { limit?: number; mode?: AnalyzeMode },
+): Promise<WorkspacePack> {
+	const probe = getGitForFile(repoRootOrFile);
+	const repoRoot = (await probe.revparse(["--show-toplevel"])).trim();
+	const git = simpleGit(repoRoot);
+	const headSha = await getHeadSha(git);
+	const hot = await discoverHotFiles(git, repoRoot, opts?.limit ?? 40);
+	const mode = opts?.mode ?? "fast";
+
+	const pack: WorkspacePack = {
+		version: 1,
+		headSha,
+		repoRoot,
+		createdAt: new Date().toISOString(),
+		files: {},
+	};
+
+	await mapConcurrent(hot, 3, async (rel) => {
+		const abs = path.join(repoRoot, rel);
+		try {
+			const analysis = await analyzeFile(abs, null, { mode });
+			pack.files[rel] = {
+				importers: analysis.importers,
+				coupled: analysis.coupled.map((c) => ({
+					file: c.file,
+					score: c.score,
+					source: c.source,
+					reason: c.reason,
+				})),
+				riskScore: analysis.risk.score,
+				updatedAt: new Date().toISOString(),
+			};
+		} catch {
+			/* skip */
+		}
+	});
+
+	await saveWorkspacePack(pack);
+	return pack;
 }
 
 // Helper for get_context tool - uses shared risk assessment from context-response.ts
@@ -3354,6 +3987,12 @@ export function generateAiInstructions(
 	importers: string[] = [],
 	config?: MemoriaConfig | null,
 	siblingGuidance?: SiblingGuidance | null,
+	extras?: {
+		ownerBrief?: string | null;
+		breakingChanges?: string[];
+		escalated?: boolean;
+		mode?: string;
+	},
 ) {
 	const fileName = path.basename(filePath);
 
@@ -3395,6 +4034,22 @@ export function generateAiInstructions(
 		output += `> ${risk.action}\n\n`;
 	}
 
+	if (extras?.escalated) {
+		output += `> Escalated from fast → full due to elevated risk or importer fan-out.\n\n`;
+	}
+
+	if (extras?.ownerBrief) {
+		output += `${extras.ownerBrief}\n\n`;
+	}
+
+	if (extras?.breakingChanges && extras.breakingChanges.length > 0) {
+		output += `---\n\n## Breaking Changes\n\n`;
+		for (const line of extras.breakingChanges.slice(0, 6)) {
+			output += `- ${line}\n`;
+		}
+		output += `\n`;
+	}
+
 	// ══════════════════════════════════════════════════════════════════════════════
 	// SECTION: Coupled Files
 	// ══════════════════════════════════════════════════════════════════════════════
@@ -3413,6 +4068,8 @@ export function generateAiInstructions(
 			schema: "schema",  // Engine 11: Schema/model coupling
 			api: "api",        // Engine 12: API endpoint coupling
 			transitive: "transitive", // Engine 13: Re-export chain coupling
+			symbol: "symbol", // Engine 14: Symbol-level references
+			package: "package", // Engine 15: Monorepo package graph
 		};
 
 		// Source-specific instructions
@@ -3425,6 +4082,8 @@ export function generateAiInstructions(
 			schema: "References same schema/model. Changes may break queries.",
 			api: "Calls endpoints from this file. Response changes will break this.",
 			transitive: "Imports via barrel/re-export. Indirect dependency.",
+			symbol: "References exported symbols from this file. Signature changes will break callers.",
+			package: "Related via monorepo package dependencies. Check shared contracts across packages.",
 		};
 
 		coupled.forEach((c) => {
@@ -3438,12 +4097,16 @@ export function generateAiInstructions(
 				relationship = evidence.changeType;
 			}
 
-			// File name with coupling percentage and source label
+			// File name with coupling percentage, source label, and confidence
 			output += `**\`${c.file}\`** — ${c.score}%`;
 			if (sourceLabel) {
 				output += ` [${sourceLabel}]`;
 			} else if (relationship !== "unknown") {
 				output += ` (${relationship})`;
+			}
+			const conf = c.confidence ?? sourceConfidence(source);
+			if (conf < 0.7) {
+				output += ` _(confidence ${Math.round(conf * 100)}%)_`;
 			}
 			output += `\n`;
 
@@ -3600,7 +4263,7 @@ export function generateAiInstructions(
 // --- SERVER FACTORY (for Smithery) ---
 export default function createServer(_options?: { config?: Record<string, unknown> }) {
 	const server = new Server(
-		{ name: "memoria", version: "1.0.0" },
+		{ name: "memoria", version: "1.1.0" },
 		{ capabilities: { tools: {}, prompts: {}, resources: {} } },
 	);
 
@@ -3614,7 +4277,7 @@ function setupServer(server: Server): Server {
 			{
 				name: "analyze_file",
 				description:
-					"Returns forensic history, hidden dependencies, and risk assessment. USE THIS before modifying files.",
+					"Returns forensic history, hidden dependencies, and risk assessment. USE THIS before modifying files. Defaults to fast mode; pass mode=full for all engines.",
 				inputSchema: {
 					type: "object",
 					properties: {
@@ -3623,11 +4286,80 @@ function setupServer(server: Server): Server {
 							description:
 								"The ABSOLUTE path to the file (e.g. C:/dev/project/src/file.ts)",
 						},
+						mode: {
+							type: "string",
+							enum: ["fast", "full"],
+							description:
+								"fast = core engines (~volatility/git/importers/tests). full = all engines. Default: fast.",
+						},
+						symbol: {
+							type: "string",
+							description:
+								"Optional exported symbol to resolve callers for (symbol-level coupling).",
+						},
+						budgetMs: {
+							type: "number",
+							description:
+								"Soft time budget in ms; expensive engines may be skipped when exceeded.",
+						},
+						confidenceMin: {
+							type: "number",
+							description:
+								"Drop coupled results below this confidence (0–1). Heuristic sources score lower.",
+						},
+						format: {
+							type: "string",
+							enum: ["markdown", "json", "both"],
+							description:
+								"Response format. Default: both (markdown + structured JSON).",
+						},
+						autoEscalate: {
+							type: "boolean",
+							description:
+								"Re-run in full mode when fast analysis shows risk ≥50 or many importers. Default: true.",
+						},
 					},
 					required: ["path"],
 				},
 				annotations: {
 					title: "Analyze File",
+					readOnlyHint: true,
+					idempotentHint: true,
+					openWorldHint: false,
+				},
+			},
+			{
+				name: "analyze_diff",
+				description:
+					"Analyze all files changed since a git base ref (PR / commit range). Returns risk-sorted forensic summaries. Use before merging or reviewing a PR.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						base: {
+							type: "string",
+							description:
+								"Git ref to diff against (default: HEAD~1). Examples: origin/main, HEAD~3, abc1234",
+						},
+						path: {
+							type: "string",
+							description:
+								"Optional absolute path inside the repo (used to locate the git root).",
+						},
+						mode: {
+							type: "string",
+							enum: ["fast", "full"],
+							description: "Per-file analyze mode. Default: fast.",
+						},
+						format: {
+							type: "string",
+							enum: ["markdown", "json", "both"],
+							description: "Response format. Default: both.",
+						},
+					},
+					required: [],
+				},
+				annotations: {
+					title: "Analyze Diff",
 					readOnlyHint: true,
 					idempotentHint: true,
 					openWorldHint: false,
@@ -3873,9 +4605,31 @@ function setupServer(server: Server): Server {
 		],
 	}));
 
-	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+	server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 		if (request.params.name === "analyze_file") {
 			const rawPath = String(request.params.arguments?.path);
+			const modeArg = request.params.arguments?.mode;
+			const mode: AnalyzeMode =
+				modeArg === "full" || modeArg === "fast" ? modeArg : "fast";
+			const symbol =
+				typeof request.params.arguments?.symbol === "string"
+					? request.params.arguments.symbol
+					: undefined;
+			const budgetMs =
+				typeof request.params.arguments?.budgetMs === "number"
+					? request.params.arguments.budgetMs
+					: undefined;
+			const confidenceMin =
+				typeof request.params.arguments?.confidenceMin === "number"
+					? request.params.arguments.confidenceMin
+					: undefined;
+			const formatArg = request.params.arguments?.format;
+			const format =
+				formatArg === "markdown" || formatArg === "json" || formatArg === "both"
+					? formatArg
+					: "both";
+			const autoEscalate =
+				request.params.arguments?.autoEscalate === false ? false : true;
 
 			// 1. Sanitize Path (Handle Windows/Unix differences)
 			const targetPath = path.resolve(rawPath);
@@ -3901,11 +4655,34 @@ function setupServer(server: Server): Server {
 			}
 
 			try {
-				// 3. Run the shared analysis orchestrator. This is the exact same
-				// code path the `memoria analyze` CLI command uses, so the AI tool
-				// and the terminal can never disagree on results. It creates the
-				// AnalysisContext once and runs all 13 engines in parallel.
-				const analysis = await analyzeFile(targetPath);
+				// Stream progress via MCP logging notifications when the client supports it.
+				const progressLines: string[] = [];
+				const onProgress = async (event: AnalyzeProgressEvent) => {
+					const line = `[${event.elapsedMs}ms] ${event.phase}${event.engine ? `:${event.engine}` : ""} — ${event.message}`;
+					progressLines.push(line);
+					try {
+						await extra?.sendNotification?.({
+							method: "notifications/message",
+							params: {
+								level: "info",
+								logger: "memoria",
+								data: line,
+							},
+						});
+					} catch {
+						/* client may not support notifications */
+					}
+				};
+
+				// Shared orchestrator with CLI — default fast for AI latency.
+				const analysis = await analyzeFile(targetPath, null, {
+					mode,
+					symbol,
+					budgetMs,
+					confidenceMin,
+					autoEscalate,
+					onProgress,
+				});
 
 				const report = generateAiInstructions(
 					targetPath,
@@ -3915,9 +4692,60 @@ function setupServer(server: Server): Server {
 					analysis.importers,
 					analysis.config,
 					analysis.siblingGuidance,
+					{
+						ownerBrief: analysis.ownerBrief,
+						breakingChanges: analysis.breakingChanges,
+						escalated: analysis.escalated,
+						mode: analysis.mode,
+					},
 				);
 
-				return { content: [{ type: "text", text: report }] };
+				const meta =
+					`\n\n---\n_Mode: ${analysis.mode}${analysis.escalated ? " (escalated)" : ""} · Kind: ${analysis.kind} · ` +
+					`Engines: ${(analysis.enginesRun ?? []).join(", ") || "none"} · ` +
+					`${analysis.elapsedMs ?? 0}ms_\n`;
+
+				const streamTail =
+					progressLines.length > 0
+						? `\n<details><summary>Progress</summary>\n\n\`\`\`\n${progressLines.join("\n")}\n\`\`\`\n</details>\n`
+						: "";
+
+				const structured = analysis.structured ?? toStructuredAnalysis({
+					filePath: analysis.filePath,
+					risk: analysis.risk,
+					volatility: {
+						commitCount: analysis.volatility.commitCount,
+						panicScore: analysis.volatility.panicScore,
+						topAuthor: analysis.volatility.topAuthor,
+					},
+					coupled: analysis.coupled,
+					importers: analysis.importers,
+					drift: analysis.drift,
+					mode: analysis.mode,
+					kind: analysis.kind,
+					enginesRun: analysis.enginesRun,
+					elapsedMs: analysis.elapsedMs,
+				}, {
+					escalated: analysis.escalated,
+					ownerBrief: analysis.ownerBrief,
+					breakingChanges: analysis.breakingChanges,
+				});
+
+				const jsonBlock =
+					`\n\n## Structured Result\n\n\`\`\`json\n${JSON.stringify(structured, null, 2)}\n\`\`\`\n`;
+
+				let text: string;
+				if (format === "json") {
+					text = JSON.stringify(structured, null, 2);
+				} else if (format === "markdown") {
+					text = report + meta + streamTail;
+				} else {
+					text = report + meta + jsonBlock + streamTail;
+				}
+
+				return {
+					content: [{ type: "text", text }],
+				};
 			} catch (error: any) {
 				// Check for common git-related errors
 				const errorMsg = error.message || String(error);
@@ -3944,6 +4772,93 @@ function setupServer(server: Server): Server {
 
 				return {
 					content: [{ type: "text", text: `Analysis Error: ${errorMsg}` }],
+					isError: true,
+				};
+			}
+		}
+
+		if (request.params.name === "analyze_diff") {
+			const base =
+				typeof request.params.arguments?.base === "string" &&
+				request.params.arguments.base.trim()
+					? request.params.arguments.base.trim()
+					: "HEAD~1";
+			const rawPath =
+				typeof request.params.arguments?.path === "string"
+					? request.params.arguments.path
+					: process.cwd();
+			const modeArg = request.params.arguments?.mode;
+			const mode: AnalyzeMode =
+				modeArg === "full" || modeArg === "fast" ? modeArg : "fast";
+			const formatArg = request.params.arguments?.format;
+			const format =
+				formatArg === "markdown" || formatArg === "json" || formatArg === "both"
+					? formatArg
+					: "both";
+
+			try {
+				const rootPath = path.resolve(rawPath);
+				const result = await analyzeDiff(rootPath, base, {
+					mode,
+					autoEscalate: true,
+				});
+
+				const payload = {
+					base: result.base,
+					elapsedMs: result.elapsedMs,
+					fileCount: result.files.length,
+					files: result.files.map((f) => f.structured ?? {
+						file: path.basename(f.filePath),
+						absolutePath: f.filePath,
+						risk: f.risk,
+						coupled: f.coupled,
+						importers: f.importers,
+						mode: f.mode,
+						escalated: f.escalated,
+					}),
+				};
+
+				if (format === "json") {
+					return {
+						content: [
+							{ type: "text", text: JSON.stringify(payload, null, 2) },
+						],
+					};
+				}
+
+				let md = `# Diff Analysis vs \`${result.base}\`\n\n`;
+				md += `${result.files.length} files · ${result.elapsedMs}ms\n\n`;
+				for (const f of result.files.slice(0, 25)) {
+					md += `- **${f.risk.score}/100** \`${path.basename(f.filePath)}\` — ${f.coupled.length} coupled, ${f.importers.length} importers`;
+					if (f.escalated) md += " _(escalated)_";
+					md += `\n`;
+				}
+				if (result.files.length > 25) {
+					md += `\n…and ${result.files.length - 25} more\n`;
+				}
+
+				if (format === "markdown") {
+					return { content: [{ type: "text", text: md }] };
+				}
+
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								md +
+								`\n\n## Structured Result\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\`\n`,
+						},
+					],
+				};
+			} catch (error: any) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Diff analysis error: ${error.message || String(error)}`,
+						},
+					],
 					isError: true,
 				};
 			}
@@ -4898,7 +5813,7 @@ function isProcessEntryPoint(): boolean {
 	if (!entry) return false;
 	try {
 		return (
-			realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entry)
+			fsSync.realpathSync(fileURLToPath(import.meta.url)) === fsSync.realpathSync(entry)
 		);
 	} catch {
 		return false;

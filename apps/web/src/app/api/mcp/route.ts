@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getConvexClient, callQuery } from "@/lib/convex";
+import { type NextRequest, NextResponse } from "next/server";
+import { callQuery, getConvexClient } from "@/lib/convex";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://memoria.byronwade.com";
+const APP_URL =
+	process.env.NEXT_PUBLIC_APP_URL || "https://memoria.byronwade.com";
 
 /**
  * MCP Protocol endpoint for Cursor and other MCP clients
@@ -38,7 +39,9 @@ function buildWwwAuthenticateHeader(): string {
 /**
  * Validate Bearer token against Convex
  */
-async function validateToken(token: string): Promise<{ valid: boolean; userId?: string }> {
+async function validateToken(
+	token: string,
+): Promise<{ valid: boolean; userId?: string }> {
 	try {
 		const convex = getConvexClient();
 		const result = await callQuery<{
@@ -70,12 +73,13 @@ export async function GET(request: NextRequest) {
 	// Check for Authorization header
 	const authHeader = request.headers.get("authorization");
 
-	if (!authHeader || !authHeader.startsWith("Bearer ")) {
+	if (!authHeader?.startsWith("Bearer ")) {
 		// Return 401 with WWW-Authenticate to trigger OAuth flow
 		return new NextResponse(
 			JSON.stringify({
 				error: "unauthorized",
-				message: "Authentication required. Use OAuth 2.1 to obtain access token.",
+				message:
+					"Authentication required. Use OAuth 2.1 to obtain access token.",
 				oauth_metadata: `${APP_URL}/.well-known/oauth-authorization-server`,
 			}),
 			{
@@ -85,7 +89,7 @@ export async function GET(request: NextRequest) {
 					"Content-Type": "application/json",
 					"WWW-Authenticate": buildWwwAuthenticateHeader(),
 				},
-			}
+			},
 		);
 	}
 
@@ -106,7 +110,7 @@ export async function GET(request: NextRequest) {
 					"Content-Type": "application/json",
 					"WWW-Authenticate": buildWwwAuthenticateHeader(),
 				},
-			}
+			},
 		);
 	}
 
@@ -127,7 +131,7 @@ export async function GET(request: NextRequest) {
 				},
 			},
 		},
-		{ headers: corsHeaders }
+		{ headers: corsHeaders },
 	);
 }
 
@@ -138,7 +142,7 @@ export async function POST(request: NextRequest) {
 	// Check for Authorization header
 	const authHeader = request.headers.get("authorization");
 
-	if (!authHeader || !authHeader.startsWith("Bearer ")) {
+	if (!authHeader?.startsWith("Bearer ")) {
 		// Return 401 with WWW-Authenticate to trigger OAuth flow
 		return new NextResponse(
 			JSON.stringify({
@@ -159,7 +163,7 @@ export async function POST(request: NextRequest) {
 					"Content-Type": "application/json",
 					"WWW-Authenticate": buildWwwAuthenticateHeader(),
 				},
-			}
+			},
 		);
 	}
 
@@ -184,12 +188,17 @@ export async function POST(request: NextRequest) {
 					"Content-Type": "application/json",
 					"WWW-Authenticate": buildWwwAuthenticateHeader(),
 				},
-			}
+			},
 		);
 	}
 
 	// Parse MCP request
-	let body: { jsonrpc?: string; method?: string; params?: unknown; id?: string | number | null };
+	let body: {
+		jsonrpc?: string;
+		method?: string;
+		params?: unknown;
+		id?: string | number | null;
+	};
 	try {
 		body = await request.json();
 	} catch {
@@ -202,7 +211,7 @@ export async function POST(request: NextRequest) {
 				},
 				id: null,
 			},
-			{ status: 400, headers: corsHeaders }
+			{ status: 400, headers: corsHeaders },
 		);
 	}
 
@@ -228,7 +237,7 @@ export async function POST(request: NextRequest) {
 					},
 					id,
 				},
-				{ headers: corsHeaders }
+				{ headers: corsHeaders },
 			);
 
 		case "tools/list":
@@ -261,7 +270,8 @@ export async function POST(request: NextRequest) {
 									properties: {
 										query: {
 											type: "string",
-											description: "A single keyword or short phrase (1-3 words max)",
+											description:
+												"A single keyword or short phrase (1-3 words max)",
 										},
 										path: {
 											type: "string",
@@ -280,11 +290,13 @@ export async function POST(request: NextRequest) {
 									properties: {
 										path: {
 											type: "string",
-											description: "The ABSOLUTE path to the file being modified",
+											description:
+												"The ABSOLUTE path to the file being modified",
 										},
 										query: {
 											type: "string",
-											description: "What you're trying to do (helps find relevant memories)",
+											description:
+												"What you're trying to do (helps find relevant memories)",
 										},
 									},
 									required: ["path"],
@@ -294,12 +306,14 @@ export async function POST(request: NextRequest) {
 					},
 					id,
 				},
-				{ headers: corsHeaders }
+				{ headers: corsHeaders },
 			);
 
-		case "tools/call":
+		case "tools/call": {
 			// Handle tool calls
-			const toolParams = params as { name?: string; arguments?: Record<string, unknown> } | undefined;
+			const toolParams = params as
+				| { name?: string; arguments?: Record<string, unknown> }
+				| undefined;
 			const toolName = toolParams?.name;
 			const toolArgs = toolParams?.arguments || {};
 
@@ -318,7 +332,7 @@ export async function POST(request: NextRequest) {
 						},
 						id,
 					},
-					{ headers: corsHeaders }
+					{ headers: corsHeaders },
 				);
 			}
 
@@ -337,7 +351,7 @@ export async function POST(request: NextRequest) {
 						},
 						id,
 					},
-					{ headers: corsHeaders }
+					{ headers: corsHeaders },
 				);
 			}
 
@@ -350,8 +364,9 @@ export async function POST(request: NextRequest) {
 					},
 					id,
 				},
-				{ status: 400, headers: corsHeaders }
+				{ status: 400, headers: corsHeaders },
 			);
+		}
 
 		case "ping":
 			return NextResponse.json(
@@ -360,7 +375,7 @@ export async function POST(request: NextRequest) {
 					result: {},
 					id,
 				},
-				{ headers: corsHeaders }
+				{ headers: corsHeaders },
 			);
 
 		default:
@@ -373,7 +388,7 @@ export async function POST(request: NextRequest) {
 					},
 					id,
 				},
-				{ status: 400, headers: corsHeaders }
+				{ status: 400, headers: corsHeaders },
 			);
 	}
 }

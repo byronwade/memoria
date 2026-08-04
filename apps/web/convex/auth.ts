@@ -1,11 +1,13 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
 // Helper for creating union of literals
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val))) as ReturnType<
+		typeof v.literal<T>
+	>;
 
 const providerValidator = literals("github", "gitlab");
 const roleValidator = literals("user", "admin", "support");
@@ -28,7 +30,9 @@ export const upsertUserWithIdentity = mutation({
 		const existingIdentity = await ctx.db
 			.query("identities")
 			.withIndex("by_provider_user", (q) =>
-				q.eq("provider", args.provider).eq("providerUserId", args.providerUserId),
+				q
+					.eq("provider", args.provider)
+					.eq("providerUserId", args.providerUserId),
 			)
 			.first();
 
@@ -48,8 +52,10 @@ export const upsertUserWithIdentity = mutation({
 				avatarUrl: args.avatarUrl,
 				updatedAt: now(),
 				role: args.role ?? user.role,
-				githubUserId: args.provider === "github" ? args.providerUserId : user.githubUserId,
-				gitlabUserId: args.provider === "gitlab" ? args.providerUserId : user.gitlabUserId,
+				githubUserId:
+					args.provider === "github" ? args.providerUserId : user.githubUserId,
+				gitlabUserId:
+					args.provider === "gitlab" ? args.providerUserId : user.gitlabUserId,
 			});
 		} else {
 			const userId = await ctx.db.insert("users", {
@@ -131,7 +137,9 @@ export const revokeSession = mutation({
 	handler: async (ctx, args) => {
 		const session = await ctx.db
 			.query("sessions")
-			.withIndex("by_sessionToken", (q) => q.eq("sessionToken", args.sessionToken))
+			.withIndex("by_sessionToken", (q) =>
+				q.eq("sessionToken", args.sessionToken),
+			)
 			.first();
 		if (!session) return { revoked: false };
 		await ctx.db.patch(session._id, { revokedAt: args.revokedAt ?? now() });
@@ -144,7 +152,9 @@ export const getSession = query({
 	handler: async (ctx, args) => {
 		const session = await ctx.db
 			.query("sessions")
-			.withIndex("by_sessionToken", (q) => q.eq("sessionToken", args.sessionToken))
+			.withIndex("by_sessionToken", (q) =>
+				q.eq("sessionToken", args.sessionToken),
+			)
 			.first();
 		if (!session || session.revokedAt || session.expiresAt < now()) {
 			return null;
@@ -193,8 +203,9 @@ export const getUserByGitHubId = query({
 	handler: async (ctx, args) => {
 		return ctx.db
 			.query("users")
-			.withIndex("by_githubUserId", (q) => q.eq("githubUserId", args.githubUserId))
+			.withIndex("by_githubUserId", (q) =>
+				q.eq("githubUserId", args.githubUserId),
+			)
 			.first();
 	},
 });
-

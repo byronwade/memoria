@@ -8,7 +8,7 @@ function getStripeInstance(): Stripe {
 			throw new Error("STRIPE_SECRET_KEY is not configured");
 		}
 		_stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-			apiVersion: "2025-11-17.clover",
+			apiVersion: "2026-07-29.dahlia",
 			typescript: true,
 		});
 	}
@@ -90,42 +90,11 @@ export async function createBillingPortalSession(params: {
 }
 
 /**
- * Get customer's active subscription
- */
-export async function getActiveSubscription(
-	customerId: string
-): Promise<Stripe.Subscription | null> {
-	const subscriptions = await stripe.subscriptions.list({
-		customer: customerId,
-		status: "all",
-		limit: 1,
-	});
-
-	// Return active or trialing subscription
-	const active = subscriptions.data.find(
-		(sub) => sub.status === "active" || sub.status === "trialing"
-	);
-
-	return active || null;
-}
-
-/**
- * Cancel a subscription at period end
- */
-export async function cancelSubscription(
-	subscriptionId: string
-): Promise<Stripe.Subscription> {
-	return stripe.subscriptions.update(subscriptionId, {
-		cancel_at_period_end: true,
-	});
-}
-
-/**
  * Verify webhook signature
  */
 export function constructWebhookEvent(
 	payload: string | Buffer,
-	signature: string
+	signature: string,
 ): Stripe.Event {
 	if (!process.env.STRIPE_WEBHOOK_SECRET) {
 		throw new Error("STRIPE_WEBHOOK_SECRET is not configured");
@@ -133,6 +102,6 @@ export function constructWebhookEvent(
 	return stripe.webhooks.constructEvent(
 		payload,
 		signature,
-		process.env.STRIPE_WEBHOOK_SECRET
+		process.env.STRIPE_WEBHOOK_SECRET,
 	);
 }

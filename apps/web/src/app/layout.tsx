@@ -3,6 +3,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { MotionProvider } from "@/components/motion-provider";
+import { SearchCommand } from "@/components/search-command";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -109,6 +110,7 @@ export default function RootLayout({
 						disableTransitionOnChange
 					>
 						<MotionProvider>{children}</MotionProvider>
+						<SearchCommand variant="hotkey-only" />
 						<Toaster position="bottom-right" richColors closeButton />
 					</ThemeProvider>
 				</ConvexClientProvider>

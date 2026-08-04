@@ -1,8 +1,9 @@
 "use client";
 
-import { Github, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Github } from "@/components/icons/brand";
 import { SearchCommand } from "@/components/search-command";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -12,9 +13,14 @@ import { cn } from "@/lib/utils";
 interface HeaderClientProps {
 	navLinks: Array<{ href: string; label: string }>;
 	children: React.ReactNode;
+	mobileAuth?: React.ReactNode;
 }
 
-export function HeaderClient({ navLinks, children }: HeaderClientProps) {
+export function HeaderClient({
+	navLinks,
+	children,
+	mobileAuth,
+}: HeaderClientProps) {
 	const [scrolled, setScrolled] = useState(false);
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -30,23 +36,22 @@ export function HeaderClient({ navLinks, children }: HeaderClientProps) {
 				"sticky top-0 z-50 w-full transition-all duration-300",
 				scrolled
 					? "bg-background/80 backdrop-blur-sm border-b border-border/50"
-					: "bg-background"
+					: "bg-background",
 			)}
 		>
 			<div className="max-w-6xl mx-auto flex h-14 items-center justify-between px-4 md:px-6">
 				{/* Left: Logo + Nav */}
 				<div className="flex items-center gap-6">
 					{/* Logo */}
-					<Link
-						href="/"
-						className="flex items-center gap-2"
-					>
+					<Link href="/" className="flex items-center gap-2">
 						<img
 							src="/memoria.svg"
 							alt="Memoria"
 							className="h-6 w-6 dark:invert"
 						/>
-						<span className="font-semibold text-foreground hidden sm:inline">Memoria</span>
+						<span className="font-semibold text-foreground hidden sm:inline">
+							Memoria
+						</span>
 					</Link>
 
 					{/* Desktop Nav Links */}
@@ -100,13 +105,7 @@ export function HeaderClient({ navLinks, children }: HeaderClientProps) {
 									{link.label}
 								</Link>
 							))}
-							<Link
-								href="/login"
-								className="px-3 py-2.5 text-foreground hover:bg-secondary/50 rounded-sm transition-colors"
-								onClick={() => setMobileMenuOpen(false)}
-							>
-								Login
-							</Link>
+							{mobileAuth}
 						</nav>
 						<div className="h-px bg-border/50 my-3" />
 						<div className="flex items-center justify-between px-3">

@@ -1,5 +1,5 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
@@ -76,7 +76,9 @@ export const linkDevice = mutation({
 		}
 
 		if (device.status === "revoked") {
-			throw new Error("Device has been revoked. Please run 'memoria login' again.");
+			throw new Error(
+				"Device has been revoked. Please run 'memoria login' again.",
+			);
 		}
 
 		if (device.status === "linked" && device.userId) {
@@ -162,7 +164,11 @@ export const validateDevice = query({
 		}
 
 		if (device.status === "pending" || !device.userId) {
-			return { valid: false, error: "Device not linked to an account", status: "pending" };
+			return {
+				valid: false,
+				error: "Device not linked to an account",
+				status: "pending",
+			};
 		}
 
 		// Get the user
@@ -230,7 +236,10 @@ export const listDevices = query({
 
 		return filtered.map((d) => ({
 			_id: d._id,
-			deviceId: d.deviceId.substring(0, 8) + "..." + d.deviceId.substring(d.deviceId.length - 4),
+			deviceId:
+				d.deviceId.substring(0, 8) +
+				"..." +
+				d.deviceId.substring(d.deviceId.length - 4),
 			deviceName: d.deviceName,
 			hostname: d.hostname,
 			platform: d.platform,
@@ -303,13 +312,13 @@ export const getDeviceStats = query({
 		// Recently active (in last 24 hours)
 		const oneDayAgo = now() - 24 * 60 * 60 * 1000;
 		const recentlyActive = linked.filter(
-			(d) => d.lastSeenAt && d.lastSeenAt > oneDayAgo
+			(d) => d.lastSeenAt && d.lastSeenAt > oneDayAgo,
 		);
 
 		// Stale (not seen in 7 days)
 		const sevenDaysAgo = now() - 7 * 24 * 60 * 60 * 1000;
 		const stale = linked.filter(
-			(d) => !d.lastSeenAt || d.lastSeenAt < sevenDaysAgo
+			(d) => !d.lastSeenAt || d.lastSeenAt < sevenDaysAgo,
 		);
 
 		return {

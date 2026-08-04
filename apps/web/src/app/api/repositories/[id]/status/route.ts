@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 /**
  * PATCH /api/repositories/[id]/status
@@ -8,7 +8,7 @@ import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
  */
 export async function PATCH(
 	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -23,7 +23,7 @@ export async function PATCH(
 		if (typeof isActive !== "boolean") {
 			return NextResponse.json(
 				{ error: "isActive must be a boolean" },
-				{ status: 400 }
+				{ status: 400 },
 			);
 		}
 
@@ -34,14 +34,14 @@ export async function PATCH(
 		const repos = await callQuery<Array<{ _id: string; userId: string }>>(
 			convex,
 			"scm:getRepositories",
-			{ userId }
+			{ userId },
 		);
 
-		const repo = repos?.find(r => r._id === repoId);
+		const repo = repos?.find((r) => r._id === repoId);
 		if (!repo) {
 			return NextResponse.json(
 				{ error: "Repository not found or not authorized" },
-				{ status: 404 }
+				{ status: 404 },
 			);
 		}
 
@@ -56,7 +56,7 @@ export async function PATCH(
 		console.error("Failed to update repository status:", error);
 		return NextResponse.json(
 			{ error: "Failed to update repository status" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

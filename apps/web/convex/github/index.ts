@@ -1,8 +1,8 @@
 "use node";
 
-import { action } from "../_generated/server";
 import { v } from "convex/values";
-import { internal, api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
+import { action } from "../_generated/server";
 
 /**
  * Process incoming GitHub webhook
@@ -10,7 +10,10 @@ import { internal, api } from "../_generated/api";
  */
 export const processWebhook = action({
 	args: { webhookId: v.id("inbound_webhooks") },
-	handler: async (ctx, args): Promise<{ success: boolean; error?: string; eventType?: string }> => {
+	handler: async (
+		ctx,
+		args,
+	): Promise<{ success: boolean; error?: string; eventType?: string }> => {
 		// Get webhook from database
 		const webhook = await ctx.runQuery(api.webhooks.getWebhook, {
 			webhookId: args.webhookId,
@@ -71,7 +74,8 @@ export const processWebhook = action({
 
 			return { success: true, eventType };
 		} catch (error: unknown) {
-			const errorMessage = error instanceof Error ? error.message : "Unknown error";
+			const errorMessage =
+				error instanceof Error ? error.message : "Unknown error";
 			console.error("Webhook processing error:", errorMessage);
 
 			// Mark as error

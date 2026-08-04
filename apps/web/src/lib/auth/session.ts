@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { getConvexClient, callQuery } from "@/lib/convex";
+import { callQuery, getConvexClient } from "@/lib/convex";
 
 export interface SessionUser {
 	_id: string;
@@ -45,10 +45,10 @@ export async function getSession(): Promise<Session | null> {
 		const result = await callQuery<ConvexSessionResult | null>(
 			convex,
 			"auth:getSession",
-			{ sessionToken }
+			{ sessionToken },
 		);
 
-		if (!result || !result.user) {
+		if (!result?.user) {
 			return null;
 		}
 

@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { randomBytes } from "node:crypto";
+import { type NextRequest, NextResponse } from "next/server";
 import { generateGitHubOAuthUrl } from "@/lib/github/auth";
 
 /**
  * GET /api/auth/github
  * Initiates GitHub OAuth flow by redirecting to GitHub authorization page
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
 	// Generate CSRF state token
 	const state = randomBytes(32).toString("hex");
 

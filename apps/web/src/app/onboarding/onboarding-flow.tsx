@@ -1,22 +1,27 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 import {
 	Check,
-	Github,
-	CreditCard,
-	Rocket,
-	ChevronRight,
 	ChevronLeft,
-	Lock,
-	Loader2,
+	ChevronRight,
+	CreditCard,
 	ExternalLink,
+	Loader2,
+	Lock,
+	Rocket,
 	Search,
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Github } from "@/components/icons/brand";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
 import {
 	Dialog,
 	DialogContent,
@@ -25,6 +30,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 interface OnboardingStatus {
@@ -53,7 +59,12 @@ interface OnboardingFlowProps {
 
 type Step = "connect" | "repos" | "plan" | "complete";
 
-export function OnboardingFlow({ userId, userEmail, userName, status }: OnboardingFlowProps) {
+export function OnboardingFlow({
+	userId,
+	userEmail,
+	userName,
+	status,
+}: OnboardingFlowProps) {
 	const router = useRouter();
 
 	// Determine initial step based on status
@@ -79,9 +90,11 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 	const [isPolling, setIsPolling] = useState(false);
 	const [repositories, setRepositories] = useState(status.repositories);
 	const [selectedRepos, setSelectedRepos] = useState<Set<string>>(
-		new Set(status.repositories.filter(r => r.isActive).map(r => r._id))
+		new Set(status.repositories.filter((r) => r.isActive).map((r) => r._id)),
 	);
-	const [selectedPlan, setSelectedPlan] = useState<"free" | "pro" | "team">("free");
+	const [selectedPlan, setSelectedPlan] = useState<"free" | "pro" | "team">(
+		"free",
+	);
 	const [repoSearch, setRepoSearch] = useState("");
 	const [limitDialog, setLimitDialog] = useState<{
 		open: boolean;
@@ -137,14 +150,17 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 	// Listen for message from GitHub callback window
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent) => {
-			if (event.data?.type === 'github-installation-complete' && event.data?.success) {
+			if (
+				event.data?.type === "github-installation-complete" &&
+				event.data?.success
+			) {
 				// Immediately check installation status
 				checkInstallationStatus();
 			}
 		};
 
-		window.addEventListener('message', handleMessage);
-		return () => window.removeEventListener('message', handleMessage);
+		window.addEventListener("message", handleMessage);
+		return () => window.removeEventListener("message", handleMessage);
 	}, [checkInstallationStatus]);
 
 	// Check if GitHub window was closed
@@ -162,9 +178,21 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 	}, [isPolling]);
 
 	const steps: { id: Step; label: string; description: string }[] = [
-		{ id: "plan", label: "Choose Plan", description: "Select your subscription" },
-		{ id: "connect", label: "Connect GitHub", description: "Install the Memoria GitHub App" },
-		{ id: "repos", label: "Select Repositories", description: "Choose which repos to analyze" },
+		{
+			id: "plan",
+			label: "Choose Plan",
+			description: "Select your subscription",
+		},
+		{
+			id: "connect",
+			label: "Connect GitHub",
+			description: "Install the Memoria GitHub App",
+		},
+		{
+			id: "repos",
+			label: "Select Repositories",
+			description: "Choose which repos to analyze",
+		},
 		{ id: "complete", label: "Complete", description: "You're all set!" },
 	];
 
@@ -180,10 +208,14 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 
 	const getPlanRepoLimit = () => {
 		switch (selectedPlan) {
-			case "free": return 3;
-			case "pro": return 10;
-			case "team": return 50;
-			default: return 3;
+			case "free":
+				return 3;
+			case "pro":
+				return 10;
+			case "team":
+				return 50;
+			default:
+				return 3;
 		}
 	};
 
@@ -192,7 +224,11 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 		const appName = process.env.NEXT_PUBLIC_GITHUB_APP_NAME || "memoria-pr";
 		const installUrl = `https://github.com/apps/${appName}/installations/new`;
 
-		githubWindowRef.current = window.open(installUrl, "_blank", "noopener,noreferrer");
+		githubWindowRef.current = window.open(
+			installUrl,
+			"_blank",
+			"noopener,noreferrer",
+		);
 
 		// Start polling for installation
 		setIsPolling(true);
@@ -208,7 +244,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 				setLimitDialog({
 					open: true,
 					title: "Repository Limit Reached",
-					description: "The Free plan allows up to 3 repositories. Upgrade to Pro or Team to add more repositories.",
+					description:
+						"The Free plan allows up to 3 repositories. Upgrade to Pro or Team to add more repositories.",
 				});
 				return;
 			}
@@ -216,7 +253,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 				setLimitDialog({
 					open: true,
 					title: "Repository Limit Reached",
-					description: "The Pro plan allows up to 10 repositories. Upgrade to Team for up to 50 repositories.",
+					description:
+						"The Pro plan allows up to 10 repositories. Upgrade to Team for up to 50 repositories.",
 				});
 				return;
 			}
@@ -293,9 +331,12 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 								<div
 									className={cn(
 										"flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors",
-										stepStatus === "complete" && "bg-primary text-primary-foreground",
-										stepStatus === "current" && "bg-primary text-primary-foreground",
-										stepStatus === "upcoming" && "bg-muted text-muted-foreground"
+										stepStatus === "complete" &&
+											"bg-primary text-primary-foreground",
+										stepStatus === "current" &&
+											"bg-primary text-primary-foreground",
+										stepStatus === "upcoming" &&
+											"bg-muted text-muted-foreground",
 									)}
 								>
 									{stepStatus === "complete" ? (
@@ -308,7 +349,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									className={cn(
 										"ml-2 text-sm font-medium hidden sm:inline",
 										stepStatus === "current" && "text-foreground",
-										stepStatus !== "current" && "text-muted-foreground"
+										stepStatus !== "current" && "text-muted-foreground",
 									)}
 								>
 									{step.label}
@@ -335,7 +376,9 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 								)}
 							</div>
 							<CardTitle>
-								{isPolling ? "Waiting for Installation..." : "Connect Your GitHub Account"}
+								{isPolling
+									? "Waiting for Installation..."
+									: "Connect Your GitHub Account"}
 							</CardTitle>
 							<CardDescription>
 								{isPolling
@@ -375,7 +418,10 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 										className="w-full"
 										onClick={handleConnectGitHub}
 									>
-										<ExternalLink className="w-4 h-4 mr-2" />
+										<ExternalLink
+											data-icon="inline-start"
+											className="w-4 h-4 mr-2"
+										/>
 										Reopen GitHub Tab
 									</Button>
 								</div>
@@ -388,7 +434,10 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 								>
 									<Github className="w-4 h-4 mr-2" />
 									Install GitHub App
-									<ExternalLink className="w-4 h-4 ml-2" />
+									<ExternalLink
+										data-icon="inline-end"
+										className="w-4 h-4 ml-2"
+									/>
 								</Button>
 							)}
 
@@ -405,7 +454,10 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 										onClick={() => setCurrentStep("plan")}
 										className="w-full"
 									>
-										<ChevronLeft className="w-4 h-4 mr-2" />
+										<ChevronLeft
+											data-icon="inline-start"
+											className="w-4 h-4 mr-2"
+										/>
 										Change Plan
 									</Button>
 								</div>
@@ -436,6 +488,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									<div className="relative">
 										<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
 										<Input
+											aria-label="Search repositories"
 											placeholder="Search repositories..."
 											value={repoSearch}
 											onChange={(e) => setRepoSearch(e.target.value)}
@@ -444,45 +497,61 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									</div>
 									{repoSearch && (
 										<p className="text-xs text-muted-foreground">
-											Showing {repositories.filter((r) => r.fullName.toLowerCase().includes(repoSearch.toLowerCase())).length} of {repositories.length} repositories
+											Showing{" "}
+											{
+												repositories.filter((r) =>
+													r.fullName
+														.toLowerCase()
+														.includes(repoSearch.toLowerCase()),
+												).length
+											}{" "}
+											of {repositories.length} repositories
 										</p>
 									)}
 									<div className="space-y-2 max-h-72 overflow-y-auto">
-									{repositories
-										.filter((repo) => repo.fullName.toLowerCase().includes(repoSearch.toLowerCase()))
-										.map((repo) => (
-										<div
-											key={repo._id}
-											onClick={() => handleToggleRepo(repo._id)}
-											className={cn(
-												"flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
-												selectedRepos.has(repo._id)
-													? "border-primary bg-primary/5"
-													: "border-border hover:border-primary/50"
-											)}
-										>
-											<div
-												className={cn(
-													"w-5 h-5 rounded border-2 flex items-center justify-center transition-colors",
-													selectedRepos.has(repo._id)
-														? "border-primary bg-primary"
-														: "border-muted-foreground/30"
-												)}
-											>
-												{selectedRepos.has(repo._id) && (
-													<Check className="w-3 h-3 text-primary-foreground" />
-												)}
-											</div>
-											<div className="flex-1 min-w-0">
-												<div className="flex items-center gap-2">
-													<span className="font-medium truncate">{repo.fullName}</span>
-													{repo.isPrivate && (
-														<Lock className="w-3 h-3 text-muted-foreground" />
+										{repositories
+											.filter((repo) =>
+												repo.fullName
+													.toLowerCase()
+													.includes(repoSearch.toLowerCase()),
+											)
+											.map((repo) => (
+												<button
+													type="button"
+													key={repo._id}
+													onClick={() => handleToggleRepo(repo._id)}
+													className={cn(
+														"flex w-full items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors text-left",
+														selectedRepos.has(repo._id)
+															? "border-primary bg-primary/5"
+															: "border-border hover:border-primary/50",
 													)}
-												</div>
-											</div>
-										</div>
-									))}
+													aria-pressed={selectedRepos.has(repo._id)}
+												>
+													<div
+														className={cn(
+															"w-5 h-5 rounded border-2 flex items-center justify-center transition-colors",
+															selectedRepos.has(repo._id)
+																? "border-primary bg-primary"
+																: "border-muted-foreground/30",
+														)}
+													>
+														{selectedRepos.has(repo._id) && (
+															<Check className="w-3 h-3 text-primary-foreground" />
+														)}
+													</div>
+													<div className="flex-1 min-w-0">
+														<div className="flex items-center gap-2">
+															<span className="font-medium truncate">
+																{repo.fullName}
+															</span>
+															{repo.isPrivate && (
+																<Lock className="w-3 h-3 text-muted-foreground" />
+															)}
+														</div>
+													</div>
+												</button>
+											))}
 									</div>
 								</>
 							)}
@@ -493,10 +562,17 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									onClick={() => setCurrentStep("connect")}
 									disabled={isLoading}
 								>
-									<ChevronLeft className="w-4 h-4 mr-2" />
+									<ChevronLeft
+										data-icon="inline-start"
+										className="w-4 h-4 mr-2"
+									/>
 									Back
 								</Button>
-								<span className="text-sm text-muted-foreground">
+								<span
+									className="text-sm text-muted-foreground"
+									role="status"
+									aria-live="polite"
+								>
 									{selectedRepos.size} / {getPlanRepoLimit()} selected
 								</span>
 								<Button
@@ -504,10 +580,16 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 									disabled={selectedRepos.size === 0 || isLoading}
 								>
 									{isLoading ? (
-										<Loader2 className="w-4 h-4 mr-2 animate-spin" />
+										<Loader2
+											data-icon="inline-start"
+											className="w-4 h-4 mr-2 animate-spin"
+										/>
 									) : null}
 									Complete Setup
-									<ChevronRight className="w-4 h-4 ml-2" />
+									<ChevronRight
+										data-icon="inline-end"
+										className="w-4 h-4 ml-2"
+									/>
 								</Button>
 							</div>
 						</CardContent>
@@ -519,7 +601,8 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 						<div className="text-center">
 							<h2 className="text-2xl font-semibold">Choose Your Plan</h2>
 							<p className="text-muted-foreground mt-2">
-								All 13 git analysis engines are free. Paid plans add cloud memories and team features.
+								All 13 git analysis engines are free. Paid plans add cloud
+								memories and team features.
 							</p>
 						</div>
 
@@ -528,7 +611,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 							<Card
 								className={cn(
 									"cursor-pointer transition-all",
-									selectedPlan === "free" && "ring-2 ring-primary"
+									selectedPlan === "free" && "ring-2 ring-primary",
 								)}
 								onClick={() => setSelectedPlan("free")}
 							>
@@ -540,7 +623,9 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 										)}
 									</CardTitle>
 									<CardDescription>
-										<span className="text-2xl font-bold text-foreground">$0</span>
+										<span className="text-2xl font-bold text-foreground">
+											$0
+										</span>
 										<span className="text-muted-foreground"> forever</span>
 									</CardDescription>
 								</CardHeader>
@@ -551,8 +636,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 											All 13 git analysis engines
 										</li>
 										<li className="flex items-center gap-2">
-											<Check className="w-4 h-4 text-primary" />
-											3 repositories
+											<Check className="w-4 h-4 text-primary" />3 repositories
 										</li>
 										<li className="flex items-center gap-2">
 											<Check className="w-4 h-4 text-primary" />
@@ -570,7 +654,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 							<Card
 								className={cn(
 									"cursor-pointer transition-all relative",
-									selectedPlan === "pro" && "ring-2 ring-primary"
+									selectedPlan === "pro" && "ring-2 ring-primary",
 								)}
 								onClick={() => setSelectedPlan("pro")}
 							>
@@ -585,7 +669,9 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 										)}
 									</CardTitle>
 									<CardDescription>
-										<span className="text-2xl font-bold text-foreground">$5</span>
+										<span className="text-2xl font-bold text-foreground">
+											$5
+										</span>
 										<span className="text-muted-foreground">/month</span>
 									</CardDescription>
 								</CardHeader>
@@ -615,7 +701,7 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 							<Card
 								className={cn(
 									"cursor-pointer transition-all",
-									selectedPlan === "team" && "ring-2 ring-primary"
+									selectedPlan === "team" && "ring-2 ring-primary",
 								)}
 								onClick={() => setSelectedPlan("team")}
 							>
@@ -627,7 +713,9 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 										)}
 									</CardTitle>
 									<CardDescription>
-										<span className="text-2xl font-bold text-foreground">$8</span>
+										<span className="text-2xl font-bold text-foreground">
+											$8
+										</span>
 										<span className="text-muted-foreground">/seat/month</span>
 									</CardDescription>
 								</CardHeader>
@@ -661,20 +749,29 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 								disabled={isLoading}
 							>
 								{isLoading ? (
-									<Loader2 className="w-4 h-4 mr-2 animate-spin" />
+									<Loader2
+										data-icon="inline-start"
+										className="w-4 h-4 mr-2 animate-spin"
+									/>
 								) : selectedPlan === "free" ? (
 									<Rocket className="w-4 h-4 mr-2" />
 								) : (
-									<CreditCard className="w-4 h-4 mr-2" />
+									<CreditCard
+										data-icon="inline-start"
+										className="w-4 h-4 mr-2"
+									/>
 								)}
-								{selectedPlan === "free" ? "Continue with Free" : "Continue to Payment"}
-								<ChevronRight className="w-4 h-4 ml-2" />
+								{selectedPlan === "free"
+									? "Continue with Free"
+									: "Continue to Payment"}
+								<ChevronRight data-icon="inline-end" className="w-4 h-4 ml-2" />
 							</Button>
 						</div>
 
 						{selectedPlan !== "free" && (
 							<p className="text-xs text-center text-muted-foreground">
-								14-day free trial. Cancel anytime. No credit card required to start.
+								14-day free trial. Cancel anytime. No credit card required to
+								start.
 							</p>
 						)}
 					</div>
@@ -682,7 +779,10 @@ export function OnboardingFlow({ userId, userEmail, userName, status }: Onboardi
 			</div>
 
 			{/* Limit Reached Dialog */}
-			<Dialog open={limitDialog.open} onOpenChange={(open) => setLimitDialog({ ...limitDialog, open })}>
+			<Dialog
+				open={limitDialog.open}
+				onOpenChange={(open) => setLimitDialog({ ...limitDialog, open })}
+			>
 				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>{limitDialog.title}</DialogTitle>

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 import { getInstallation } from "@/lib/github/auth";
 import { OnboardingFlow } from "./onboarding-flow";
 
@@ -32,9 +32,9 @@ async function refreshInstallationStatuses(
 		status: string;
 		providerInstallationId: string;
 		accountLogin: string;
-	}>
+	}>,
 ): Promise<typeof installations> {
-	const toCheck = installations.filter(i => i.status !== "deleted");
+	const toCheck = installations.filter((i) => i.status !== "deleted");
 
 	if (toCheck.length === 0) {
 		return installations;
@@ -44,10 +44,12 @@ async function refreshInstallationStatuses(
 		toCheck.map(async (inst) => {
 			try {
 				const githubInstallation = await getInstallation(
-					parseInt(inst.providerInstallationId)
+					parseInt(inst.providerInstallationId, 10),
 				);
 
-				const isSuspended = (githubInstallation as { suspended_at?: string | null }).suspended_at !== null;
+				const isSuspended =
+					(githubInstallation as { suspended_at?: string | null })
+						.suspended_at !== null;
 				const newStatus = isSuspended ? "suspended" : "active";
 
 				if (newStatus !== inst.status) {
@@ -68,7 +70,8 @@ async function refreshInstallationStatuses(
 			} catch (error: unknown) {
 				const isNotFound =
 					error instanceof Error &&
-					(error.message.includes("404") || error.message.includes("Not Found"));
+					(error.message.includes("404") ||
+						error.message.includes("Not Found"));
 
 				if (isNotFound) {
 					await callMutation(convex, "scm:upsertInstallation", {
@@ -86,10 +89,12 @@ async function refreshInstallationStatuses(
 
 				return inst;
 			}
-		})
+		}),
 	);
 
-	const deletedInstallations = installations.filter(i => i.status === "deleted");
+	const deletedInstallations = installations.filter(
+		(i) => i.status === "deleted",
+	);
 	return [...results, ...deletedInstallations];
 }
 
@@ -102,32 +107,38 @@ async function getOnboardingStatus(userId: string): Promise<OnboardingStatus> {
 	} | null>(convex, "billing:getUserBillingStatus", { userId });
 
 	// Get installations for user
-	const allInstallations = await callQuery<Array<{
-		_id: string;
-		accountLogin: string;
-		status: string;
-		providerInstallationId: string;
-	}>>(convex, "scm:getInstallations", { userId });
+	const allInstallations = await callQuery<
+		Array<{
+			_id: string;
+			accountLogin: string;
+			status: string;
+			providerInstallationId: string;
+		}>
+	>(convex, "scm:getInstallations", { userId });
 
 	// Auto-refresh installation status from GitHub for non-deleted installations
 	const refreshedInstallations = await refreshInstallationStatuses(
 		convex,
 		userId,
-		allInstallations || []
+		allInstallations || [],
 	);
 
 	// Filter to only active installations (not deleted or suspended)
-	const activeInstallations = refreshedInstallations.filter(i => i.status === "active");
+	const activeInstallations = refreshedInstallations.filter(
+		(i) => i.status === "active",
+	);
 
 	// Get repositories for user
-	const repositories = await callQuery<Array<{
-		_id: string;
-		fullName: string;
-		isActive: boolean;
-		isPrivate: boolean;
-	}>>(convex, "scm:getRepositories", { userId });
+	const repositories = await callQuery<
+		Array<{
+			_id: string;
+			fullName: string;
+			isActive: boolean;
+			isPrivate: boolean;
+		}>
+	>(convex, "scm:getRepositories", { userId });
 
-	const activeRepos = repositories?.filter(r => r.isActive) || [];
+	const activeRepos = repositories?.filter((r) => r.isActive) || [];
 
 	return {
 		hasInstallation: activeInstallations.length > 0,

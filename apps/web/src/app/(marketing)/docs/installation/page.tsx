@@ -79,10 +79,14 @@ export default function InstallationPage() {
 						<span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold bg-green-500/20 text-green-600 dark:text-green-400 rounded">
 							100% FREE
 						</span>
-						<span className="text-sm font-medium text-foreground">No account required</span>
+						<span className="text-sm font-medium text-foreground">
+							No account required
+						</span>
 					</div>
 					<p className="text-sm text-muted-foreground mb-0">
-						Memoria is completely free to install and run. All 13 git analysis engines work locally with no account, no API keys, and no cloud connection.
+						Memoria is completely free to install and run. All 13 git analysis
+						engines work locally with no account, no API keys, and no cloud
+						connection.
 					</p>
 				</div>
 

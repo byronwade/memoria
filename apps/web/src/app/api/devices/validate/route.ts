@@ -1,12 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
+import { type NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 export async function POST(request: NextRequest) {
 	if (!convexUrl) {
-		return NextResponse.json({ error: "Server not configured" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Server not configured" },
+			{ status: 500 },
+		);
 	}
 
 	try {
@@ -14,7 +17,10 @@ export async function POST(request: NextRequest) {
 		const { deviceId } = body;
 
 		if (!deviceId || typeof deviceId !== "string") {
-			return NextResponse.json({ error: "deviceId is required" }, { status: 400 });
+			return NextResponse.json(
+				{ error: "deviceId is required" },
+				{ status: 400 },
+			);
 		}
 
 		const client = new ConvexHttpClient(convexUrl);
@@ -30,7 +36,7 @@ export async function POST(request: NextRequest) {
 					error: result.error,
 					status: result.status,
 				},
-				{ status: result.status === "pending" ? 200 : 401 }
+				{ status: result.status === "pending" ? 200 : 401 },
 			);
 		}
 
@@ -48,8 +54,11 @@ export async function POST(request: NextRequest) {
 	} catch (err) {
 		console.error("Device validation error:", err);
 		return NextResponse.json(
-			{ valid: false, error: (err as Error).message || "Failed to validate device" },
-			{ status: 500 }
+			{
+				valid: false,
+				error: (err as Error).message || "Failed to validate device",
+			},
+			{ status: 500 },
 		);
 	}
 }

@@ -1,5 +1,5 @@
-import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
@@ -22,7 +22,14 @@ export const upsertCodeFile = mutation({
 		exports: v.array(
 			v.object({
 				name: v.string(),
-				kind: literals("function", "class", "const", "type", "interface", "variable"),
+				kind: literals(
+					"function",
+					"class",
+					"const",
+					"type",
+					"interface",
+					"variable",
+				),
 				signature: v.optional(v.string()),
 				line: v.number(),
 			}),
@@ -42,7 +49,7 @@ export const upsertCodeFile = mutation({
 		const existing = await ctx.db
 			.query("code_files")
 			.withIndex("by_repo_path", (q) =>
-				q.eq("repoId", args.repoId).eq("filePath", args.filePath)
+				q.eq("repoId", args.repoId).eq("filePath", args.filePath),
 			)
 			.first();
 
@@ -155,8 +162,8 @@ export const upsertRelationship = mutation({
 			.filter((q) =>
 				q.and(
 					q.eq(q.field("targetFileId"), args.targetFileId),
-					q.eq(q.field("type"), args.type)
-				)
+					q.eq(q.field("type"), args.type),
+				),
 			)
 			.first();
 
@@ -212,8 +219,8 @@ export const batchUpsertRelationships = mutation({
 				.filter((q) =>
 					q.and(
 						q.eq(q.field("targetFileId"), rel.targetFileId),
-						q.eq(q.field("type"), rel.type)
-					)
+						q.eq(q.field("type"), rel.type),
+					),
 				)
 				.first();
 
@@ -272,7 +279,7 @@ export const getFileByPath = query({
 		return await ctx.db
 			.query("code_files")
 			.withIndex("by_repo_path", (q) =>
-				q.eq("repoId", args.repoId).eq("filePath", args.filePath)
+				q.eq("repoId", args.repoId).eq("filePath", args.filePath),
 			)
 			.first();
 	},
@@ -346,9 +353,11 @@ export const getFileRelationships = query({
 				const target = await ctx.db.get(rel.targetFileId);
 				return {
 					...rel,
-					targetFile: target ? { path: target.filePath, riskScore: target.riskScore } : null,
+					targetFile: target
+						? { path: target.filePath, riskScore: target.riskScore }
+						: null,
 				};
-			})
+			}),
 		);
 
 		return withTargets;
@@ -374,9 +383,11 @@ export const getFileDependents = query({
 				const source = await ctx.db.get(rel.sourceFileId);
 				return {
 					...rel,
-					sourceFile: source ? { path: source.filePath, riskScore: source.riskScore } : null,
+					sourceFile: source
+						? { path: source.filePath, riskScore: source.riskScore }
+						: null,
 				};
-			})
+			}),
 		);
 
 		return withSources;
@@ -408,9 +419,11 @@ export const getCoChangedFiles = query({
 				const target = await ctx.db.get(rel.targetFileId);
 				return {
 					...rel,
-					targetFile: target ? { path: target.filePath, riskScore: target.riskScore } : null,
+					targetFile: target
+						? { path: target.filePath, riskScore: target.riskScore }
+						: null,
 				};
-			})
+			}),
 		);
 
 		return withTargets.sort((a, b) => b.strength - a.strength);
@@ -437,9 +450,11 @@ export const getFileImports = query({
 				const target = await ctx.db.get(rel.targetFileId);
 				return {
 					...rel,
-					targetFile: target ? { path: target.filePath, riskScore: target.riskScore } : null,
+					targetFile: target
+						? { path: target.filePath, riskScore: target.riskScore }
+						: null,
 				};
-			})
+			}),
 		);
 
 		return withTargets;
@@ -531,9 +546,11 @@ export const getMemoryFileLinks = query({
 				const file = await ctx.db.get(link.codeFileId);
 				return {
 					...link,
-					file: file ? { path: file.filePath, riskScore: file.riskScore } : null,
+					file: file
+						? { path: file.filePath, riskScore: file.riskScore }
+						: null,
 				};
-			})
+			}),
 		);
 
 		return withFiles;
@@ -566,10 +583,10 @@ export const getFileMemories = query({
 								importance: memory.importance,
 								memoryType: memory.memoryType,
 								tags: memory.tags,
-						  }
+							}
 						: null,
 				};
-			})
+			}),
 		);
 
 		return withMemories.filter((m) => m.memory !== null);
@@ -627,9 +644,12 @@ export const getGraphStats = query({
 			byRelationType: byType,
 			byRiskLevel: byRisk,
 			byLanguage: Object.fromEntries(languages),
-			avgRiskScore: files.length > 0
-				? Math.round(files.reduce((sum, f) => sum + f.riskScore, 0) / files.length)
-				: 0,
+			avgRiskScore:
+				files.length > 0
+					? Math.round(
+							files.reduce((sum, f) => sum + f.riskScore, 0) / files.length,
+						)
+					: 0,
 		};
 	},
 });

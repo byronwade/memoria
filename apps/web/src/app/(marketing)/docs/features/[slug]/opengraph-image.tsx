@@ -7,9 +7,14 @@ export const alt = "Memoria Feature";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export default async function Image({ params }: { params: { slug: string } }) {
+export default async function Image({
+	params,
+}: {
+	params: Promise<{ slug: string }>;
+}) {
+	const { slug } = await params;
 	const geistFont = await loadGeistFont();
-	const item = getFeatureBySlug(params.slug);
+	const item = getFeatureBySlug(slug);
 
 	const title = item?.shortTitle || "Feature";
 	const tagline = item?.tagline || "";

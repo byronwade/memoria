@@ -61,7 +61,8 @@ describe("Git Engine States", () => {
 			// Static import detection must still find the dependent even though
 			// the entanglement (co-change) engine has nothing to work with.
 			const importers = await getImporters(target);
-			expect(importers).toContain("consumer.ts");
+			// Paths are repo-root-relative (not bare basenames from file-dir CWD)
+			expect(importers).toContain("src/consumer.ts");
 		});
 
 		it("returns no coupling for a single-commit file (cold-start filter)", async () => {

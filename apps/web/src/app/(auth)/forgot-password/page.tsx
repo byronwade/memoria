@@ -1,10 +1,16 @@
+import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
 import { Container } from "@/components/ui/container";
+import { Input } from "@/components/ui/input";
 
 export const metadata: Metadata = {
 	title: "Forgot Password",
@@ -25,7 +31,9 @@ export default function ForgotPasswordPage() {
 						/>
 						<span className="text-xl font-semibold">Memoria</span>
 					</Link>
-					<h1 className="text-2xl font-semibold tracking-tight">Reset your password</h1>
+					<h1 className="text-2xl font-semibold tracking-tight">
+						Reset your password
+					</h1>
 					<p className="text-muted-foreground mt-2">
 						Enter your email and we&apos;ll send you a reset link
 					</p>
@@ -48,6 +56,7 @@ export default function ForgotPasswordPage() {
 									id="email"
 									type="email"
 									placeholder="you@example.com"
+									autoComplete="email"
 									required
 								/>
 							</div>

@@ -1,6 +1,5 @@
-import { mutation, query, internalMutation, internalAction } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { internalMutation, mutation, query } from "./_generated/server";
 
 const now = () => Date.now();
 
@@ -8,7 +7,12 @@ const now = () => Date.now();
 const literals = <T extends string>(...values: T[]) =>
 	v.union(...values.map((val) => v.literal(val)));
 
-const scanStatusValidator = literals("pending", "running", "completed", "failed");
+const scanStatusValidator = literals(
+	"pending",
+	"running",
+	"completed",
+	"failed",
+);
 const triggerTypeValidator = literals("onboarding", "manual", "scheduled");
 const riskLevelValidator = literals("low", "medium", "high", "critical");
 
@@ -87,8 +91,10 @@ export const internalUpdateScanProgress = internalMutation({
 			}
 		}
 		if (args.totalFiles !== undefined) patch.totalFiles = args.totalFiles;
-		if (args.processedFiles !== undefined) patch.processedFiles = args.processedFiles;
-		if (args.filesWithRisk !== undefined) patch.filesWithRisk = args.filesWithRisk;
+		if (args.processedFiles !== undefined)
+			patch.processedFiles = args.processedFiles;
+		if (args.filesWithRisk !== undefined)
+			patch.filesWithRisk = args.filesWithRisk;
 		if (args.errorMessage !== undefined) patch.errorMessage = args.errorMessage;
 
 		await ctx.db.patch(args.scanId, patch);
@@ -297,7 +303,9 @@ export const getScanSummary = query({
 
 		const filesWithRisk = analyses.filter((a) => a.riskScore >= 25).length;
 		const averageRiskScore =
-			analyses.length > 0 ? analyses.reduce((sum, a) => sum + a.riskScore, 0) / analyses.length : 0;
+			analyses.length > 0
+				? analyses.reduce((sum, a) => sum + a.riskScore, 0) / analyses.length
+				: 0;
 
 		return {
 			totalScans: scans.length,
@@ -422,8 +430,10 @@ export const updateScanProgress = mutation({
 			}
 		}
 		if (args.totalFiles !== undefined) patch.totalFiles = args.totalFiles;
-		if (args.processedFiles !== undefined) patch.processedFiles = args.processedFiles;
-		if (args.filesWithRisk !== undefined) patch.filesWithRisk = args.filesWithRisk;
+		if (args.processedFiles !== undefined)
+			patch.processedFiles = args.processedFiles;
+		if (args.filesWithRisk !== undefined)
+			patch.filesWithRisk = args.filesWithRisk;
 		if (args.errorMessage !== undefined) patch.errorMessage = args.errorMessage;
 
 		await ctx.db.patch(args.scanId, patch);

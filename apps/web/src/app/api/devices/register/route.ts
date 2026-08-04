@@ -1,12 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
+import { type NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 export async function POST(request: NextRequest) {
 	if (!convexUrl) {
-		return NextResponse.json({ error: "Server not configured" }, { status: 500 });
+		return NextResponse.json(
+			{ error: "Server not configured" },
+			{ status: 500 },
+		);
 	}
 
 	try {
@@ -14,7 +17,10 @@ export async function POST(request: NextRequest) {
 		const { deviceId, deviceName, hostname, platform } = body;
 
 		if (!deviceId || typeof deviceId !== "string") {
-			return NextResponse.json({ error: "deviceId is required" }, { status: 400 });
+			return NextResponse.json(
+				{ error: "deviceId is required" },
+				{ status: 400 },
+			);
 		}
 
 		const client = new ConvexHttpClient(convexUrl);
@@ -35,7 +41,7 @@ export async function POST(request: NextRequest) {
 		console.error("Device registration error:", err);
 		return NextResponse.json(
 			{ error: (err as Error).message || "Failed to register device" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

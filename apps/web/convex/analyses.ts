@@ -1,16 +1,24 @@
-import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { mutation } from "./_generated/server";
 
 const now = () => Date.now();
 
 // Helper for creating union of literals
 const literals = <T extends string>(...values: T[]) =>
-	v.union(...values.map((val) => v.literal(val))) as ReturnType<typeof v.literal<T>>;
+	v.union(...values.map((val) => v.literal(val))) as ReturnType<
+		typeof v.literal<T>
+	>;
 
 const analysisTypeValidator = literals("pull_request", "commit", "manual");
 const riskLevelValidator = literals("low", "medium", "high", "informational");
 const riskLevelShortValidator = literals("low", "medium", "high");
-const findingKindValidator = literals("co_change_missing", "hotspot_file", "test_missing", "config_warning", "other");
+const findingKindValidator = literals(
+	"co_change_missing",
+	"hotspot_file",
+	"test_missing",
+	"config_warning",
+	"other",
+);
 const severityValidator = literals("low", "medium", "high");
 
 export const recordAnalysis = mutation({
@@ -24,7 +32,9 @@ export const recordAnalysis = mutation({
 		riskLevel: riskLevelValidator,
 		score: v.union(v.number(), v.null()),
 		changedFiles: v.array(v.string()),
-		missingCoChangedFiles: v.array(v.object({ file: v.string(), probability: v.number() })),
+		missingCoChangedFiles: v.array(
+			v.object({ file: v.string(), probability: v.number() }),
+		),
 		suggestedTests: v.array(v.string()),
 		summary: v.string(),
 		rawResult: v.any(),
@@ -41,7 +51,10 @@ export const recordAnalysis = mutation({
 		if (args.pullRequestId) {
 			const pr = await ctx.db.get(args.pullRequestId);
 			if (pr) {
-				await ctx.db.patch(pr._id, { lastAnalyzedAt: now(), lastAnalysisId: analysisId });
+				await ctx.db.patch(pr._id, {
+					lastAnalyzedAt: now(),
+					lastAnalysisId: analysisId,
+				});
 			}
 		}
 
@@ -85,7 +98,9 @@ export const updateFileRisk = mutation({
 	handler: async (ctx, args) => {
 		const existing = await ctx.db
 			.query("file_risk_stats")
-			.withIndex("by_repo_file", (q) => q.eq("repoId", args.repoId).eq("filePath", args.filePath))
+			.withIndex("by_repo_file", (q) =>
+				q.eq("repoId", args.repoId).eq("filePath", args.filePath),
+			)
 			.first();
 
 		const base = {
@@ -100,9 +115,12 @@ export const updateFileRisk = mutation({
 
 		if (existing) {
 			const patch = {
-				highRiskCount: existing.highRiskCount + (args.riskLevel === "high" ? 1 : 0),
-				mediumRiskCount: existing.mediumRiskCount + (args.riskLevel === "medium" ? 1 : 0),
-				lowRiskCount: existing.lowRiskCount + (args.riskLevel === "low" ? 1 : 0),
+				highRiskCount:
+					existing.highRiskCount + (args.riskLevel === "high" ? 1 : 0),
+				mediumRiskCount:
+					existing.mediumRiskCount + (args.riskLevel === "medium" ? 1 : 0),
+				lowRiskCount:
+					existing.lowRiskCount + (args.riskLevel === "low" ? 1 : 0),
 				totalAnalysesTouching: existing.totalAnalysesTouching + 1,
 				lastTouchedAt: now(),
 				updatedAt: now(),
@@ -116,7 +134,8 @@ export const updateFileRisk = mutation({
 			filePath: args.filePath,
 			...base,
 			highRiskCount: base.highRiskCount + (args.riskLevel === "high" ? 1 : 0),
-			mediumRiskCount: base.mediumRiskCount + (args.riskLevel === "medium" ? 1 : 0),
+			mediumRiskCount:
+				base.mediumRiskCount + (args.riskLevel === "medium" ? 1 : 0),
 			lowRiskCount: base.lowRiskCount + (args.riskLevel === "low" ? 1 : 0),
 			totalAnalysesTouching: 1,
 		});
@@ -135,14 +154,20 @@ export const bumpDailyStats = mutation({
 	handler: async (ctx, args) => {
 		const userStats = await ctx.db
 			.query("daily_user_stats")
-			.withIndex("by_userId_date", (q) => q.eq("userId", args.userId).eq("date", args.date))
+			.withIndex("by_userId_date", (q) =>
+				q.eq("userId", args.userId).eq("date", args.date),
+			)
 			.first();
 		if (userStats) {
 			await ctx.db.patch(userStats._id, {
 				prAnalysesCount: userStats.prAnalysesCount + 1,
-				highRiskAnalysesCount: userStats.highRiskAnalysesCount + (args.riskLevel === "high" ? 1 : 0),
-				mediumRiskAnalysesCount: userStats.mediumRiskAnalysesCount + (args.riskLevel === "medium" ? 1 : 0),
-				lowRiskAnalysesCount: userStats.lowRiskAnalysesCount + (args.riskLevel === "low" ? 1 : 0),
+				highRiskAnalysesCount:
+					userStats.highRiskAnalysesCount + (args.riskLevel === "high" ? 1 : 0),
+				mediumRiskAnalysesCount:
+					userStats.mediumRiskAnalysesCount +
+					(args.riskLevel === "medium" ? 1 : 0),
+				lowRiskAnalysesCount:
+					userStats.lowRiskAnalysesCount + (args.riskLevel === "low" ? 1 : 0),
 				averageRiskScore:
 					args.riskScore !== null
 						? ((userStats.averageRiskScore ?? 0) + args.riskScore) / 2
@@ -164,14 +189,20 @@ export const bumpDailyStats = mutation({
 
 		const repoStats = await ctx.db
 			.query("daily_repo_stats")
-			.withIndex("by_repo_date", (q) => q.eq("repoId", args.repoId).eq("date", args.date))
+			.withIndex("by_repo_date", (q) =>
+				q.eq("repoId", args.repoId).eq("date", args.date),
+			)
 			.first();
 		if (repoStats) {
 			await ctx.db.patch(repoStats._id, {
 				prAnalysesCount: repoStats.prAnalysesCount + 1,
-				highRiskAnalysesCount: repoStats.highRiskAnalysesCount + (args.riskLevel === "high" ? 1 : 0),
-				mediumRiskAnalysesCount: repoStats.mediumRiskAnalysesCount + (args.riskLevel === "medium" ? 1 : 0),
-				lowRiskAnalysesCount: repoStats.lowRiskAnalysesCount + (args.riskLevel === "low" ? 1 : 0),
+				highRiskAnalysesCount:
+					repoStats.highRiskAnalysesCount + (args.riskLevel === "high" ? 1 : 0),
+				mediumRiskAnalysesCount:
+					repoStats.mediumRiskAnalysesCount +
+					(args.riskLevel === "medium" ? 1 : 0),
+				lowRiskAnalysesCount:
+					repoStats.lowRiskAnalysesCount + (args.riskLevel === "low" ? 1 : 0),
 				averageRiskScore:
 					args.riskScore !== null
 						? ((repoStats.averageRiskScore ?? 0) + args.riskScore) / 2

@@ -1,16 +1,22 @@
 "use client";
 
-import { createContext, useContext, ReactNode, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import {
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useState,
+} from "react";
 import type {
+	DashboardBillingStatus,
 	DashboardData,
+	DashboardGuardrail,
+	DashboardGuardrailStats,
+	DashboardInterventionStats,
+	DashboardMemory,
 	DashboardRepository,
 	DashboardUser,
-	DashboardBillingStatus,
-	DashboardGuardrail,
-	DashboardMemory,
-	DashboardInterventionStats,
-	DashboardGuardrailStats,
 } from "./dashboard-data";
 
 interface DashboardContextType {
@@ -44,11 +50,14 @@ interface DashboardProviderProps {
 	initialData: DashboardData;
 }
 
-export function DashboardProvider({ children, initialData }: DashboardProviderProps) {
+export function DashboardProvider({
+	children,
+	initialData,
+}: DashboardProviderProps) {
 	const router = useRouter();
 	const [isLoading, setIsLoading] = useState(false);
 
-	const activeRepos = initialData.repositories.filter(r => r.isActive);
+	const activeRepos = initialData.repositories.filter((r) => r.isActive);
 	const repoLimit = initialData.billingStatus?.plan?.maxRepos ?? 1;
 	const canAddRepo = repoLimit === -1 || activeRepos.length < repoLimit;
 

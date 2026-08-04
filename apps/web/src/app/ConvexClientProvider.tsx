@@ -1,7 +1,7 @@
 "use client";
 
 import { ConvexProvider, ConvexReactClient } from "convex/react";
-import { ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -11,7 +11,7 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
 		if (!convexUrl) {
 			if (process.env.NODE_ENV !== "production") {
 				console.warn(
-					"[Convex] NEXT_PUBLIC_CONVEX_URL is not set; Convex client is disabled."
+					"[Convex] NEXT_PUBLIC_CONVEX_URL is not set; Convex client is disabled.",
 				);
 			}
 			return null;
@@ -25,8 +25,3 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
 
 	return <ConvexProvider client={convexClient}>{children}</ConvexProvider>;
 }
-
-
-
-
-

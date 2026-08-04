@@ -42,7 +42,10 @@ describe("AnalysisContext (Performance Optimization)", () => {
 			const filePath = join(projectRoot, "src", "index.ts");
 			const ctx = await createAnalysisContext(filePath);
 
-			expect(ctx.repoRoot).toContain("memoria");
+			// Repo root is the git workspace root (clone directory name varies in CI).
+			expect(typeof ctx.repoRoot).toBe("string");
+			expect(ctx.repoRoot.length).toBeGreaterThan(0);
+			expect(filePath.startsWith(ctx.repoRoot)).toBe(true);
 		});
 
 		it("should have a git instance with log method", async () => {
@@ -50,6 +53,28 @@ describe("AnalysisContext (Performance Optimization)", () => {
 			const ctx = await createAnalysisContext(filePath);
 
 			expect(typeof ctx.git.log).toBe("function");
+		});
+
+		it("should root git at repoRoot so grep paths are repo-relative", async () => {
+			const filePath = join(projectRoot, "src", "index.ts");
+			const ctx = await createAnalysisContext(filePath);
+
+			const grepResult = await ctx.git
+				.raw(["--no-optional-locks", "grep", "-l", "-F", "createAnalysisContext"])
+				.catch(() => "");
+			const hits = grepResult
+				.split("\n")
+				.map((line: string) => line.trim())
+				.filter(Boolean);
+
+			expect(hits.length).toBeGreaterThan(0);
+			// Must not return bare basenames like "index.ts" (file-dir CWD bug)
+			expect(hits.every((f: string) => f.includes("/") || f.includes("\\"))).toBe(
+				true,
+			);
+			expect(hits.some((f: string) => f.endsWith("src/index.ts") || f.endsWith("src\\index.ts"))).toBe(
+				true,
+			);
 		});
 
 		it("should have ignore filter with ignores method", async () => {

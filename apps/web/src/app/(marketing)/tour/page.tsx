@@ -1,6 +1,7 @@
 import { ArrowUpRight, Check, GitBranch, Shield, Workflow } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Section } from "@/components/layout/section";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -10,7 +11,6 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Container } from "@/components/ui/container";
-import { Section } from "@/components/layout/section";
 import { siteConfig } from "@/lib/seo/constants";
 
 const flows = [
@@ -93,13 +93,15 @@ export default function TourPage() {
 						Risk & Impact, everywhere you ship code.
 					</h1>
 					<p className="text-lg text-muted-foreground">
-						Memoria&apos;s core analysis is <strong>100% free</strong> via MCP/CLI. Paid plans add
-						automation, cloud memories, and team features.
+						Memoria&apos;s core analysis is <strong>100% free</strong> via
+						MCP/CLI. Paid plans add automation, cloud memories, and team
+						features.
 					</p>
 					<div className="flex flex-wrap items-center gap-3">
 						<Button asChild size="lg" variant="cta">
 							<Link href="/pricing">
-								Start free trial <ArrowUpRight className="size-4" />
+								Start free trial{" "}
+								<ArrowUpRight data-icon="inline-end" className="size-4" />
 							</Link>
 						</Button>
 						<Button asChild size="lg" variant="outline">
@@ -109,7 +111,8 @@ export default function TourPage() {
 							href={siteConfig.github}
 							className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-2"
 						>
-							View on GitHub <ArrowUpRight className="size-4" />
+							View on GitHub{" "}
+							<ArrowUpRight data-icon="inline-end" className="size-4" />
 						</Link>
 					</div>
 				</Container>
@@ -125,14 +128,16 @@ export default function TourPage() {
 							<CardHeader className="space-y-2">
 								<div className="flex items-center justify-between">
 									<div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-primary">
-										<ArrowUpRight className="size-4" />
+										<ArrowUpRight data-icon="inline-end" className="size-4" />
 										{flow.label}
 									</div>
-									<span className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded ${
-										flow.badgeColor === "green"
-											? "bg-green-500/20 text-green-600 dark:text-green-400"
-											: "bg-primary/20 text-primary"
-									}`}>
+									<span
+										className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded ${
+											flow.badgeColor === "green"
+												? "bg-green-500/20 text-green-600 dark:text-green-400"
+												: "bg-primary/20 text-primary"
+										}`}
+									>
 										{flow.badge}
 									</span>
 								</div>
@@ -218,7 +223,8 @@ export default function TourPage() {
 					<CardContent className="flex flex-wrap items-center justify-center gap-3">
 						<Button asChild size="lg" variant="cta">
 							<Link href="/pricing">
-								Start free trial <ArrowUpRight className="size-4" />
+								Start free trial{" "}
+								<ArrowUpRight data-icon="inline-end" className="size-4" />
 							</Link>
 						</Button>
 						<Button asChild size="lg" variant="outline">

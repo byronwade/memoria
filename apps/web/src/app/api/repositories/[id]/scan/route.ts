@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { getConvexClient, callQuery, callMutation } from "@/lib/convex";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "memoria-internal";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 interface ScanStatus {
 	_id: string;
@@ -11,7 +11,7 @@ interface ScanStatus {
 	triggeredBy: "onboarding" | "manual" | "scheduled";
 	startedAt: number | null;
 	completedAt: number | null;
-	errorMessage: string | null;
+	failureDetail: string | null;
 	totalFiles: number;
 	processedFiles: number;
 	filesWithRisk: number;
@@ -34,8 +34,8 @@ interface Installation {
  * Get the current scan status for a repository
  */
 export async function GET(
-	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	_request: NextRequest,
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -49,7 +49,7 @@ export async function GET(
 		const scan = await callQuery<ScanStatus | null>(
 			convex,
 			"scans:getScanStatus",
-			{ repositoryId: repoId }
+			{ repositoryId: repoId },
 		);
 
 		if (!scan) {
@@ -70,7 +70,7 @@ export async function GET(
 		console.error("Failed to get scan status:", error);
 		return NextResponse.json(
 			{ error: "Failed to get scan status" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
@@ -80,8 +80,8 @@ export async function GET(
  * Trigger a new scan for a repository
  */
 export async function POST(
-	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	_request: NextRequest,
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -96,13 +96,13 @@ export async function POST(
 		const repo = await callQuery<Repository | null>(
 			convex,
 			"scm:getRepository",
-			{ repoId }
+			{ repoId },
 		);
 
 		if (!repo) {
 			return NextResponse.json(
 				{ error: "Repository not found" },
-				{ status: 404 }
+				{ status: 404 },
 			);
 		}
 
@@ -110,13 +110,20 @@ export async function POST(
 		const installation = await callQuery<Installation | null>(
 			convex,
 			"scm:getInstallationById",
-			{ installationId: repo.scmInstallationId }
+			{ installationId: repo.scmInstallationId },
 		);
 
 		if (!installation) {
 			return NextResponse.json(
 				{ error: "Installation not found" },
-				{ status: 404 }
+				{ status: 404 },
+			);
+		}
+
+		if (!INTERNAL_API_KEY) {
+			return NextResponse.json(
+				{ error: "INTERNAL_API_KEY is not configured" },
+				{ status: 500 },
 			);
 		}
 
@@ -163,7 +170,7 @@ export async function POST(
 		console.error("Failed to trigger scan:", error);
 		return NextResponse.json(
 			{ error: "Failed to trigger scan" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }
@@ -173,8 +180,8 @@ export async function POST(
  * Reset stuck scans for a repository
  */
 export async function DELETE(
-	request: NextRequest,
-	{ params }: { params: Promise<{ id: string }> }
+	_request: NextRequest,
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		const session = await getSession();
@@ -188,7 +195,7 @@ export async function DELETE(
 		const result = await callMutation<{ resetCount: number }>(
 			convex,
 			"scans:resetStuckScans",
-			{ repositoryId: repoId }
+			{ repositoryId: repoId },
 		);
 
 		return NextResponse.json({
@@ -199,7 +206,7 @@ export async function DELETE(
 		console.error("Failed to reset scans:", error);
 		return NextResponse.json(
 			{ error: "Failed to reset scans" },
-			{ status: 500 }
+			{ status: 500 },
 		);
 	}
 }

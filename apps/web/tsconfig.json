@@ -30,8 +30,3 @@
 	],
 	"exclude": ["node_modules", "convex/**/*"]
 }
-
-
-
-
-

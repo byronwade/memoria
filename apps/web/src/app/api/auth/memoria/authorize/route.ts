@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { randomBytes } from "node:crypto";
+import { type NextRequest, NextResponse } from "next/server";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -39,64 +39,92 @@ export async function GET(request: NextRequest) {
 
 	// Validate response_type
 	if (response_type && response_type !== "code") {
-		return NextResponse.json({
-			error: "unsupported_response_type",
-			error_description: "Only 'code' response type is supported"
-		}, { status: 400 });
+		return NextResponse.json(
+			{
+				error: "unsupported_response_type",
+				error_description: "Only 'code' response type is supported",
+			},
+			{ status: 400 },
+		);
 	}
 
 	// Validate required parameters
 	if (!client_id) {
-		return NextResponse.json({
-			error: "invalid_request",
-			error_description: "client_id is required"
-		}, { status: 400 });
+		return NextResponse.json(
+			{
+				error: "invalid_request",
+				error_description: "client_id is required",
+			},
+			{ status: 400 },
+		);
 	}
 
 	if (!redirect_uri) {
-		return NextResponse.json({
-			error: "invalid_request",
-			error_description: "redirect_uri is required"
-		}, { status: 400 });
+		return NextResponse.json(
+			{
+				error: "invalid_request",
+				error_description: "redirect_uri is required",
+			},
+			{ status: 400 },
+		);
 	}
 
 	// Validate redirect_uri (must be cursor:// or https://)
 	try {
 		const redirectUrl = new URL(redirect_uri);
 		if (!redirectUrl.protocol.match(/^(cursor|https|http):$/)) {
-			return NextResponse.json({
-				error: "invalid_request",
-				error_description: "Invalid redirect_uri protocol. Must be cursor:// or https://"
-			}, { status: 400 });
+			return NextResponse.json(
+				{
+					error: "invalid_request",
+					error_description:
+						"Invalid redirect_uri protocol. Must be cursor:// or https://",
+				},
+				{ status: 400 },
+			);
 		}
 		// Allow http only for localhost
-		if (redirectUrl.protocol === "http:" && !redirectUrl.hostname.match(/^(localhost|127\.0\.0\.1)$/)) {
-			return NextResponse.json({
-				error: "invalid_request",
-				error_description: "HTTP redirect_uri only allowed for localhost"
-			}, { status: 400 });
+		if (
+			redirectUrl.protocol === "http:" &&
+			!redirectUrl.hostname.match(/^(localhost|127\.0\.0\.1)$/)
+		) {
+			return NextResponse.json(
+				{
+					error: "invalid_request",
+					error_description: "HTTP redirect_uri only allowed for localhost",
+				},
+				{ status: 400 },
+			);
 		}
 	} catch {
-		return NextResponse.json({
-			error: "invalid_request",
-			error_description: "Invalid redirect_uri format"
-		}, { status: 400 });
+		return NextResponse.json(
+			{
+				error: "invalid_request",
+				error_description: "Invalid redirect_uri format",
+			},
+			{ status: 400 },
+		);
 	}
 
 	// Validate PKCE if provided (code_challenge_method must be S256)
 	if (code_challenge) {
 		if (code_challenge_method !== "S256") {
-			return NextResponse.json({
-				error: "invalid_request",
-				error_description: "code_challenge_method must be S256"
-			}, { status: 400 });
+			return NextResponse.json(
+				{
+					error: "invalid_request",
+					error_description: "code_challenge_method must be S256",
+				},
+				{ status: 400 },
+			);
 		}
 		// Validate code_challenge format (base64url, 43 characters for SHA-256)
 		if (!/^[A-Za-z0-9_-]{43}$/.test(code_challenge)) {
-			return NextResponse.json({
-				error: "invalid_request",
-				error_description: "Invalid code_challenge format"
-			}, { status: 400 });
+			return NextResponse.json(
+				{
+					error: "invalid_request",
+					error_description: "Invalid code_challenge format",
+				},
+				{ status: 400 },
+			);
 		}
 	}
 
@@ -131,12 +159,20 @@ export async function GET(request: NextRequest) {
 
 	// Store OAuth parameters for redirect after login
 	response.cookies.set("memoria_oauth_client_id", client_id, cookieOptions);
-	response.cookies.set("memoria_oauth_redirect_uri", redirect_uri, cookieOptions);
+	response.cookies.set(
+		"memoria_oauth_redirect_uri",
+		redirect_uri,
+		cookieOptions,
+	);
 	response.cookies.set("memoria_oauth_scope", scope, cookieOptions);
 
 	// Store PKCE challenge for token exchange
 	if (code_challenge) {
-		response.cookies.set("memoria_oauth_code_challenge", code_challenge, cookieOptions);
+		response.cookies.set(
+			"memoria_oauth_code_challenge",
+			code_challenge,
+			cookieOptions,
+		);
 	}
 
 	// Store resource indicator if provided

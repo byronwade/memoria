@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
+import { callMutation, callQuery, getConvexClient } from "@/lib/convex";
 import { getInstallation, listInstallationRepos } from "@/lib/github/auth";
-import { getConvexClient, callMutation, callQuery } from "@/lib/convex";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -14,13 +14,16 @@ export async function GET(request: NextRequest) {
 	const installationId = searchParams.get("installation_id");
 	const setupAction = searchParams.get("setup_action"); // "install" | "update" | "request"
 
-	console.log("[github-callback] Received callback:", { installationId, setupAction });
+	console.log("[github-callback] Received callback:", {
+		installationId,
+		setupAction,
+	});
 
 	// Validate installation ID
 	if (!installationId) {
 		console.log("[github-callback] Missing installation_id");
 		return NextResponse.redirect(
-			new URL("/dashboard?error=missing_installation_id", APP_URL)
+			new URL("/dashboard?error=missing_installation_id", APP_URL),
 		);
 	}
 
@@ -30,7 +33,7 @@ export async function GET(request: NextRequest) {
 		// User not logged in - redirect to login with redirect back here
 		const returnUrl = `/api/github/callback?installation_id=${installationId}&setup_action=${setupAction || ""}`;
 		return NextResponse.redirect(
-			new URL(`/login?redirect=${encodeURIComponent(returnUrl)}`, APP_URL)
+			new URL(`/login?redirect=${encodeURIComponent(returnUrl)}`, APP_URL),
 		);
 	}
 
@@ -41,27 +44,40 @@ export async function GET(request: NextRequest) {
 		const session = await callQuery<{ user: { _id: string } } | null>(
 			convex,
 			"auth:getSession",
-			{ sessionToken }
+			{ sessionToken },
 		);
 
-		console.log("[github-callback] Session user:", session?.user?._id || "none");
+		console.log(
+			"[github-callback] Session user:",
+			session?.user?._id || "none",
+		);
 
 		if (!session?.user) {
 			return NextResponse.redirect(
-				new URL("/login?error=session_expired", APP_URL)
+				new URL("/login?error=session_expired", APP_URL),
 			);
 		}
 
 		const userId = session.user._id;
 
 		// Get installation details from GitHub
-		console.log("[github-callback] Fetching installation from GitHub:", installationId);
-		const installation = await getInstallation(parseInt(installationId));
-		console.log("[github-callback] Installation account:", installation.account);
+		console.log(
+			"[github-callback] Fetching installation from GitHub:",
+			installationId,
+		);
+		const installation = await getInstallation(parseInt(installationId, 10));
+		console.log(
+			"[github-callback] Installation account:",
+			installation.account,
+		);
 
 		// Extract account info - handle both User and Organization types
 		// Both types have 'login' but TypeScript union type doesn't see it
-		const account = installation.account as { login?: string; name?: string; type?: string } | null;
+		const account = installation.account as {
+			login?: string;
+			name?: string;
+			type?: string;
+		} | null;
 		const accountLogin = account?.login || "unknown";
 		const accountName = account?.name || null;
 		const accountType = account?.type === "Organization" ? "org" : "user";
@@ -84,12 +100,15 @@ export async function GET(request: NextRequest) {
 		const inst = await callQuery<{ _id: string } | null>(
 			convex,
 			"scm:getInstallationByProviderId",
-			{ providerType: "github", providerInstallationId: String(installationId) }
+			{
+				providerType: "github",
+				providerInstallationId: String(installationId),
+			},
 		);
 
 		if (inst) {
 			// Sync repositories from this installation
-			const repos = await listInstallationRepos(parseInt(installationId));
+			const repos = await listInstallationRepos(parseInt(installationId, 10));
 
 			for (const repo of repos) {
 				await callMutation(convex, "scm:upsertRepository", {
@@ -130,8 +149,8 @@ export async function GET(request: NextRequest) {
 			</body>
 			</html>`,
 			{
-				headers: { 'Content-Type': 'text/html' },
-			}
+				headers: { "Content-Type": "text/html" },
+			},
 		);
 	} catch (error) {
 		console.error("GitHub installation callback error:", error);
@@ -141,13 +160,13 @@ export async function GET(request: NextRequest) {
 			<head><title>Installation Failed</title></head>
 			<body>
 				<h2>Installation failed</h2>
-				<p>${error instanceof Error ? error.message : 'Unknown error'}</p>
+				<p>${error instanceof Error ? error.message : "Unknown error"}</p>
 				<p><a href="/onboarding">Return to onboarding</a></p>
 			</body>
 			</html>`,
 			{
-				headers: { 'Content-Type': 'text/html' },
-			}
+				headers: { "Content-Type": "text/html" },
+			},
 		);
 	}
 }
