@@ -137,6 +137,32 @@ describe("Budgeted / fast analyze", () => {
 	}, 30000);
 });
 
+describe("Diff / pack root resolution", () => {
+	it("analyzeDiff accepts a repository directory (not only a file path)", async () => {
+		const { analyzeDiff, cache } = await import("../src/index.js");
+		cache.clear();
+		const result = await analyzeDiff(join(projectRoot, "..", ".."), "HEAD~1", {
+			mode: "fast",
+			autoEscalate: false,
+			budgetMs: 5000,
+		});
+		expect(result.base).toBe("HEAD~1");
+		expect(Array.isArray(result.files)).toBe(true);
+		expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+	}, 60000);
+
+	it("getGitForFile works for directories and files", async () => {
+		const { getGitForFile } = await import("../src/index.js");
+		const fromDir = getGitForFile(join(projectRoot, "..", ".."));
+		const top = (await fromDir.revparse(["--show-toplevel"])).trim();
+		expect(top.length).toBeGreaterThan(0);
+
+		const fromFile = getGitForFile(join(projectRoot, "src", "cli.ts"));
+		const top2 = (await fromFile.revparse(["--show-toplevel"])).trim();
+		expect(top2).toBe(top);
+	});
+});
+
 describe("Language packs", () => {
 	it("builds python and go import patterns", async () => {
 		const { importGrepPatterns, detectLanguage } = await import(

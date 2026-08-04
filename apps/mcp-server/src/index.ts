@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import * as fsSync from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -849,6 +849,15 @@ export function parseDiffToSummary(rawDiff: string): DiffSummary {
 // Helper: Get a git instance for the specific file's directory
 // Prefer resolveGitContext() for grep-based engines — git grep paths are CWD-relative.
 export function getGitForFile(filePath: string) {
+	// When callers pass a directory (repo root / cwd), use it directly.
+	// path.dirname("/repo") → "/" which is not a git repo and breaks diff/pack/check.
+	try {
+		if (fsSync.existsSync(filePath) && fsSync.statSync(filePath).isDirectory()) {
+			return simpleGit(filePath);
+		}
+	} catch {
+		/* fall through to dirname */
+	}
 	const dir = path.dirname(filePath);
 	return simpleGit(dir);
 }
@@ -5804,7 +5813,7 @@ function isProcessEntryPoint(): boolean {
 	if (!entry) return false;
 	try {
 		return (
-			realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entry)
+			fsSync.realpathSync(fileURLToPath(import.meta.url)) === fsSync.realpathSync(entry)
 		);
 	} catch {
 		return false;
