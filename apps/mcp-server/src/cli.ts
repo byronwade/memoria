@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import * as p from "@clack/prompts";
 import chalk from "chalk";
 
@@ -20,6 +21,8 @@ import {
 	MEMORIA_API_URL,
 	type DeviceInfo,
 } from "./auth.js";
+
+const execFileAsync = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -184,6 +187,7 @@ ${chalk.bold.cyan("Analysis Commands:")}
   memoria pack                   Precompute workspace pack for hot files
   memoria watch                  Refresh pack when HEAD changes (daemon)
   memoria check [base]           Fail CI if critical-risk files lack test coupling
+  memoria doctor                 Diagnose your environment (git, repo, config, auth)
 
 ${chalk.bold.cyan("Setup Commands:")}
   memoria init                   Install Memoria rules for AI tools
@@ -1346,6 +1350,188 @@ async function runStatus(): Promise<void> {
 	console.log();
 }
 
+// ============================================================================
+// Doctor - Self-diagnostic to explain why analysis might not work
+// ============================================================================
+
+type CheckStatus = "pass" | "warn" | "fail";
+
+function printCheck(status: CheckStatus, label: string, detail?: string): void {
+	const icon =
+		status === "pass"
+			? chalk.green("✓")
+			: status === "warn"
+				? chalk.yellow("!")
+				: chalk.red("✗");
+	const text = `${icon} ${label}`;
+	console.log(detail ? `${text} ${chalk.dim(detail)}` : text);
+}
+
+/**
+ * `memoria doctor` — diagnose Node, git, repo, config, auth, and a sample analysis.
+ */
+async function runDoctor(): Promise<void> {
+	console.log();
+	console.log(chalk.bold("Memoria Doctor"));
+	console.log(chalk.dim("Diagnosing your environment...\n"));
+
+	let failures = 0;
+	let warnings = 0;
+	const fail = (label: string, detail?: string) => {
+		failures++;
+		printCheck("fail", label, detail);
+	};
+	const warn = (label: string, detail?: string) => {
+		warnings++;
+		printCheck("warn", label, detail);
+	};
+
+	const nodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
+	if (nodeMajor >= 18) {
+		printCheck("pass", "Node.js", `v${process.versions.node}`);
+	} else {
+		fail("Node.js", `v${process.versions.node} (Memoria requires >= 18)`);
+	}
+
+	let gitAvailable = false;
+	try {
+		const { stdout } = await execFileAsync("git", ["--version"]);
+		gitAvailable = true;
+		printCheck("pass", "Git", stdout.trim());
+	} catch {
+		fail("Git", "not found on PATH (Memoria requires git)");
+	}
+
+	const cwd = process.cwd();
+	let repoRoot: string | null = null;
+	if (gitAvailable) {
+		try {
+			const { stdout } = await execFileAsync(
+				"git",
+				["rev-parse", "--show-toplevel"],
+				{ cwd },
+			);
+			repoRoot = stdout.trim();
+			printCheck("pass", "Git repository", repoRoot);
+		} catch {
+			fail(
+				"Git repository",
+				`${cwd} is not inside a git repo - analysis needs git history`,
+			);
+		}
+	}
+
+	if (repoRoot) {
+		try {
+			await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repoRoot });
+			printCheck("pass", "Commit history", "found");
+		} catch {
+			warn(
+				"Commit history",
+				"no commits yet - new files rely on static analysis only",
+			);
+		}
+	}
+
+	if (repoRoot) {
+		const configPath = path.join(repoRoot, ".memoria.json");
+		if (!fs.existsSync(configPath)) {
+			printCheck("pass", "Config (.memoria.json)", "not present (using defaults)");
+		} else {
+			try {
+				const memoria = await loadEngine();
+				await memoria.loadConfig(repoRoot);
+				printCheck("pass", "Config (.memoria.json)", "valid");
+			} catch (err) {
+				fail("Config (.memoria.json)", `invalid: ${(err as Error).message}`);
+			}
+		}
+	}
+
+	const device = getDeviceInfo();
+	if (device?.linkedAt && device.userEmail) {
+		printCheck(
+			"pass",
+			"Account",
+			`linked (${device.userEmail}) - cloud features enabled`,
+		);
+	} else {
+		printCheck(
+			"pass",
+			"Account",
+			"local mode (run 'memoria login' for cloud memories)",
+		);
+	}
+
+	if (repoRoot) {
+		try {
+			const { stdout } = await execFileAsync(
+				"git",
+				[
+					"ls-files",
+					"--",
+					"*.ts",
+					"*.tsx",
+					"*.js",
+					"*.jsx",
+					"*.py",
+					"*.go",
+					"*.rs",
+					"*.java",
+				],
+				{ cwd: repoRoot, maxBuffer: 10 * 1024 * 1024 },
+			);
+			const candidates = stdout
+				.split("\n")
+				.map((f) => f.trim())
+				.filter((f) => f.length > 0);
+			const sample =
+				candidates.find(
+					(f) =>
+						!/\.d\.ts$/.test(f) &&
+						!/(^|\/)(_generated|dist|build|node_modules|vendor)\//.test(f),
+				) ?? candidates[0];
+			if (!sample) {
+				warn("Sample analysis", "no source files found to analyze");
+			} else {
+				const samplePath = path.join(repoRoot, sample.trim());
+				const memoria = await loadEngine();
+				const start = Date.now();
+				const ctx = await memoria.createAnalysisContext(samplePath);
+				const volatility = await memoria.getVolatility(samplePath, ctx);
+				const ms = Date.now() - start;
+				printCheck(
+					"pass",
+					"Sample analysis",
+					`${sample.trim()} analyzed in ${ms}ms (volatility ${volatility.panicScore}%, ${volatility.commitCount} commits)`,
+				);
+			}
+		} catch (err) {
+			fail("Sample analysis", (err as Error).message);
+		}
+	}
+
+	console.log();
+	if (failures > 0) {
+		console.log(
+			chalk.red(`✗ ${failures} check(s) failed.`) +
+				chalk.dim(" Memoria may not work correctly until these are resolved."),
+		);
+	} else if (warnings > 0) {
+		console.log(
+			chalk.yellow(`Healthy with ${warnings} warning(s).`) +
+				chalk.dim(" Memoria should work."),
+		);
+	} else {
+		console.log(chalk.green("✓ All checks passed. Memoria is ready."));
+	}
+	console.log();
+
+	if (failures > 0) {
+		process.exit(1);
+	}
+}
+
 async function runHistory(query: string, filePath: string | undefined, options: CliOptions): Promise<void> {
 	let absolutePath: string | undefined;
 	if (filePath) {
@@ -1635,6 +1821,9 @@ async function main() {
 			return;
 		case "status":
 			await runStatus();
+			return;
+		case "doctor":
+			await runDoctor();
 			return;
 
 		// ========== Analysis Commands ==========

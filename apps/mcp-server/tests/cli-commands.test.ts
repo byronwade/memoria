@@ -87,6 +87,17 @@ describe("CLI Command Dispatch", () => {
 			expect(output).toContain("watch");
 			expect(output).toContain("check");
 			expect(output).toContain("diff");
+			expect(output).toContain("doctor");
+		});
+	});
+
+	describe("doctor", () => {
+		it("reports the environment checks", () => {
+			const { output } = runCli(["doctor"]);
+			expect(output).toContain("Memoria Doctor");
+			expect(output).toContain("Node.js");
+			expect(output).toContain("Git");
+			expect(output).toContain("Sample analysis");
 		});
 	});
 });

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.1
+
+### Added
+- **`memoria doctor`** — environment self-diagnostic (Node, git, repo, config, auth, sample analysis)
+- **Lift-corrected evolutionary coupling** — association-rule support/confidence/lift filters coincidental co-changes (`thresholds.minLift`, `thresholds.minSupport`)
+- **Bugspots hotspot score** — recency-weighted bug-fix density on volatility results
+- **Minor-contributor ownership** — Bird et al. ownership risk when many authors own &lt;5% each
+- **Export extractor precision** — comment/string-aware scanning + broader export forms
+
+### Security
+- **`INTERNAL_API_KEY` fail-closed** — scans/execute returns 503 when unset; timing-safe key compare; configurable `MEMORIA_ALLOWED_ORIGIN`
+
 ## 1.1.0
 
 ### Added

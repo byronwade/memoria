@@ -119,6 +119,10 @@ const MemoriaConfigSchema = z
 				driftDays: z.number().min(1).max(365).optional(),
 				analysisWindow: z.number().min(10).max(500).optional(),
 				maxFilesPerCommit: z.number().min(5).max(100).optional(),
+				/** Association-rule lift floor (default 1.0). Raise for precision. */
+				minLift: z.number().min(0).max(100).optional(),
+				/** Minimum shared commits before a coupling counts (default 2). */
+				minSupport: z.number().min(1).max(100).optional(),
 			})
 			.optional(),
 		ignore: z.array(z.string()).optional(),
@@ -263,6 +267,10 @@ export interface EnhancedCoupledFile {
 	lastHash?: string;
 	/** 0–1 confidence; heuristic engines score lower than git/imports. */
 	confidence?: number;
+	/** Association-rule lift vs chance (git coupling only). */
+	lift?: number;
+	/** Shared co-change commit count (git coupling only). */
+	support?: number;
 }
 
 // --- DIRECTORY SCANNER (for memory extraction) ---
@@ -380,6 +388,12 @@ export interface VolatilityResult {
 		newestCommitDays: number;
 		decayFactor: number; // Average decay multiplier applied
 	};
+	/** Google Bugspots-style recency-weighted bug-fix density. */
+	hotspotScore: number;
+	/** Bug-fix commits counted in the analyzed window (keyword weight ≥ 1). */
+	bugFixCommits: number;
+	/** Authors with <5% ownership (Bird et al. ownership risk). */
+	minorContributors: number;
 }
 
 // --- PANIC KEYWORDS WITH SEVERITY WEIGHTS ---
@@ -431,6 +445,47 @@ export function calculateRecencyDecay(commitDate: Date): number {
 		(now - commitDate.getTime()) / (1000 * 60 * 60 * 24),
 	);
 	return 0.5 ** (daysAgo / 30);
+}
+
+/**
+ * Google Bugspots hotspot score (igrigorik/bugspots).
+ * Recent bug-fix commits weigh much more than old ones.
+ */
+export function calculateHotspotScore(
+	fixDates: Date[],
+	now: number = Date.now(),
+): number {
+	if (fixDates.length === 0) return 0;
+	const times = fixDates.map((d) => d.getTime());
+	const oldest = Math.min(...times);
+	const span = now - oldest;
+	let score = 0;
+	for (const t0 of times) {
+		const t = span > 0 ? 1 - (now - t0) / span : 1;
+		score += 1 / (1 + Math.exp(-12 * t + 12));
+	}
+	return Math.round(score * 1000) / 1000;
+}
+
+/**
+ * Association-rule lift: confidence(Y|X) / baseRate(Y).
+ * Genuine partners have lift > 1; ubiquitous files ≈ 1.
+ */
+export function computeLift(
+	support: number,
+	targetCommitCount: number,
+	candidateCommitCount: number,
+	totalRepoCommits: number,
+): { confidence: number; lift: number; score: number } {
+	const confidence = targetCommitCount > 0 ? support / targetCommitCount : 0;
+	const total = Math.max(1, totalRepoCommits);
+	const baseRate = (candidateCommitCount || 1) / total;
+	const lift = baseRate > 0 ? confidence / baseRate : 0;
+	return {
+		confidence,
+		lift: Math.round(lift * 10) / 10,
+		score: Math.round(confidence * 100),
+	};
 }
 
 // --- CONCURRENCY LIMITER ---
@@ -516,6 +571,9 @@ export function getStableConfigKey(
 		parts.push(`cp${config.thresholds.couplingPercent ?? "x"}`);
 		parts.push(`dd${config.thresholds.driftDays ?? "x"}`);
 		parts.push(`aw${config.thresholds.analysisWindow ?? "x"}`);
+		parts.push(`mf${config.thresholds.maxFilesPerCommit ?? "x"}`);
+		parts.push(`ml${config.thresholds.minLift ?? "x"}`);
+		parts.push(`ms${config.thresholds.minSupport ?? "x"}`);
 	}
 	// Ignore patterns count
 	if (config.ignore?.length) {
@@ -1113,6 +1171,60 @@ export async function createAnalysisContext(
 }
 
 // --- ENGINE 1: ENTANGLEMENT (Enhanced with Context + Evidence + Adaptive Thresholds + Config) ---
+
+export interface RepoChangeFrequency {
+	fileFreq: Map<string, number>;
+	totalCommits: number;
+}
+
+/**
+ * Repo-wide base-rate index for lift-corrected coupling (Zimmermann et al.).
+ */
+export async function getRepoChangeFrequency(
+	git: ReturnType<typeof simpleGit>,
+	repoRoot: string,
+	window = 300,
+	maxFilesPerCommit = 15,
+): Promise<RepoChangeFrequency> {
+	const cacheKey = `repo-freq:${repoRoot}:${window}:${maxFilesPerCommit}`;
+	if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+	const fileFreq = new Map<string, number>();
+	let totalCommits = 0;
+	try {
+		const raw = await git.raw([
+			"log",
+			"--name-only",
+			"--format=%x00%H",
+			"-n",
+			String(window),
+		]);
+
+		for (const block of raw.split("\u0000")) {
+			const lines = block
+				.split("\n")
+				.map((l) => l.trim())
+				.filter(Boolean);
+			if (lines.length === 0) continue;
+			const files = lines.slice(1);
+			if (files.length === 0 || files.length > maxFilesPerCommit) continue;
+			totalCommits++;
+			const seen = new Set<string>();
+			for (const f of files) {
+				if (seen.has(f)) continue;
+				seen.add(f);
+				fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1);
+			}
+		}
+	} catch {
+		// empty index => lift filtering becomes neutral
+	}
+
+	const result: RepoChangeFrequency = { fileFreq, totalCommits };
+	cache.set(cacheKey, result);
+	return result;
+}
+
 export async function getCoupledFiles(
 	filePath: string,
 	configOrContext?: MemoriaConfig | null | AnalysisContext,
@@ -1199,29 +1311,56 @@ export async function getCoupledFiles(
 			});
 		});
 
-		// Get top 5 coupled files using adaptive threshold
+		// Lift-corrected association rules (Zimmermann et al.)
+		const freq = await getRepoChangeFrequency(
+			git,
+			repoRoot,
+			Math.max(thresholds.analysisWindow, 200),
+			maxFilesPerCommit,
+		);
+		const totalRepoCommits = Math.max(1, freq.totalCommits);
+		const minLift = config?.thresholds?.minLift ?? 1.0;
+		const minSupport = config?.thresholds?.minSupport ?? 2;
+
 		const topCoupled = Object.entries(couplingMap)
-			.sort(([, a], [, b]) => b.count - a.count)
-			.slice(0, 5)
-			.map(([file, data]) => ({
-				file,
-				count: data.count,
-				score: Math.round((data.count / log.total) * 100),
-				lastHash: data.lastHash,
-				reason: data.lastMsg,
-			}))
-			.filter((x) => x.score > thresholds.couplingThreshold);
+			.map(([file, data]) => {
+				const { score, lift } = computeLift(
+					data.count,
+					log.total,
+					freq.fileFreq.get(file) ?? 1,
+					totalRepoCommits,
+				);
+				return {
+					file,
+					count: data.count,
+					support: data.count,
+					score,
+					lift,
+					lastHash: data.lastHash,
+					reason: data.lastMsg,
+				};
+			})
+			.filter(
+				(x) =>
+					x.score > thresholds.couplingThreshold &&
+					x.support >= minSupport &&
+					x.lift >= minLift,
+			)
+			.sort((a, b) => b.score - a.score)
+			.slice(0, 5);
 
 		// Evidence parsing is expensive — skip in fast/lite mode; lazy-load for high scores only
 		const result = await Promise.all(
 			topCoupled.map(async (item) => {
-				const base = {
+				const base: EnhancedCoupledFile = {
 					file: item.file,
 					score: item.score,
 					reason: item.reason,
 					lastHash: item.lastHash,
-					source: "git" as const,
+					source: "git",
 					confidence: sourceConfidence("git"),
+					lift: item.lift,
+					support: item.support,
 				};
 				if (skipEvidence || item.score < 40) {
 					return base;
@@ -1387,27 +1526,109 @@ export async function getImporters(
 // Solves the "README needs update when output changes" problem
 
 /**
+ * Blank out comments and string/template literals in C-family source, replacing
+ * their characters with spaces (newlines preserved) so token offsets and line
+ * numbers stay intact. Used by export extractors to avoid comment/string hits.
+ */
+export function stripCommentsAndStrings(code: string): string {
+	let out = "";
+	let state:
+		| "code"
+		| "line"
+		| "block"
+		| "squote"
+		| "dquote"
+		| "template" = "code";
+	for (let i = 0; i < code.length; i++) {
+		const c = code[i];
+		const c2 = i + 1 < code.length ? code[i + 1] : "";
+		const blank = c === "\n" ? "\n" : " ";
+		switch (state) {
+			case "code":
+				if (c === "/" && c2 === "/") {
+					state = "line";
+					out += "  ";
+					i++;
+				} else if (c === "/" && c2 === "*") {
+					state = "block";
+					out += "  ";
+					i++;
+				} else if (c === "'") {
+					state = "squote";
+					out += " ";
+				} else if (c === '"') {
+					state = "dquote";
+					out += " ";
+				} else if (c === "`") {
+					state = "template";
+					out += " ";
+				} else out += c;
+				break;
+			case "line":
+				if (c === "\n") {
+					state = "code";
+					out += "\n";
+				} else out += " ";
+				break;
+			case "block":
+				if (c === "*" && c2 === "/") {
+					state = "code";
+					out += "  ";
+					i++;
+				} else out += blank;
+				break;
+			case "squote":
+			case "dquote": {
+				const quote = state === "squote" ? "'" : '"';
+				if (c === "\\") {
+					out += "  ";
+					i++;
+				} else if (c === quote) {
+					state = "code";
+					out += " ";
+				} else out += blank;
+				break;
+			}
+			case "template":
+				if (c === "\\") {
+					out += "  ";
+					i++;
+				} else if (c === "`") {
+					state = "code";
+					out += " ";
+				} else out += blank;
+				break;
+		}
+	}
+	return out;
+}
+
+/**
  * Extract exported identifiers from source code using regex (no AST needed)
  */
 export function extractExports(sourceCode: string): string[] {
+	const code = stripCommentsAndStrings(sourceCode);
 	const exportPattern =
-		/export\s+(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+(\w+)/g;
+		/export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function\*?|const|let|var|class|interface|type|enum|namespace)\s+(\w+)/g;
 	const identifiers: string[] = [];
 	let match: RegExpExecArray | null;
-	while ((match = exportPattern.exec(sourceCode)) !== null) {
+	while ((match = exportPattern.exec(code)) !== null) {
 		identifiers.push(match[1]);
 	}
-	// Also catch `export { name }` and `export default function name`
-	const namedExportPattern = /export\s+\{\s*([^}]+)\s*\}/g;
-	while ((match = namedExportPattern.exec(sourceCode)) !== null) {
+	const namedExportPattern = /export\s+(?:type\s+)?\{\s*([^}]+)\s*\}/g;
+	while ((match = namedExportPattern.exec(code)) !== null) {
 		const names = match[1].split(",").map((n) => n.trim().split(/\s+as\s+/)[0]);
 		identifiers.push(...names.filter((n) => n && !n.includes("*")));
 	}
-	const defaultFnPattern = /export\s+default\s+(?:async\s+)?function\s+(\w+)/g;
-	while ((match = defaultFnPattern.exec(sourceCode)) !== null) {
+	const defaultDeclPattern =
+		/export\s+default\s+(?:async\s+)?(?:function\*?|class)\s+(\w+)/g;
+	while ((match = defaultDeclPattern.exec(code)) !== null) {
 		identifiers.push(match[1]);
 	}
-	// Filter out common/meaningless names and dedupe
+	const starAsPattern = /export\s+\*\s+as\s+(\w+)\s+from/g;
+	while ((match = starAsPattern.exec(code)) !== null) {
+		identifiers.push(match[1]);
+	}
 	const meaningless = new Set(["default", "module", "exports", "index"]);
 	return [...new Set(identifiers)].filter(
 		(id) => id.length > 2 && !meaningless.has(id.toLowerCase()),
@@ -3318,6 +3539,9 @@ export async function getVolatility(
 				newestCommitDays: 0,
 				decayFactor: 1,
 			},
+			hotspotScore: 0,
+			bugFixCommits: 0,
+			minorContributors: 0,
 		};
 		cache.set(cacheKey, empty);
 		return empty;
@@ -3329,6 +3553,7 @@ export async function getVolatility(
 	let weightedPanicScore = 0;
 	const maxPossibleScore = Math.max(1, log.all.length) * 3; // actual commits × max weight of 3
 	const panicCommits: string[] = [];
+	const fixDates: Date[] = [];
 
 	// Track author contributions (Bus Factor)
 	const authorMap: Map<
@@ -3377,6 +3602,10 @@ export async function getVolatility(
 			if (commitWeight >= 2) {
 				panicCommits.push(c.message.split("\n")[0].slice(0, 60));
 			}
+			// Bugspots: only true fixes (weight ≥ 1), not maintenance (0.5)
+			if (commitWeight >= 1) {
+				fixDates.push(commitDate);
+			}
 		}
 
 		// Track author contributions
@@ -3413,6 +3642,36 @@ export async function getVolatility(
 	// Identify top author (bus factor indicator)
 	const topAuthor = authorDetails.length > 0 ? authorDetails[0] : null;
 
+	// Bird et al. ownership: count minor contributors (<5%) over a wider window
+	let minorContributors = 0;
+	try {
+		const ownerLog = await git.raw([
+			"log",
+			"--format=%ae",
+			"-n",
+			"200",
+			"--",
+			filePath,
+		]);
+		const ownerCounts = new Map<string, number>();
+		let ownerTotal = 0;
+		for (const line of ownerLog.split("\n")) {
+			const email = line.trim();
+			if (!email) continue;
+			ownerTotal++;
+			ownerCounts.set(email, (ownerCounts.get(email) ?? 0) + 1);
+		}
+		if (ownerTotal > 0) {
+			for (const n of ownerCounts.values()) {
+				if (n / ownerTotal < 0.05) minorContributors++;
+			}
+		}
+	} catch {
+		// leave 0
+	}
+
+	const hotspotScore = calculateHotspotScore(fixDates);
+
 	const result: VolatilityResult = {
 		commitCount: log.total,
 		panicScore: Math.min(
@@ -3430,6 +3689,9 @@ export async function getVolatility(
 			decayFactor:
 				log.total > 0 ? Math.round((totalDecay / log.total) * 100) / 100 : 1,
 		},
+		hotspotScore,
+		bugFixCommits: fixDates.length,
+		minorContributors,
 	};
 
 	cache.set(cacheKey, result);
@@ -3673,6 +3935,9 @@ export async function analyzeFile(
 			authorDetails: [],
 			topAuthor: null,
 			recencyDecay: { oldestCommitDays: 0, newestCommitDays: 0, decayFactor: 1 },
+			hotspotScore: 0,
+			bugFixCommits: 0,
+			minorContributors: 0,
 		} satisfies VolatilityResult),
 		runEngine("git", () => getCoupledFiles(targetPath, context), emptyCoupled()),
 		runEngine("importers", () => getImporters(targetPath, context), [] as string[]),
@@ -4099,6 +4364,12 @@ export function generateAiInstructions(
 
 			// File name with coupling percentage, source label, and confidence
 			output += `**\`${c.file}\`** — ${c.score}%`;
+			if (source === "git" && typeof c.lift === "number" && c.lift > 0) {
+				output += ` · ${c.lift}× vs chance`;
+				if (typeof c.support === "number") {
+					output += ` (${c.support} co-commits)`;
+				}
+			}
 			if (sourceLabel) {
 				output += ` [${sourceLabel}]`;
 			} else if (relationship !== "unknown") {
@@ -4222,7 +4493,12 @@ export function generateAiInstructions(
 		if (siblingGuidance && siblingGuidance.patterns.length > 0) {
 			output += formatSiblingGuidance(siblingGuidance);
 		}
-	} else if (volatility.panicScore > 25 || volatility.topAuthor?.percentage >= 70) {
+	} else if (
+		volatility.panicScore > 25 ||
+		volatility.topAuthor?.percentage >= 70 ||
+		(volatility.bugFixCommits ?? 0) >= 3 ||
+		(volatility.minorContributors ?? 0) >= 3
+	) {
 		// Only show history section if there's something notable
 		output += `---\n\n`;
 		output += `## File History\n\n`;
@@ -4241,9 +4517,19 @@ export function generateAiInstructions(
 			}
 		}
 
+		// Bugspots hotspot
+		if ((volatility.bugFixCommits ?? 0) >= 2) {
+			output += `**Hotspot:** ${volatility.bugFixCommits} bug-fix commits here (recency-weighted score ${volatility.hotspotScore}). Recently/repeatedly fixed code is where the next bug tends to live.\n`;
+		}
+
 		// Bus Factor warning
 		if (volatility.topAuthor && volatility.topAuthor.percentage >= 70) {
-			output += `**Expert:** ${volatility.topAuthor.name} (${volatility.topAuthor.percentage}% of commits)\n`;
+			output += `**Expert:** ${volatility.topAuthor.name} (${volatility.topAuthor.percentage}% of commits) — if the logic is unclear, assume it is intentional.\n`;
+		}
+
+		// Ownership risk (Bird et al.)
+		if ((volatility.minorContributors ?? 0) >= 3) {
+			output += `**Ownership risk:** ${volatility.minorContributors} minor contributors (<5% each). Code touched by many low-ownership authors correlates with higher defect rates.\n`;
 		}
 
 		// Concerning commits
@@ -4263,7 +4549,7 @@ export function generateAiInstructions(
 // --- SERVER FACTORY (for Smithery) ---
 export default function createServer(_options?: { config?: Record<string, unknown> }) {
 	const server = new Server(
-		{ name: "memoria", version: "1.1.0" },
+		{ name: "memoria", version: "1.1.1" },
 		{ capabilities: { tools: {}, prompts: {}, resources: {} } },
 	);
 
